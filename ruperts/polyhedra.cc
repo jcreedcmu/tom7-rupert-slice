@@ -1035,7 +1035,7 @@ Polyhedron Dodecahedron() {
 // vertices.
 static Polyhedron ConvexPolyhedronFromVertices(
     std::vector<vec3> vertices, const char *name = "") {
-  static constexpr int VERBOSE = 1;
+  static constexpr int VERBOSE = 0;
 
   // All faces (as a set of vertices) we've already found. The
   // vertices in the face have not yet been ordered; they appear in
