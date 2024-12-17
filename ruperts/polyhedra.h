@@ -161,7 +161,7 @@ double DistanceToMesh(const Mesh2D &mesh, const vec2 &pt);
 //
 // This function doesn't handle collinear or coincident points well,
 // so it's not really recommended.
-std::vector<int> OldConvexHull(const std::vector<vec2> &vertices);
+std::vector<int> GiftWrapConvexHull(const std::vector<vec2> &vertices);
 
 // Compute the convex hull, using Graham's scan. O(n lg n).
 // This is typically slower than QuickHull.

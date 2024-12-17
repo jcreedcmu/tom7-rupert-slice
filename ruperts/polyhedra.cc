@@ -280,7 +280,7 @@ double DistanceToMesh(const Mesh2D &mesh, const vec2 &pt) {
   return best_dist.value();
 }
 
-std::vector<int> OldConvexHull(const std::vector<vec2> &vertices) {
+std::vector<int> GiftWrapConvexHull(const std::vector<vec2> &vertices) {
   constexpr bool VERBOSE = false;
   constexpr bool SELF_CHECK = false;
   CHECK(vertices.size() > 2);
@@ -1408,6 +1408,20 @@ static void AddEvenPermutations(double a, double b, double c,
   vertices->emplace_back(c, a, b);
 }
 
+static void AddOddPermutations(double a, double b, double c,
+                               std::vector<vec3> *vertices) {
+  // (a, c, b) - odd
+  // (b, a, c) - odd
+  // (c, b, a) - odd
+  vertices->emplace_back(a, c, b);
+
+  if (a == b && b == c) return;
+
+  vertices->emplace_back(b, a, c);
+  vertices->emplace_back(c, b, a);
+}
+
+
 Polyhedron Icosidodecahedron() {
   constexpr double phi = std::numbers::phi;
   constexpr double phi_squared = phi * phi;
@@ -1858,7 +1872,41 @@ Polyhedron PentagonalIcositetrahedron() {
   const double tt = tribonacci * tribonacci;
   [[maybe_unused]] const double ttt = tt * tribonacci;
 
-  LOG(FATAL) << "Unimplemented";
+  // cube
+  for (uint8_t bits = 0b000; bits < 0b1000; bits++) {
+    double s1 = (bits & 0b100) ? -1 : +1;
+    double s2 = (bits & 0b010) ? -1 : +1;
+    double s3 = (bits & 0b001) ? -1 : +1;
+    vertices.emplace_back(s1 * tt, s2 * tt, s3 * tt);
+  }
+
+  for (double s : {-1.0, 1.0}) {
+    vertices.emplace_back(s * ttt, 0.0, 0.0);
+    vertices.emplace_back(0.0, s * ttt, 0.0);
+    vertices.emplace_back(0.0, 0.0, s * ttt);
+  }
+
+  for (uint8_t bits = 0b000; bits < 0b1000; bits++) {
+    double s1 = (bits & 0b100) ? -1 : +1;
+    double s2 = (bits & 0b010) ? -1 : +1;
+    double s3 = (bits & 0b001) ? -1 : +1;
+
+    if ((std::popcount<uint8_t>(bits) & 1) == 1) {
+      // Odd number of negative signs
+      AddOddPermutations(
+          s1,
+          s2 * (2.0 * tribonacci + 1.0),
+          s3 * tt,
+          &vertices);
+    } else {
+      // Even number of negative signs.
+      AddEvenPermutations(
+          s1,
+          s2 * (2.0 * tribonacci + 1.0),
+          s3 * tt,
+          &vertices);
+    }
+  }
 
   CHECK(vertices.size() == 38);
 

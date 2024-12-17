@@ -1255,6 +1255,19 @@ static void ReproduceEasySolutions(int method) {
   MaybeSolve(Dodecahedron());
   MaybeSolve(Icosahedron());
   MaybeSolve(Octahedron());
+
+  // Archimedean
+  MaybeSolve(Cuboctahedron());
+  MaybeSolve(TruncatedOctahedron());
+  MaybeSolve(TruncatedCube());
+  MaybeSolve(Rhombicuboctahedron());
+  MaybeSolve(Icosidodecahedron());
+  MaybeSolve(TruncatedIcosahedron());
+  MaybeSolve(TruncatedDodecahedron());
+  MaybeSolve(TruncatedTetrahedron());
+  MaybeSolve(TruncatedIcosidodecahedron());
+
+  // Catalan
 }
 
 int main(int argc, char **argv) {
@@ -1270,17 +1283,19 @@ int main(int argc, char **argv) {
   // Polyhedron target = TruncatedIcosahedron();
   // Polyhedron target = TruncatedIcosidodecahedron();
   // Polyhedron target = SnubDodecahedron();
-  Polyhedron target = Dodecahedron();
+  // Polyhedron target = Dodecahedron();
+
+  Polyhedron target = PentagonalIcositetrahedron();
 
   // These generate visualizations of the polyhedron;
   // they are unrelated to solving
-  if (false) {
+  if (true) {
     // AnimateHull();
     Visualize(target);
     AnimateMesh(target);
   }
 
-  if (true) {
+  if (false) {
     ReproduceEasySolutions(SolutionDB::METHOD_SIMUL);
 
   } else {

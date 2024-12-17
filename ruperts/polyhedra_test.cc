@@ -492,17 +492,16 @@ int main(int argc, char **argv) {
   TestHullRegression1("graham", GrahamScan);
   TestHull("graham", GrahamScan);
 
+  // Gift wrapping algorithm has problems with
+  // colinear/coincident points :(
   // TestHullRegression3("wrap", OldConvexHull);
-  TestHullRegression3("quick", QuickHull);
-
-  TestHullRegression2("wrap", OldConvexHull);
-  TestHullRegression2("quick", QuickHull);
-
-  TestHullRegression1("wrap", OldConvexHull);
-  TestHullRegression1("quick", QuickHull);
-
-  // Doesn't work with colinear/coincident points :(
+  TestHullRegression2("wrap", GiftWrapConvexHull);
+  TestHullRegression1("wrap", GiftWrapConvexHull);
   // TestHull("wrap", OldConvexHull);
+
+  TestHullRegression3("quick", QuickHull);
+  TestHullRegression2("quick", QuickHull);
+  TestHullRegression1("quick", QuickHull);
   TestHull("quick", QuickHull);
 
   TestSignedDistance();
