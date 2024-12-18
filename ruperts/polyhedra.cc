@@ -1913,3 +1913,41 @@ Polyhedron PentagonalIcositetrahedron() {
   return ConvexPolyhedronFromVertices(
       std::move(vertices), "pentagonalicositetrahedron");
 }
+
+
+static void AddCyclicPermutations(double a, double b, double c,
+                                std::vector<vec3> *vertices) {
+  // For three elements, the cyclic permutatinos are the same
+  // as the even permutations!
+  return AddEvenPermutations(a, b, c, vertices);
+}
+
+
+Polyhedron RhombicTriacontahedron() {
+  std::vector<vec3> vertices;
+
+  static constexpr double phi = std::numbers::phi;
+  static constexpr double inv_phi = 1.0 / std::numbers::phi;
+
+  // cube
+  for (uint8_t bits = 0b000; bits < 0b1000; bits++) {
+    double s1 = (bits & 0b100) ? -1 : +1;
+    double s2 = (bits & 0b010) ? -1 : +1;
+    double s3 = (bits & 0b001) ? -1 : +1;
+    vertices.emplace_back(s1, s2, s3);
+  }
+
+  for (uint8_t bits = 0b00; bits < 0b100; bits++) {
+    double s1 = (bits & 0b10) ? -1 : +1;
+    double s2 = (bits & 0b01) ? -1 : +1;
+    AddCyclicPermutations(0.0, s1, s2 * phi,
+                          &vertices);
+    AddCyclicPermutations(0.0, s1 * phi, s2 * inv_phi,
+                          &vertices);
+  }
+
+  CHECK(vertices.size() == 32);
+
+  return ConvexPolyhedronFromVertices(
+      std::move(vertices), "rhombictriacontahedron");
+}

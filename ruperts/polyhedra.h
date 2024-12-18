@@ -255,6 +255,6 @@ Polyhedron TetrakisHexahedron();
 Polyhedron DeltoidalIcositetrahedron();
 Polyhedron DisdyakisDodecahedron();
 Polyhedron PentagonalIcositetrahedron();
-
+Polyhedron RhombicTriacontahedron();
 
 #endif

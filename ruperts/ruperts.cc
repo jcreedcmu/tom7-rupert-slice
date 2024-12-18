@@ -1268,6 +1268,8 @@ static void ReproduceEasySolutions(int method) {
   MaybeSolve(TruncatedIcosidodecahedron());
 
   // Catalan
+  MaybeSolve(PentagonalIcositetrahedron());
+  MaybeSolve(RhombicTriacontahedron());
 }
 
 int main(int argc, char **argv) {
@@ -1285,7 +1287,7 @@ int main(int argc, char **argv) {
   // Polyhedron target = SnubDodecahedron();
   // Polyhedron target = Dodecahedron();
 
-  Polyhedron target = PentagonalIcositetrahedron();
+  Polyhedron target = RhombicTriacontahedron();
 
   // These generate visualizations of the polyhedron;
   // they are unrelated to solving
