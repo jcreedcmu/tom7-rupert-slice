@@ -258,10 +258,10 @@ static void Visualize(const Polyhedron &poly) {
 static constexpr int HISTO_LINES = 32;
 
 [[maybe_unused]]
-static void Solve(const Polyhedron &polyhedron, StatusBar *status) {
+static void SolveHull(const Polyhedron &polyhedron, StatusBar *status) {
   // ArcFour rc(StringPrintf("solve.%lld", time(nullptr)));
 
-  status->Printf("Solve [method 1] " AWHITE("%s") ":\n",
+  status->Printf("Solve [hull] " AWHITE("%s") ":\n",
                  polyhedron.name);
 
   std::mutex m;
@@ -461,8 +461,8 @@ static void Solve(const Polyhedron &polyhedron, StatusBar *status) {
 // of its time trying different shapes of the hole and only random
 // samples for the shadow.
 [[maybe_unused]]
-static void Solve2(const Polyhedron &polyhedron, StatusBar *status) {
-  status->Printf("Solve [method 2] " AWHITE("%s") ":\n",
+static void SolveSimul(const Polyhedron &polyhedron, StatusBar *status) {
+  status->Printf("Solve [simul] " AWHITE("%s") ":\n",
                  polyhedron.name);
 
   static constexpr int HISTO_LINES = 32;
@@ -993,8 +993,8 @@ static void Solve4(const Polyhedron &polyhedron, StatusBar *status) {
             if (should_die) return;
           }
 
-          // four params for outer rotation, one param for
-          // inner rotation (around z axis), two for 2d translation of inner.
+          // four params for outer rotation, and two for its
+          // translation. The inner polyhedron is fixed.
           static constexpr int D = 6;
 
           Timer prep_timer;
@@ -1016,7 +1016,8 @@ static void Solve4(const Polyhedron &polyhedron, StatusBar *status) {
           const frame3 initial_inner_frame =
             yocto::rotation_frame(initial_inner_rot);
 
-
+          // The inner polyhedron is fixed, so we can compute its
+          // convex hull once up front.
           const Mesh2D sinner = Shadow(Rotate(polyhedron, initial_inner_frame));
           const std::vector<vec2> inner_hull_pts = [&]() {
               // status->Printf("[%d] Get convex hull.\n", thread_idx);
@@ -1048,9 +1049,7 @@ static void Solve4(const Polyhedron &polyhedron, StatusBar *status) {
               return yocto::rotation_frame(tweaked_rot) * translate;
             };
 
-          // PERF: The inner polyhedron is not rotated, so we should
-          // just compute the convex hull once. We could equivalently
-          // just be applying the translation to the outer polyhedron.
+          // The inner polyhedron is fixed.
           auto InnerFrame = [&initial_inner_frame](
               const std::array<double, D> &args) -> const frame3 & {
               return initial_inner_frame;
@@ -1213,6 +1212,238 @@ static void Solve4(const Polyhedron &polyhedron, StatusBar *status) {
       });
 }
 
+// Solve a constrained problem:
+//   - Both solids have their centers on the projection axis
+//   - The inner solid has two of its faces aligned to the projection axis.
+[[maybe_unused]]
+static void SolveSpecial(const Polyhedron &polyhedron, StatusBar *status) {
+  status->Printf("Solve [special] " AWHITE("%s") ":\n",
+                 polyhedron.name);
+
+  static constexpr int HISTO_LINES = 32;
+
+  std::mutex m;
+  bool should_die = false;
+  Timer run_timer;
+  Periodically status_per(1.0);
+  Periodically image_per(10.0);
+  double best_error = 1.0e42;
+  AutoHisto error_histo(100000);
+  constexpr int NUM_THREADS = 4;
+
+  double prep_time = 0.0, opt_time = 0.0;
+
+  ParallelFan(
+      NUM_THREADS,
+      [&](int thread_idx) {
+        ArcFour rc(StringPrintf("solve.%d.%lld", thread_idx,
+                                time(nullptr)));
+        for (;;) {
+          {
+            MutexLock ml(&m);
+            if (should_die) return;
+          }
+
+          // four params for outer orientation. The inner solid is
+          // in a fixed orientation. Both are centered at the origin.
+          static constexpr int D = 4;
+
+          Timer prep_timer;
+          const quat4 initial_outer_rot = RandomQuaternion(&rc);
+
+          // Get two face indices that are not parallel.
+          const auto &[face1, face2] = TwoNonParallelFaces(&rc, polyhedron);
+
+          const quat4 initial_inner_rot = MakeTwoFacesParallelToZ(
+              polyhedron.vertices,
+              polyhedron.faces->v[face1],
+              polyhedron.faces->v[face2]);
+
+          const frame3 initial_inner_frame =
+            yocto::rotation_frame(initial_inner_rot);
+
+          const Mesh2D sinner = Shadow(Rotate(polyhedron, initial_inner_frame));
+          const std::vector<vec2> inner_hull_pts = [&]() {
+              // status->Printf("[%d] Get convex hull.\n", thread_idx);
+              const std::vector<int> inner_hull = QuickHull(sinner.vertices);
+              // status->Printf("[%d] Done: Size %d.\n",
+              //            thread_idx, inner_hull.size());
+              std::vector<vec2> v;
+              v.reserve(inner_hull.size());
+              for (int p : inner_hull) {
+                v.push_back(sinner.vertices[p]);
+              }
+              return v;
+            }();
+
+          // Get the frames from the appropriate positions in the
+          // argument.
+          auto OuterFrame = [&initial_outer_rot](
+              const std::array<double, D> &args) {
+              const auto &[o0, o1, o2, o3] = args;
+              quat4 tweaked_rot = normalize(quat4{
+                  .x = initial_outer_rot.x + o0,
+                  .y = initial_outer_rot.y + o1,
+                  .z = initial_outer_rot.z + o2,
+                  .w = initial_outer_rot.w + o3,
+                });
+              return yocto::rotation_frame(tweaked_rot);
+            };
+
+          auto InnerFrame = [&initial_inner_frame](
+              const std::array<double, D> &args) -> const frame3 & {
+              return initial_inner_frame;
+            };
+
+          auto WriteImage = [&](const std::string &filename,
+                                const std::array<double, D> &args) {
+              Rendering rendering(polyhedron, 3840, 2160);
+
+              auto outer_frame = OuterFrame(args);
+              auto inner_frame = InnerFrame(args);
+
+              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
+              Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
+
+              rendering.RenderMesh(souter);
+              rendering.DarkenBG();
+
+              rendering.RenderMesh(sinner);
+              std::vector<int> hull = QuickHull(sinner.vertices);
+              rendering.RenderHull(sinner, hull, 0x000000AA);
+              rendering.RenderBadPoints(sinner, souter);
+              rendering.img.Save(filename);
+
+              status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+            };
+
+          auto Parameters = [&](const std::array<double, D> &args,
+                                double error) {
+              auto outer_frame = OuterFrame(args);
+              auto inner_frame = InnerFrame(args);
+              std::string contents =
+                StringPrintf("Error: %.17g\n", error);
+
+              contents += "Outer frame:\n";
+              contents += FrameString(outer_frame);
+              contents += "\nInner frame:\n";
+              contents += FrameString(inner_frame);
+              StringAppendF(&contents,
+                            "\nTook %lld iters, %lld attempts, %.3f seconds\n",
+                            iters.Read(), attempts.Read(), run_timer.Seconds());
+              return contents;
+            };
+
+          std::function<double(const std::array<double, D> &)> Loss =
+            [&polyhedron, &OuterFrame, &inner_hull_pts](
+                const std::array<double, D> &args) {
+              attempts++;
+              frame3 outer_frame = OuterFrame(args);
+              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
+
+              // Does every vertex in inner fall inside the outer shadow?
+              double error = 0.0;
+              for (const vec2 &iv : inner_hull_pts) {
+                if (!InMesh(souter, iv)) {
+                  // slow :(
+                  error += DistanceToMesh(souter, iv);
+                }
+              }
+
+              return error;
+            };
+
+          constexpr double Q = 0.25;
+
+          const std::array<double, D> lb = {-Q, -Q, -Q, -Q};
+          const std::array<double, D> ub = {+Q, +Q, +Q, +Q};
+          const double prep_sec = prep_timer.Seconds();
+
+          Timer opt_timer;
+          const auto &[args, error] =
+            Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+          const double opt_sec = opt_timer.Seconds();
+
+          if (error == 0.0) {
+            MutexLock ml(&m);
+            // For easy ones, many threads will solve it at once, and then
+            // write over each other's solutions.
+            if (should_die && iters.Read() < 1000)
+              return;
+            should_die = true;
+
+            status->Printf("Solved! %lld iters, %lld attempts, in %s\n",
+                          iters.Read(),
+                          attempts.Read(),
+                          ANSI::Time(run_timer.Seconds()).c_str());
+
+            WriteImage(StringPrintf("solved-special-%s.png",
+                                    polyhedron.name), args);
+
+            std::string contents = Parameters(args, error);
+            StringAppendF(&contents,
+                          "\n%s\n",
+                          error_histo.SimpleAsciiString(50).c_str());
+
+            std::string sfile = StringPrintf("solution-special-%s.txt",
+                                             polyhedron.name);
+            Util::WriteFile(sfile, contents);
+            status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
+
+            SaveSolution(polyhedron,
+                         OuterFrame(args),
+                         InnerFrame(args),
+                         SolutionDB::METHOD_SPECIAL);
+
+            return;
+          }
+
+          {
+            MutexLock ml(&m);
+            prep_time += prep_sec;
+            opt_time += opt_sec;
+            error_histo.Observe(log(error));
+            if (error < best_error) {
+              best_error = error;
+              if (image_per.ShouldRun()) {
+                std::string file_base =
+                  StringPrintf("best-special-%s.%lld",
+                               polyhedron.name, iters.Read());
+                WriteImage(file_base + ".png", args);
+                Util::WriteFile(file_base + ".txt", Parameters(args, error));
+              }
+            }
+
+            status_per.RunIf([&]() {
+                double total_time = prep_time + opt_time;
+
+                int64_t it = iters.Read();
+                double ips = it / total_time;
+
+                status->Statusf(
+                    "%s\n"
+                    "%s " ABLUE("prep") " %s " APURPLE("opt")
+                    " (" ABLUE("%.3f%%") " / " APURPLE("%.3f%%") ") "
+                    "[" AWHITE("%.3f") "/s]\n"
+                    "%s iters, %s attempts; best: %.11g",
+                    error_histo.SimpleANSI(HISTO_LINES).c_str(),
+                    ANSI::Time(prep_time).c_str(),
+                    ANSI::Time(opt_time).c_str(),
+                    (100.0 * prep_time) / total_time,
+                    (100.0 * opt_time) / total_time,
+                    ips,
+                    FormatNum(it).c_str(),
+                    FormatNum(attempts.Read()).c_str(),
+                    best_error);
+              });
+          }
+
+          iters++;
+        }
+      });
+}
+
+
 static void ReproduceEasySolutions(int method) {
   SolutionDB db;
   std::vector<SolutionDB::Solution> sols = db.GetAllSolutions();
@@ -1236,9 +1467,9 @@ static void ReproduceEasySolutions(int method) {
 
         switch (method) {
         case SolutionDB::METHOD_HULL:
-          return Solve(poly, &status);
+          return SolveHull(poly, &status);
         case SolutionDB::METHOD_SIMUL:
-          return Solve2(poly, &status);
+          return SolveSimul(poly, &status);
         case SolutionDB::METHOD_MAX:
           return Solve3(poly, &status);
         case SolutionDB::METHOD_PARALLEL:
@@ -1257,19 +1488,40 @@ static void ReproduceEasySolutions(int method) {
   MaybeSolve(Octahedron());
 
   // Archimedean
+  MaybeSolve(TruncatedTetrahedron());
+  // Hard?
+  // MaybeSolve(SnubCube());
   MaybeSolve(Cuboctahedron());
-  MaybeSolve(TruncatedOctahedron());
   MaybeSolve(TruncatedCube());
+  MaybeSolve(TruncatedOctahedron());
   MaybeSolve(Rhombicuboctahedron());
   MaybeSolve(Icosidodecahedron());
   MaybeSolve(TruncatedIcosahedron());
   MaybeSolve(TruncatedDodecahedron());
-  MaybeSolve(TruncatedTetrahedron());
   MaybeSolve(TruncatedIcosidodecahedron());
+  MaybeSolve(TruncatedCuboctahedron());
+  // Hard?
+  // MaybeSolve(Rhombicosidodecahedron());
+  MaybeSolve(TruncatedIcosidodecahedron());
+  // Hard?
+  // MaybeSolve(SnubDodecahedron());
 
   // Catalan
+  // Hard?
+  // MaybeSolve(TriakisTetrahedron());
+  MaybeSolve(RhombicDodecahedron());
+  MaybeSolve(TriakisOctahedron());
+  MaybeSolve(TetrakisHexahedron());
+  MaybeSolve(DeltoidalIcositetrahedron());
+  MaybeSolve(DisdyakisDodecahedron());
   MaybeSolve(PentagonalIcositetrahedron());
   MaybeSolve(RhombicTriacontahedron());
+  MaybeSolve(TriakisIcosahedron());
+  MaybeSolve(PentakisDodecahedron());
+  MaybeSolve(DisdyakisTriacontahedron());
+  MaybeSolve(DeltoidalIcositetrahedron());
+  // Hard?
+  // MaybeSolve(PentagonalHexecontahedron());
 }
 
 int main(int argc, char **argv) {
@@ -1286,18 +1538,24 @@ int main(int argc, char **argv) {
   // Polyhedron target = TruncatedIcosidodecahedron();
   // Polyhedron target = SnubDodecahedron();
   // Polyhedron target = Dodecahedron();
-
-  Polyhedron target = RhombicTriacontahedron();
+  // Polyhedron target = RhombicTriacontahedron();
+  // Polyhedron target = TriakisIcosahedron();
+  // Polyhedron target = PentakisDodecahedron();
+  // Polyhedron target = DisdyakisTriacontahedron();
+  // Polyhedron target = DeltoidalIcositetrahedron();
+  // Polyhedron target = PentakisDodecahedron();
+  Polyhedron target = PentagonalHexecontahedron();
 
   // These generate visualizations of the polyhedron;
-  // they are unrelated to solving
-  if (true) {
+  // they are unrelated to solving.
+  if (false) {
     // AnimateHull();
     Visualize(target);
     AnimateMesh(target);
+    return 0;
   }
 
-  if (false) {
+  if (true) {
     ReproduceEasySolutions(SolutionDB::METHOD_SIMUL);
 
   } else {
@@ -1305,7 +1563,7 @@ int main(int argc, char **argv) {
 
     StatusBar status(3 + HISTO_LINES);
     // Solve(target);
-    Solve2(target, &status);
+    SolveSimul(target, &status);
     // Solve3(target);
     // Solve4(target);
   }

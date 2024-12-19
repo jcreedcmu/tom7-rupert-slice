@@ -24,6 +24,7 @@ struct SolutionDB {
   static constexpr int METHOD_MAX = 3;
   static constexpr int METHOD_PARALLEL = 4;
   static constexpr int METHOD_GPU1 = 5;
+  static constexpr int METHOD_SPECIAL = 6;
 
   static const char *MethodName(int m) {
     switch (m) {
@@ -32,6 +33,7 @@ struct SolutionDB {
     case METHOD_MAX: return "METHOD_MAX";
     case METHOD_PARALLEL: return "METHOD_PARALLEL";
     case METHOD_GPU1: return "METHOD_GPU1";
+    case METHOD_SPECIAL: return "METHOD_SPECIAL";
     default: return "UNKNOWN";
     }
   }
@@ -71,6 +73,10 @@ struct SolutionDB {
                    double ratio);
 
   void AddAttempt(const std::string &poly, int method, int64_t count);
+
+  void ExecuteAndPrint(const std::string &s) {
+    db->ExecuteAndPrint(s);
+  }
 
  private:
   std::unique_ptr<Database> db;

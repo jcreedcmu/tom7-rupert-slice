@@ -256,5 +256,9 @@ Polyhedron DeltoidalIcositetrahedron();
 Polyhedron DisdyakisDodecahedron();
 Polyhedron PentagonalIcositetrahedron();
 Polyhedron RhombicTriacontahedron();
+Polyhedron TriakisIcosahedron();
+Polyhedron PentakisDodecahedron();
+Polyhedron DisdyakisTriacontahedron();
+Polyhedron PentagonalHexecontahedron();
 
 #endif
