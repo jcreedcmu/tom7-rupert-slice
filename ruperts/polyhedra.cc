@@ -1092,7 +1092,7 @@ Polyhedron Dodecahedron() {
 // vertices.
 static Polyhedron ConvexPolyhedronFromVertices(
     std::vector<vec3> vertices, const char *name = "") {
-  static constexpr int VERBOSE = 1;
+  static constexpr int VERBOSE = 0;
 
   // All faces (as a set of vertices) we've already found. The
   // vertices in the face have not yet been ordered; they appear in
@@ -1930,6 +1930,99 @@ Polyhedron DisdyakisDodecahedron() {
       std::move(vertices), "disdyakisdodecahedron");
 }
 
+Polyhedron DeltoidalHexecontahedron() {
+  std::vector<vec3> vertices;
+
+  // Following https://dmccooey.com/polyhedra/DeltoidalHexecontahedron.txt
+
+  static constexpr double C0 = (5.0 - Sqrt(5.0)) / 4.0;
+  static constexpr double C1 = (15.0 + Sqrt(5.0)) / 22.0;
+  static constexpr double C2 = Sqrt(5.0) / 2.0;
+  static constexpr double C3 = (5.0 + Sqrt(5.0)) / 6.0;
+  static constexpr double C4 = (5.0 + 4.0 * Sqrt(5.0)) / 11.0;
+  static constexpr double C5 = (5.0 + Sqrt(5.0)) / 4.0;
+  static constexpr double C6 = (5.0 + 3.0 * Sqrt(5.0)) / 6.0;
+  static constexpr double C7 = (25.0 + 9.0 * Sqrt(5.0)) / 22.0;
+  static constexpr double C8 = Sqrt(5.0);
+
+  static_assert(Abs(C0 - 0.690983005625052575897706582817) < 1.0e-10);
+  static_assert(Abs(C1 - 0.783457635340899531654962439488) < 1.0e-10);
+  static_assert(Abs(C2 - 1.11803398874989484820458683437 ) < 1.0e-10);
+  static_assert(Abs(C3 - 1.20601132958329828273486227812 ) < 1.0e-10);
+  static_assert(Abs(C4 - 1.26766108272719625323969951590 ) < 1.0e-10);
+  static_assert(Abs(C5 - 1.80901699437494742410229341718 ) < 1.0e-10);
+  static_assert(Abs(C6 - 1.95136732208322818153792016770 ) < 1.0e-10);
+  static_assert(Abs(C7 - 2.05111871806809578489466195539 ) < 1.0e-10);
+  static_assert(Abs(C8 - 2.23606797749978969640917366873 ) < 1.0e-10);
+
+  vertices.emplace_back(0.0, 0.0,  C8);
+  vertices.emplace_back(0.0, 0.0, -C8);
+  vertices.emplace_back( C8, 0.0, 0.0);
+  vertices.emplace_back(-C8, 0.0, 0.0);
+  vertices.emplace_back(0.0,  C8, 0.0);
+  vertices.emplace_back(0.0, -C8, 0.0);
+  vertices.emplace_back(0.0,  C1,  C7);
+  vertices.emplace_back(0.0,  C1, -C7);
+  vertices.emplace_back(0.0, -C1,  C7);
+  vertices.emplace_back(0.0, -C1, -C7);
+  vertices.emplace_back( C7, 0.0,  C1);
+  vertices.emplace_back( C7, 0.0, -C1);
+  vertices.emplace_back(-C7, 0.0,  C1);
+  vertices.emplace_back(-C7, 0.0, -C1);
+  vertices.emplace_back( C1,  C7, 0.0);
+  vertices.emplace_back( C1, -C7, 0.0);
+  vertices.emplace_back(-C1,  C7, 0.0);
+  vertices.emplace_back(-C1, -C7, 0.0);
+  vertices.emplace_back( C3, 0.0,  C6);
+  vertices.emplace_back( C3, 0.0, -C6);
+  vertices.emplace_back(-C3, 0.0,  C6);
+  vertices.emplace_back(-C3, 0.0, -C6);
+  vertices.emplace_back( C6,  C3, 0.0);
+  vertices.emplace_back( C6, -C3, 0.0);
+  vertices.emplace_back(-C6,  C3, 0.0);
+  vertices.emplace_back(-C6, -C3, 0.0);
+  vertices.emplace_back(0.0,  C6,  C3);
+  vertices.emplace_back(0.0,  C6, -C3);
+  vertices.emplace_back(0.0, -C6,  C3);
+  vertices.emplace_back(0.0, -C6, -C3);
+  vertices.emplace_back( C0,  C2,  C5);
+  vertices.emplace_back( C0,  C2, -C5);
+  vertices.emplace_back( C0, -C2,  C5);
+  vertices.emplace_back( C0, -C2, -C5);
+  vertices.emplace_back(-C0,  C2,  C5);
+  vertices.emplace_back(-C0,  C2, -C5);
+  vertices.emplace_back(-C0, -C2,  C5);
+  vertices.emplace_back(-C0, -C2, -C5);
+  vertices.emplace_back( C5,  C0,  C2);
+  vertices.emplace_back( C5,  C0, -C2);
+  vertices.emplace_back( C5, -C0,  C2);
+  vertices.emplace_back( C5, -C0, -C2);
+  vertices.emplace_back(-C5,  C0,  C2);
+  vertices.emplace_back(-C5,  C0, -C2);
+  vertices.emplace_back(-C5, -C0,  C2);
+  vertices.emplace_back(-C5, -C0, -C2);
+  vertices.emplace_back( C2,  C5,  C0);
+  vertices.emplace_back( C2,  C5, -C0);
+  vertices.emplace_back( C2, -C5,  C0);
+  vertices.emplace_back( C2, -C5, -C0);
+  vertices.emplace_back(-C2,  C5,  C0);
+  vertices.emplace_back(-C2,  C5, -C0);
+  vertices.emplace_back(-C2, -C5,  C0);
+  vertices.emplace_back(-C2, -C5, -C0);
+  vertices.emplace_back( C4,  C4,  C4);
+  vertices.emplace_back( C4,  C4, -C4);
+  vertices.emplace_back( C4, -C4,  C4);
+  vertices.emplace_back( C4, -C4, -C4);
+  vertices.emplace_back(-C4,  C4,  C4);
+  vertices.emplace_back(-C4,  C4, -C4);
+  vertices.emplace_back(-C4, -C4,  C4);
+  vertices.emplace_back(-C4, -C4, -C4);
+
+  CHECK(vertices.size() == 62);
+  return ConvexPolyhedronFromVertices(
+      std::move(vertices), "deltoidalhexecontahedron");
+}
+
 Polyhedron PentagonalIcositetrahedron() {
   std::vector<vec3> vertices;
 
@@ -2151,88 +2244,6 @@ Polyhedron DisdyakisTriacontahedron() {
 
 Polyhedron PentagonalHexecontahedron() {
   std::vector<vec3> vertices;
-#if 0
-
-  static constexpr double phi = std::numbers::phi;
-  static constexpr double invphi = 1.0 / phi;
-  static constexpr double a = 1.0 / Sqrt(phi * phi + 1.0);
-
-  // We need one of the roots of this polynomial, near
-  // 0.95369785.
-  static constexpr double r =
-    Solve(0.9536,
-          [](double x) {
-            double xx = x * x;
-            double x4 = xx * xx;
-            double x6 = x4 * xx;
-            double x8 = x4 * x4;
-            double x10 = x6 * x4;
-            double x12 = x6 * x6;
-            return 700569.0 - 1795770.0 * xx +
-              1502955.0 * x4 - 423900.0 * x6 +
-              14175.0 * x8 - 2250.0 * x10 + 125.0 * x12;
-          },
-          [](double x) {
-            double xx = x * x;
-            double x4 = xx * xx;
-            double x6 = x4 * xx;
-            double x8 = x4 * x4;
-            double x10 = x6 * x4;
-
-            return 60.0 * x * (25.0 * x10 - 375.0 * x8 + 1890.0 * x6 -
-                               42390.0 * x4 + 100197 * xx - 59859.0);
-          });
-
-  static constexpr double roverc3 = r / Cbrt(3.0);
-
-  for (uint8_t bits = 0b00; bits < 0b100; bits++) {
-    double s1 = (bits & 0b10) ? -1 : +1;
-    double s2 = (bits & 0b01) ? -1 : +1;
-    vertices.emplace_back(0.0, s1 * a, s2 * phi * a);
-    vertices.emplace_back(s1 * a, s2 * phi * a, 0.0);
-    vertices.emplace_back(s1 * phi * a, 0.0, s2 * a);
-  }
-
-  // Dodecahedron:
-  for (uint8_t bits = 0b000; bits < 0b1000; bits++) {
-    double s1 = (bits & 0b100) ? -1 : +1;
-    double s2 = (bits & 0b010) ? -1 : +1;
-    double s3 = (bits & 0b001) ? -1 : +1;
-    vertices.emplace_back(s1 * roverc3, s2 * roverc3, s3 * roverc3);
-  }
-
-  for (uint8_t bits = 0b00; bits < 0b100; bits++) {
-    double s1 = (bits & 0b10) ? -1 : +1;
-    double s2 = (bits & 0b01) ? -1 : +1;
-    vertices.emplace_back(0.0, s1 * phi * roverc3, s2 * invphi * roverc3);
-    vertices.emplace_back(s1 * invphi * roverc3, 0.0, s2 * phi * roverc3);
-    vertices.emplace_back(s1 * phi * roverc3, s2 * invphi * roverc3, 0.0);
-  }
-
-  // Can get this by solving a polynomial.
-  static constexpr double circumradius =
-    2.155837375115639701836629076693058277016851219;
-
-  // Scale unit (circumradius) snub dodecahedron by R.
-  // Here we have one with edge length 2.
-  std::vector<vec3> snub_vertices = TwoEdgeLengthSnubDodecahedron();
-  for (vec3 v : snub_vertices) {
-    // First, transform to unit edge length.
-    v *= 0.5;
-    // This would have the circumradius above, so scale it down
-    // to unit circumradius.
-    v /= circumradius;
-    printf("%s\n", VecString(v).c_str());
-    // Now we want it to have circumradius r.
-    v *= r;
-    vertices.push_back(v);
-  }
-
-  // But it doesn't work! :(
-  // This may be because the orientations are not consistent for
-  // this formulation (I did get them from different places), or
-  // perhaps I just have a bug. (Likely the known bug in SqrtSolve!)
-#endif
 
   static constexpr double phi = std::numbers::phi;
   static constexpr double x_term = Sqrt(phi - 5.0 / 27.0);

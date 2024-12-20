@@ -245,7 +245,7 @@ Polyhedron TruncatedDodecahedron();
 Polyhedron TruncatedIcosahedron();
 Polyhedron Rhombicosidodecahedron();
 Polyhedron TruncatedIcosidodecahedron();
-Polyhedron SnubDodecahedron(); // new
+Polyhedron SnubDodecahedron();
 
 // Catalan
 Polyhedron TriakisTetrahedron();
@@ -254,6 +254,7 @@ Polyhedron TriakisOctahedron();
 Polyhedron TetrakisHexahedron();
 Polyhedron DeltoidalIcositetrahedron();
 Polyhedron DisdyakisDodecahedron();
+Polyhedron DeltoidalHexecontahedron();
 Polyhedron PentagonalIcositetrahedron();
 Polyhedron RhombicTriacontahedron();
 Polyhedron TriakisIcosahedron();
