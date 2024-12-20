@@ -1,4 +1,4 @@
-default : ruperts.exe tosvg.exe gpuperts.exe polyhedra_test.exe scoreboard.exe query.exe
+default : ruperts.exe tosvg.exe gpuperts.exe polyhedra_test.exe scoreboard.exe query.exe visualize.exe
 
 # This assumes OpenCL is installed as a system library, which
 # is now the case for msys2 clang64. If it's not, you could
@@ -58,6 +58,10 @@ polyhedra_test.exe : polyhedra_test.o $(OBJECTS)
 	@echo -n "!"
 
 scoreboard.exe : scoreboard.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+visualize.exe : visualize.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
