@@ -25,6 +25,7 @@ struct SolutionDB {
   static constexpr int METHOD_PARALLEL = 4;
   static constexpr int METHOD_GPU1 = 5;
   static constexpr int METHOD_SPECIAL = 6;
+  static constexpr int METHOD_ORIGIN = 7;
 
   static const char *MethodName(int m) {
     switch (m) {
@@ -34,6 +35,7 @@ struct SolutionDB {
     case METHOD_PARALLEL: return "METHOD_PARALLEL";
     case METHOD_GPU1: return "METHOD_GPU1";
     case METHOD_SPECIAL: return "METHOD_SPECIAL";
+    case METHOD_ORIGIN: return "METHOD_ORIGIN";
     default: return "UNKNOWN";
     }
   }
@@ -64,7 +66,17 @@ struct SolutionDB {
     double ratio = 0.0;
   };
 
+  struct Attempt {
+    std::string polyhedron;
+    int method = 0;
+    int64_t createdate = 0;
+    double best_error = 0.0;
+    int64_t iters = 0;
+    int64_t evals = 0;
+  };
+
   std::vector<Solution> GetAllSolutions();
+  std::vector<Attempt> GetAllAttempts();
 
   void AddSolution(const std::string &polyhedron,
                    const frame3 &outer_frame,
@@ -72,7 +84,9 @@ struct SolutionDB {
                    int method,
                    double ratio);
 
-  void AddAttempt(const std::string &poly, int method, int64_t count);
+  void AddAttempt(const std::string &poly, int method,
+                  double best_error, int64_t iters,
+                  int64_t evals);
 
   void ExecuteAndPrint(const std::string &s) {
     db->ExecuteAndPrint(s);

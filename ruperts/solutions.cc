@@ -84,9 +84,14 @@ void SolutionDB::Init() {
                       "id integer primary key, "
                       "polyhedron string not null, "
                       "method integer not null, "
-                      // An attempt (generally descending
+                      // best error seen
+                      "best real not null, "
+                      // An iteration (generally descending
                       // until reaching a local minimum).
-                      "count integer not null, "
+                      "iters integer not null, "
+                      // Number of times we tested a pair
+                      // of polygons for a possible solution.
+                      "evals integer not null, "
                       "createdate integer not null"
                       ")");
 }
@@ -116,12 +121,35 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
   return ret;
 }
 
+std::vector<SolutionDB::Attempt> SolutionDB::GetAllAttempts() {
+  std::unique_ptr<Query> q =
+    db->ExecuteString(
+        "select "
+        "polyhedron, method, createdate, best, iters, evals "
+        "from attempts");
+
+  std::vector<Attempt> ret;
+  while (std::unique_ptr<Row> r = q->NextRow()) {
+    Attempt att;
+    att.polyhedron = r->GetString(0);
+    att.method = r->GetInt(1);
+    att.createdate = r->GetInt(2);
+    att.best_error = r->GetFloat(3);
+    att.iters = r->GetInt(4);
+    att.evals = r->GetInt(5);
+    ret.push_back(std::move(att));
+  }
+  return ret;
+}
+
 void SolutionDB::AddAttempt(const std::string &poly, int method,
-                            int64_t count) {
+                            double best,
+                            int64_t iters, int64_t evals) {
   db->ExecuteAndPrint(StringPrintf(
-      "insert into attempts (polyhedron, createdate, method, count) "
-      "values ('%s', %lld, %d, %lld)",
-      poly.c_str(), time(nullptr), method, count));
+      "insert into attempts (polyhedron, createdate, method, best, "
+      "iters, evals) "
+      "values ('%s', %lld, %d, %.17g, %lld, %lld)",
+      poly.c_str(), time(nullptr), method, best, iters, evals));
 }
 
 void SolutionDB::AddSolution(const std::string &polyhedron,
