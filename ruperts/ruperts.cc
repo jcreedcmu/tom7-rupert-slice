@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <functional>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -292,25 +293,32 @@ struct HullSolver : public Solver<SolutionDB::METHOD_HULL> {
 
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
+        int errors = 0;
         for (const vec2 &iv : sinner.vertices) {
           if (!InHull(souter, shadow_hull, iv)) {
             error += DistanceToHull(souter.vertices, shadow_hull, iv);
+            errors++;
           }
         }
 
-        return error;
+        if (error == 0.0 && errors > 0) [[unlikely]] {
+          // If they are not in the mesh, don't return an actual zero.
+          return std::numeric_limits<double>::min() * errors;
+        } else {
+          return error;
+        }
       };
 
     const std::array<double, D> lb =
       {-0.15, -0.15, -0.15, -0.15, -0.25, -0.25};
     const std::array<double, D> ub =
       {+0.15, +0.15, +0.15, +0.15, +0.25, +0.25};
-    const double prep_sec = prep_timer.Seconds();
+    [[maybe_unused]] const double prep_sec = prep_timer.Seconds();
 
     Timer opt_timer;
     const auto &[args, error] =
       Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-    const double opt_sec = opt_timer.Seconds();
+    [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
 
     return std::make_tuple(error, outer_frame, InnerFrame(args));
   }
@@ -383,14 +391,21 @@ struct SimulSolver : public Solver<SolutionDB::METHOD_SIMUL> {
 
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
+        int errors = 0;
         for (const vec2 &iv : sinner.vertices) {
           if (!InMesh(souter, iv)) {
             // slow :(
             error += DistanceToMesh(souter, iv);
+            errors++;
           }
         }
 
-        return error;
+        if (error == 0.0 && errors > 0) [[unlikely]] {
+          // If they are not in the mesh, don't return an actual zero.
+          return std::numeric_limits<double>::min() * errors;
+        } else {
+          return error;
+        }
       };
 
     constexpr double Q = 0.15;
@@ -401,12 +416,12 @@ struct SimulSolver : public Solver<SolutionDB::METHOD_SIMUL> {
     const std::array<double, D> ub =
       {+Q, +Q, +Q, +Q,
        +Q, +Q, +Q, +Q, +0.25, +0.25};
-    const double prep_sec = prep_timer.Seconds();
+    [[maybe_unused]] const double prep_sec = prep_timer.Seconds();
 
     Timer opt_timer;
     const auto &[args, error] =
       Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-    const double opt_sec = opt_timer.Seconds();
+    [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
 
     return std::make_tuple(error, OuterFrame(args), InnerFrame(args));
   }
@@ -490,25 +505,32 @@ struct MaxSolver : public Solver<SolutionDB::METHOD_MAX> {
 
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
+        int errors = 0;
         for (const vec2 &iv : sinner.vertices) {
           if (!InHull(souter, shadow_hull, iv)) {
             error += DistanceToHull(souter.vertices, shadow_hull, iv);
+            errors++;
           }
         }
 
-        return error;
+        if (error == 0.0 && errors > 0) [[unlikely]] {
+          // If they are not in the mesh, don't return an actual zero.
+          return std::numeric_limits<double>::min() * errors;
+        } else {
+          return error;
+        }
       };
 
     const std::array<double, D> lb =
       {-0.15, -0.15, -0.15, -0.15, -0.25, -0.25};
     const std::array<double, D> ub =
       {+0.15, +0.15, +0.15, +0.15, +0.25, +0.25};
-    const double prep_sec = prep_timer.Seconds();
+    [[maybe_unused]] const double prep_sec = prep_timer.Seconds();
 
     Timer opt_timer;
     const auto &[args, error] =
       Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-    const double opt_sec = opt_timer.Seconds();
+    [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
 
     return std::make_tuple(error, outer_frame, InnerFrame(args));
   }
@@ -643,26 +665,33 @@ struct ParallelSolver : public Solver<SolutionDB::METHOD_PARALLEL> {
 
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
+        int errors = 0;
         for (const vec2 &iv : inner_hull_pts) {
           if (!InMesh(souter, iv)) {
             // slow :(
             error += DistanceToMesh(souter, iv);
+            errors++;
           }
         }
 
-        return error;
+        if (error == 0.0 && errors > 0) [[unlikely]] {
+          // If they are not in the mesh, don't return an actual zero.
+          return std::numeric_limits<double>::min() * errors;
+        } else {
+          return error;
+        }
       };
 
     constexpr double Q = 0.25;
 
     const std::array<double, D> lb = {-Q, -Q, -Q, -Q, -0.5, -0.5};
     const std::array<double, D> ub = {+Q, +Q, +Q, +Q, +0.5, +0.5};
-    const double prep_sec = prep_timer.Seconds();
+    [[maybe_unused]] const double prep_sec = prep_timer.Seconds();
 
     Timer opt_timer;
     const auto &[args, error] =
       Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-    const double opt_sec = opt_timer.Seconds();
+    [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
 
     return std::make_tuple(error, OuterFrame(args), InnerFrame(args));
   }
@@ -742,26 +771,33 @@ struct SpecialSolver : public Solver<SolutionDB::METHOD_SPECIAL> {
 
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
+        int errors = 0;
         for (const vec2 &iv : inner_hull_pts) {
           if (!InMesh(souter, iv)) {
             // slow :(
             error += DistanceToMesh(souter, iv);
+            errors++;
           }
         }
 
-        return error;
+        if (error == 0.0 && errors > 0) [[unlikely]] {
+          // If they are not in the mesh, don't return an actual zero.
+          return std::numeric_limits<double>::min() * errors;
+        } else {
+          return error;
+        }
       };
 
     constexpr double Q = 0.25;
 
     const std::array<double, D> lb = {-Q, -Q, -Q, -Q};
     const std::array<double, D> ub = {+Q, +Q, +Q, +Q};
-    const double prep_sec = prep_timer.Seconds();
+    [[maybe_unused]] const double prep_sec = prep_timer.Seconds();
 
     Timer opt_timer;
     const auto &[args, error] =
       Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-    const double opt_sec = opt_timer.Seconds();
+    [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
 
     return std::make_tuple(error, OuterFrame(args), InnerFrame(args));
   }
@@ -821,25 +857,32 @@ struct OriginSolver : public Solver<SolutionDB::METHOD_ORIGIN> {
 
           // Does every vertex in inner fall inside the outer shadow?
           double error = 0.0;
+          int errors = 0;
           for (const vec2 &iv : sinner.vertices) {
             if (!InMesh(souter, iv)) {
               // slow :(
               error += DistanceToMesh(souter, iv);
+              errors++;
             }
           }
 
-          return error;
+          if (error == 0.0 && errors > 0) [[unlikely]] {
+            // If they are not in the mesh, don't return an actual zero.
+            return std::numeric_limits<double>::min() * errors;
+          } else {
+            return error;
+          }
         };
 
     constexpr double Q = 0.25;
 
     const std::array<double, D> lb = {-Q, -Q, -Q, -Q, -Q, -Q, -Q, -Q};
     const std::array<double, D> ub = {+Q, +Q, +Q, +Q, +Q, +Q, +Q, +Q};
-    const double prep_sec = prep_timer.Seconds();
+    [[maybe_unused]] const double prep_sec = prep_timer.Seconds();
 
     Timer opt_timer;
     const auto &[args, error] = Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-    const double opt_sec = opt_timer.Seconds();
+    [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
 
     return std::make_tuple(error, OuterFrame(args), InnerFrame(args));
   }
