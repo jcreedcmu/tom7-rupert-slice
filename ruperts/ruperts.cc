@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -73,33 +74,105 @@ static void SaveSolution(const Polyhedron &poly,
          poly.name, ratio);
 }
 
+static constexpr int NUM_THREADS = 4;
 static constexpr int HISTO_LINES = 32;
 
-[[maybe_unused]]
-static void SolveHull(const Polyhedron &polyhedron, StatusBar *status,
-                      std::optional<double> time_limit = std::nullopt) {
-  // ArcFour rc(StringPrintf("solve.%lld", time(nullptr)));
-  static constexpr int METHOD = SolutionDB::METHOD_HULL;
+template<int METHOD>
+struct Solver {
 
-  status->Printf("Solve [hull] " AWHITE("%s") ":\n",
-                 polyhedron.name);
+  const Polyhedron polyhedron;
+  StatusBar *status = nullptr;
+  const std::optional<double> time_limit;
 
   std::mutex m;
   bool should_die = false;
   Timer run_timer;
-  Periodically status_per(1.0);
-  Periodically image_per(10.0);
+  Periodically status_per;
+  Periodically image_per;
   double best_error = 1.0e42;
-  AutoHisto error_histo(100000);
-  constexpr int NUM_THREADS = 4;
+  AutoHisto error_histo;
+  // ArcFour rc(&
 
   double prep_time = 0.0, opt_time = 0.0;
 
-  ParallelFan(
+  Solver(const Polyhedron &polyhedron, StatusBar *status,
+         std::optional<double> time_limit = std::nullopt) :
+    polyhedron(polyhedron), status(status), time_limit(time_limit),
+    status_per(1.0), image_per(1.0), error_histo(100000) {
+
+  }
+
+  static std::string LowerMethod() {
+    std::string name = Util::lcase(SolutionDB::MethodName(METHOD));
+    (void)Util::TryStripPrefix("method_", &name);
+    return name;
+  }
+
+  void WriteImage(const std::string &filename,
+                  const frame3 &outer_frame,
+                  const frame3 &inner_frame) {
+    Rendering rendering(polyhedron, 3840, 2160);
+
+    Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
+    Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
+
+    rendering.RenderMesh(souter);
+    rendering.DarkenBG();
+
+    rendering.RenderMesh(sinner);
+    std::vector<int> hull = QuickHull(sinner.vertices);
+    rendering.RenderHull(sinner, hull, 0x000000AA);
+    rendering.RenderBadPoints(sinner, souter);
+    rendering.img.Save(filename);
+
+    status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+  }
+
+  void Solved(const frame3 &outer_frame, const frame3 &inner_frame) {
+    MutexLock ml(&m);
+    // For easy ones, many threads will solve it at once, and then
+    // write over each other's solutions.
+    if (should_die && iters.Read() < 1000)
+      return;
+    should_die = true;
+
+    status->Printf("Solved! %lld iters, %lld attempts, in %s\n", iters.Read(),
+                   attempts.Read(), ANSI::Time(run_timer.Seconds()).c_str());
+
+    WriteImage(StringPrintf("solved-%s-%s.png", LowerMethod().c_str(),
+                            polyhedron.name),
+               outer_frame, inner_frame);
+
+    std::string contents =
+      StringPrintf("outer:\n%s\n"
+                   "inner:\n%s\n",
+                   FrameString(outer_frame).c_str(),
+                   FrameString(inner_frame).c_str());
+
+    StringAppendF(&contents,
+                  "\n%s\n",
+                  error_histo.SimpleAsciiString(50).c_str());
+
+    std::string sfile = StringPrintf("solution-%s-%s.txt",
+                                     LowerMethod().c_str(),
+                                     polyhedron.name);
+
+    Util::WriteFile(sfile, contents);
+    status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
+
+    SaveSolution(polyhedron, outer_frame, inner_frame, METHOD);
+  }
+
+  void Run() {
+    attempts.Reset();
+    iters.Reset();
+
+    ParallelFan(
       NUM_THREADS,
       [&](int thread_idx) {
         ArcFour rc(StringPrintf("solve.%d.%lld", thread_idx,
                                 time(nullptr)));
+
         for (;;) {
           {
             MutexLock ml(&m);
@@ -111,168 +184,54 @@ static void SolveHull(const Polyhedron &polyhedron, StatusBar *status,
               db.AddAttempt(polyhedron.name, METHOD,
                             best_error, iters.Read(),
                             attempts.Read());
-              status->Printf("Time limit exceeded after %s\n",
-                             ANSI::Time(run_timer.Seconds()).c_str());
+              iters.Reset();
+              attempts.Reset();
+              status->Printf(
+                  "[" AWHITE("%s") "] Time limit exceeded after %s\n",
+                  SolutionDB::MethodName(METHOD),
+                  ANSI::Time(run_timer.Seconds()).c_str());
               return;
             }
           }
 
-          Timer prep_timer;
-          quat4 outer_rot = RandomQuaternion(&rc);
-          const frame3 outer_frame = yocto::rotation_frame(outer_rot);
-          Polyhedron outer = Rotate(polyhedron, outer_frame);
-          Mesh2D souter = Shadow(outer);
+          const auto &[error, outer_frame, inner_frame] = RunOne(&rc);
 
-          const std::vector<int> shadow_hull = QuickHull(souter.vertices);
-
-          // Starting orientation/position.
-          const quat4 inner_rot = RandomQuaternion(&rc);
-
-          static constexpr int D = 6;
-          auto InnerFrame = [&inner_rot](const std::array<double, D> &args) {
-              const auto &[di, dj, dk, dl, dx, dy] = args;
-              quat4 tweaked_rot = normalize(quat4{
-                  .x = inner_rot.x + di,
-                  .y = inner_rot.y + dj,
-                  .z = inner_rot.z + dk,
-                  .w = inner_rot.w + dl,
-                });
-              frame3 rotate = yocto::rotation_frame(tweaked_rot);
-              frame3 translate = yocto::translation_frame(
-                  vec3{.x = dx, .y = dy, .z = 0.0});
-              return rotate * translate;
-            };
-
-          // TODO: To Rendering?
-          auto WriteImage = [&](const std::string &filename,
-                                const std::array<double, D> &args) {
-              // Show:
-              Rendering rendering(polyhedron, 3840, 2160);
-
-              rendering.RenderMesh(souter);
-              rendering.DarkenBG();
-
-              auto inner_frame = InnerFrame(args);
-              Polyhedron inner = Rotate(polyhedron, inner_frame);
-              Mesh2D sinner = Shadow(inner);
-              rendering.RenderMesh(sinner);
-              rendering.RenderBadPoints(sinner, souter);
-
-              rendering.img.Save(filename);
-
-              status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
-            };
-
-          auto Parameters = [&](const std::array<double, D> &args,
-                                double error) {
-              auto inner_frame = InnerFrame(args);
-              std::string contents =
-                StringPrintf("Error: %.17g\n", error);
-
-              contents += "Outer frame:\n";
-              contents += FrameString(outer_frame);
-              contents += "\nInner frame:\n";
-              contents += FrameString(inner_frame);
-              StringAppendF(&contents,
-                            "\nTook %lld iters, %lld attempts, %.3f seconds\n",
-                            iters.Read(), attempts.Read(), run_timer.Seconds());
-              return contents;
-            };
-
-
-          std::function<double(const std::array<double, D> &)> Loss =
-            [&polyhedron, &souter, &shadow_hull, &InnerFrame](
-                const std::array<double, D> &args) {
-              attempts++;
-              frame3 frame = InnerFrame(args);
-              Polyhedron inner = Rotate(polyhedron, frame);
-              Mesh2D sinner = Shadow(inner);
-
-              // Does every vertex in inner fall inside the outer shadow?
-              double error = 0.0;
-              for (const vec2 &iv : sinner.vertices) {
-                if (!InHull(souter, shadow_hull, iv)) {
-                  error += DistanceToHull(souter.vertices, shadow_hull, iv);
-                }
-              }
-
-              return error;
-            };
-
-          const std::array<double, D> lb =
-            {-0.15, -0.15, -0.15, -0.15, -0.25, -0.25};
-          const std::array<double, D> ub =
-            {+0.15, +0.15, +0.15, +0.15, +0.25, +0.25};
-          const double prep_sec = prep_timer.Seconds();
-
-          Timer opt_timer;
-          const auto &[args, error] =
-            Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-          const double opt_sec = opt_timer.Seconds();
-
-          if (error == 0.0) {
-            MutexLock ml(&m);
-            // For easy ones, many threads will solve it at once, and then
-            // write over each other's solutions.
-            if (should_die && iters.Read() < 1000)
-              return;
-            should_die = true;
-
-            status->Printf("Solved! %lld iters, %lld attempts, in %s\n",
-                           iters.Read(), attempts.Read(),
-                           ANSI::Time(run_timer.Seconds()).c_str());
-
-            WriteImage(StringPrintf("solved-%s.png", polyhedron.name), args);
-
-            std::string contents = Parameters(args, error);
-            StringAppendF(&contents,
-                          "\n%s\n",
-                          error_histo.SimpleAsciiString(50).c_str());
-
-            std::string sfile = StringPrintf("solution-%s.txt",
-                                             polyhedron.name);
-            Util::WriteFile(sfile, contents);
-            status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
-
-            SaveSolution(polyhedron,
-                         outer_frame,
-                         InnerFrame(args),
-                         SolutionDB::METHOD_HULL);
+          if (error == 0) {
+            Solved(outer_frame, inner_frame);
             return;
           }
 
           {
             MutexLock ml(&m);
-            prep_time += prep_sec;
-            opt_time += opt_sec;
             error_histo.Observe(log(error));
             if (error < best_error) {
               best_error = error;
-              if (image_per.ShouldRun()) {
+              if (iters.Read() > 4096 &&
+                  image_per.ShouldRun()) {
+                // PERF: Maybe only write this at the end when
+                // there is a time limit?
                 std::string file_base =
-                  StringPrintf("best-%s.%lld", polyhedron.name, iters.Read());
-                WriteImage(file_base + ".png", args);
-                Util::WriteFile(file_base + ".txt", Parameters(args, error));
+                  StringPrintf("best-%s-%s.%lld",
+                               LowerMethod().c_str(),
+                               polyhedron.name, iters.Read());
+                WriteImage(file_base + ".png", outer_frame, inner_frame);
               }
             }
 
             status_per.RunIf([&]() {
-                double total_time = prep_time + opt_time;
-
+                double total_time = run_timer.Seconds();
                 int64_t it = iters.Read();
                 double ips = it / total_time;
 
+                // TODO: Can use progress bar when there's a timer.
                 status->Statusf(
                     "%s\n"
-                    "%s " ABLUE("prep") " %s " APURPLE("opt")
-                    " (" ABLUE("%.3f%%") " / " APURPLE("%.3f%%") ") "
-                    "[" AWHITE("%.3f") "/s]\n"
+                    "[" AWHITE("%s") "]" " run for %s "
+                    "[" ACYAN("%.3f") "/s]\n"
                     "%s iters, %s attempts; best: %.11g",
                     error_histo.SimpleANSI(HISTO_LINES).c_str(),
-                    ANSI::Time(prep_time).c_str(),
-                    ANSI::Time(opt_time).c_str(),
-                    (100.0 * prep_time) / total_time,
-                    (100.0 * opt_time) / total_time,
+                    LowerMethod().c_str(),
+                    ANSI::Time(total_time).c_str(),
                     ips,
                     FormatNum(it).c_str(),
                     FormatNum(attempts.Read()).c_str(),
@@ -283,6 +242,84 @@ static void SolveHull(const Polyhedron &polyhedron, StatusBar *status,
           iters++;
         }
       });
+
+  }
+
+  // Run one iteration, and return the error. Error of 0.0 means
+  // a solution.
+  // Exclusive access to rc.
+  virtual std::tuple<double, frame3, frame3> RunOne(ArcFour *rc) = 0;
+};
+
+
+struct HullSolver : public Solver<SolutionDB::METHOD_HULL> {
+  using Solver::Solver;
+
+  std::tuple<double, frame3, frame3> RunOne(ArcFour *rc) override {
+    Timer prep_timer;
+    quat4 outer_rot = RandomQuaternion(rc);
+    const frame3 outer_frame = yocto::rotation_frame(outer_rot);
+    Polyhedron outer = Rotate(polyhedron, outer_frame);
+    Mesh2D souter = Shadow(outer);
+
+    const std::vector<int> shadow_hull = QuickHull(souter.vertices);
+
+    // Starting orientation/position.
+    const quat4 inner_rot = RandomQuaternion(rc);
+
+    static constexpr int D = 6;
+    auto InnerFrame = [&inner_rot](const std::array<double, D> &args) {
+        const auto &[di, dj, dk, dl, dx, dy] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = inner_rot.x + di,
+            .y = inner_rot.y + dj,
+            .z = inner_rot.z + dk,
+            .w = inner_rot.w + dl,
+          });
+        frame3 rotate = yocto::rotation_frame(tweaked_rot);
+        frame3 translate = yocto::translation_frame(
+            vec3{.x = dx, .y = dy, .z = 0.0});
+        return rotate * translate;
+      };
+
+    std::function<double(const std::array<double, D> &)> Loss =
+      [this, &souter, &shadow_hull, &InnerFrame](
+          const std::array<double, D> &args) {
+        attempts++;
+        frame3 frame = InnerFrame(args);
+        Polyhedron inner = Rotate(polyhedron, frame);
+        Mesh2D sinner = Shadow(inner);
+
+        // Does every vertex in inner fall inside the outer shadow?
+        double error = 0.0;
+        for (const vec2 &iv : sinner.vertices) {
+          if (!InHull(souter, shadow_hull, iv)) {
+            error += DistanceToHull(souter.vertices, shadow_hull, iv);
+          }
+        }
+
+        return error;
+      };
+
+    const std::array<double, D> lb =
+      {-0.15, -0.15, -0.15, -0.15, -0.25, -0.25};
+    const std::array<double, D> ub =
+      {+0.15, +0.15, +0.15, +0.15, +0.25, +0.25};
+    const double prep_sec = prep_timer.Seconds();
+
+    Timer opt_timer;
+    const auto &[args, error] =
+      Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+    const double opt_sec = opt_timer.Seconds();
+
+    return std::make_tuple(error, outer_frame, InnerFrame(args));
+  }
+};
+
+static void SolveHull(const Polyhedron &polyhedron, StatusBar *status,
+                      std::optional<double> time_limit = std::nullopt) {
+  HullSolver s(polyhedron, status, time_limit);
+  s.Run();
 }
 
 // Try simultaneously optimizing both the shadow and hole. This is
@@ -291,479 +328,196 @@ static void SolveHull(const Polyhedron &polyhedron, StatusBar *status,
 // be just right in order for it to be solvable; Solve() spends most
 // of its time trying different shapes of the hole and only random
 // samples for the shadow.
-[[maybe_unused]]
+struct SimulSolver : public Solver<SolutionDB::METHOD_SIMUL> {
+  using Solver::Solver;
+
+  std::tuple<double, frame3, frame3> RunOne(ArcFour *rc) override {
+    // four params for outer rotation, four params for inner
+    // rotation, two for 2d translation of inner.
+    static constexpr int D = 10;
+
+    Timer prep_timer;
+    const quat4 initial_outer_rot = RandomQuaternion(rc);
+    const quat4 initial_inner_rot = RandomQuaternion(rc);
+
+    // Get the frames from the appropriate positions in the
+    // argument.
+
+    auto OuterFrame = [&initial_outer_rot](
+        const std::array<double, D> &args) {
+        const auto &[o0, o1, o2, o3,
+                     i0_, i1_, i2_, i3_, dx_, dy_] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = initial_outer_rot.x + o0,
+            .y = initial_outer_rot.y + o1,
+            .z = initial_outer_rot.z + o2,
+            .w = initial_outer_rot.w + o3,
+          });
+        return yocto::rotation_frame(tweaked_rot);
+      };
+
+    auto InnerFrame = [&initial_inner_rot](
+        const std::array<double, D> &args) {
+        const auto &[o0_, o1_, o2_, o3_,
+                     i0, i1, i2, i3, dx, dy] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = initial_inner_rot.x + i0,
+            .y = initial_inner_rot.y + i1,
+            .z = initial_inner_rot.z + i2,
+            .w = initial_inner_rot.w + i3,
+          });
+        frame3 rotate = yocto::rotation_frame(tweaked_rot);
+        frame3 translate = yocto::translation_frame(
+            vec3{.x = dx, .y = dy, .z = 0.0});
+        return rotate * translate;
+      };
+
+    std::function<double(const std::array<double, D> &)> Loss =
+      [this, &OuterFrame, &InnerFrame](
+          const std::array<double, D> &args) {
+        attempts++;
+        frame3 outer_frame = OuterFrame(args);
+        frame3 inner_frame = InnerFrame(args);
+        Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
+        Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
+
+        // Does every vertex in inner fall inside the outer shadow?
+        double error = 0.0;
+        for (const vec2 &iv : sinner.vertices) {
+          if (!InMesh(souter, iv)) {
+            // slow :(
+            error += DistanceToMesh(souter, iv);
+          }
+        }
+
+        return error;
+      };
+
+    constexpr double Q = 0.15;
+
+    const std::array<double, D> lb =
+      {-Q, -Q, -Q, -Q,
+       -Q, -Q, -Q, -Q, -0.25, -0.25};
+    const std::array<double, D> ub =
+      {+Q, +Q, +Q, +Q,
+       +Q, +Q, +Q, +Q, +0.25, +0.25};
+    const double prep_sec = prep_timer.Seconds();
+
+    Timer opt_timer;
+    const auto &[args, error] =
+      Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+    const double opt_sec = opt_timer.Seconds();
+
+    return std::make_tuple(error, OuterFrame(args), InnerFrame(args));
+  }
+};
+
 static void SolveSimul(const Polyhedron &polyhedron, StatusBar *status,
                        std::optional<double> time_limit = std::nullopt) {
-  static constexpr int METHOD = SolutionDB::METHOD_SIMUL;
-  status->Printf("Solve [simul] " AWHITE("%s") ":\n",
-                 polyhedron.name);
-
-  static constexpr int HISTO_LINES = 32;
-
-  std::mutex m;
-  bool should_die = false;
-  Timer run_timer;
-  Periodically status_per(1.0);
-  Periodically image_per(10.0);
-  double best_error = 1.0e42;
-  AutoHisto error_histo(100000);
-  constexpr int NUM_THREADS = 4;
-
-  double prep_time = 0.0, opt_time = 0.0;
-
-  ParallelFan(
-      NUM_THREADS,
-      [&](int thread_idx) {
-        ArcFour rc(StringPrintf("solve.%d.%lld", thread_idx,
-                                time(nullptr)));
-        for (;;) {
-          {
-            MutexLock ml(&m);
-            if (should_die) return;
-            if (time_limit.has_value() &&
-                run_timer.Seconds() > time_limit.value()) {
-              should_die = true;
-              SolutionDB db;
-              db.AddAttempt(polyhedron.name, METHOD,
-                            best_error, iters.Read(),
-                            attempts.Read());
-              status->Printf("Time limit exceeded after %s\n",
-                             ANSI::Time(run_timer.Seconds()).c_str());
-              return;
-            }
-          }
-
-          // four params for outer rotation, four params for inner
-          // rotation, two for 2d translation of inner.
-          static constexpr int D = 10;
-
-          Timer prep_timer;
-          const quat4 initial_outer_rot = RandomQuaternion(&rc);
-          const quat4 initial_inner_rot = RandomQuaternion(&rc);
-
-          // Get the frames from the appropriate positions in the
-          // argument.
-
-          auto OuterFrame = [&initial_outer_rot](
-              const std::array<double, D> &args) {
-              const auto &[o0, o1, o2, o3,
-                           i0_, i1_, i2_, i3_, dx_, dy_] = args;
-              quat4 tweaked_rot = normalize(quat4{
-                  .x = initial_outer_rot.x + o0,
-                  .y = initial_outer_rot.y + o1,
-                  .z = initial_outer_rot.z + o2,
-                  .w = initial_outer_rot.w + o3,
-                });
-              return yocto::rotation_frame(tweaked_rot);
-            };
-
-          auto InnerFrame = [&initial_inner_rot](
-              const std::array<double, D> &args) {
-              const auto &[o0_, o1_, o2_, o3_,
-                           i0, i1, i2, i3, dx, dy] = args;
-              quat4 tweaked_rot = normalize(quat4{
-                  .x = initial_inner_rot.x + i0,
-                  .y = initial_inner_rot.y + i1,
-                  .z = initial_inner_rot.z + i2,
-                  .w = initial_inner_rot.w + i3,
-                });
-              frame3 rotate = yocto::rotation_frame(tweaked_rot);
-              frame3 translate = yocto::translation_frame(
-                  vec3{.x = dx, .y = dy, .z = 0.0});
-              return rotate * translate;
-            };
-
-          auto WriteImage = [&](const std::string &filename,
-                                const std::array<double, D> &args) {
-              Rendering rendering(polyhedron, 3840, 2160);
-
-              auto outer_frame = OuterFrame(args);
-              auto inner_frame = InnerFrame(args);
-
-              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-              Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
-
-              rendering.RenderMesh(souter);
-              rendering.DarkenBG();
-
-              rendering.RenderMesh(sinner);
-              rendering.RenderBadPoints(sinner, souter);
-
-              rendering.img.Save(filename);
-
-              status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
-            };
-
-          auto Parameters = [&](const std::array<double, D> &args,
-                                double error) {
-              auto outer_frame = OuterFrame(args);
-              auto inner_frame = InnerFrame(args);
-              std::string contents =
-                StringPrintf("Error: %.17g\n", error);
-
-              contents += "Outer frame:\n";
-              contents += FrameString(outer_frame);
-              contents += "\nInner frame:\n";
-              contents += FrameString(inner_frame);
-              StringAppendF(&contents,
-                            "\nTook %lld iters, %lld attempts, %.3f seconds\n",
-                            iters.Read(), attempts.Read(), run_timer.Seconds());
-              return contents;
-            };
-
-          std::function<double(const std::array<double, D> &)> Loss =
-            [&polyhedron, &OuterFrame, &InnerFrame](
-                const std::array<double, D> &args) {
-              attempts++;
-              frame3 outer_frame = OuterFrame(args);
-              frame3 inner_frame = InnerFrame(args);
-              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-              Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
-
-              // Does every vertex in inner fall inside the outer shadow?
-              double error = 0.0;
-              for (const vec2 &iv : sinner.vertices) {
-                if (!InMesh(souter, iv)) {
-                  // slow :(
-                  error += DistanceToMesh(souter, iv);
-                }
-              }
-
-              return error;
-            };
-
-          constexpr double Q = 0.15;
-
-          const std::array<double, D> lb =
-            {-Q, -Q, -Q, -Q,
-             -Q, -Q, -Q, -Q, -0.25, -0.25};
-          const std::array<double, D> ub =
-            {+Q, +Q, +Q, +Q,
-             +Q, +Q, +Q, +Q, +0.25, +0.25};
-          const double prep_sec = prep_timer.Seconds();
-
-          Timer opt_timer;
-          const auto &[args, error] =
-            Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-          const double opt_sec = opt_timer.Seconds();
-
-          if (error == 0.0) {
-            MutexLock ml(&m);
-            // For easy ones, many threads will solve it at once, and then
-            // write over each other's solutions.
-            if (should_die && iters.Read() < 1000)
-              return;
-            should_die = true;
-
-            status->Printf("Solved! %lld iters, %lld attempts, in %s\n",
-                           iters.Read(),
-                           attempts.Read(),
-                           ANSI::Time(run_timer.Seconds()).c_str());
-
-            WriteImage(StringPrintf("solved-%s.png", polyhedron.name), args);
-
-            std::string contents = Parameters(args, error);
-            StringAppendF(&contents,
-                          "\n%s\n",
-                          error_histo.SimpleAsciiString(50).c_str());
-
-            std::string sfile = StringPrintf("solution-%s.txt",
-                                             polyhedron.name);
-            Util::WriteFile(sfile, contents);
-            status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
-
-            SaveSolution(polyhedron,
-                         OuterFrame(args),
-                         InnerFrame(args),
-                         SolutionDB::METHOD_SIMUL);
-
-            return;
-          }
-
-          {
-            MutexLock ml(&m);
-            prep_time += prep_sec;
-            opt_time += opt_sec;
-            error_histo.Observe(log(error));
-            if (error < best_error) {
-              best_error = error;
-              if (image_per.ShouldRun()) {
-                std::string file_base =
-                  StringPrintf("best2-%s.%lld", polyhedron.name, iters.Read());
-                WriteImage(file_base + ".png", args);
-                Util::WriteFile(file_base + ".txt", Parameters(args, error));
-              }
-            }
-
-            status_per.RunIf([&]() {
-                double total_time = prep_time + opt_time;
-
-                int64_t it = iters.Read();
-                double ips = it / total_time;
-
-                status->Statusf(
-                    "%s\n"
-                    "%s " ABLUE("prep") " %s " APURPLE("opt")
-                    " (" ABLUE("%.3f%%") " / " APURPLE("%.3f%%") ") "
-                    "[" AWHITE("%.3f") "/s]\n"
-                    "%s iters, %s attempts; best: %.11g",
-                    error_histo.SimpleANSI(HISTO_LINES).c_str(),
-                    ANSI::Time(prep_time).c_str(),
-                    ANSI::Time(opt_time).c_str(),
-                    (100.0 * prep_time) / total_time,
-                    (100.0 * opt_time) / total_time,
-                    ips,
-                    FormatNum(it).c_str(),
-                    FormatNum(attempts.Read()).c_str(),
-                    best_error);
-              });
-          }
-
-          iters++;
-        }
-      });
+  SimulSolver s(polyhedron, status, time_limit);
+  s.Run();
 }
-
 
 // Third approach: Maximize the area of the outer polygon before
 // optimizing the placement of the inner.
-[[maybe_unused]]
-static void SolveMax(const Polyhedron &polyhedron,
-                     StatusBar *status,
-                     std::optional<double> time_limit = std::nullopt) {
-  static constexpr int METHOD = SolutionDB::METHOD_MAX;
-  status->Printf("Solve [method 3] " AWHITE("%s") ":\n",
-                 polyhedron.name);
+struct MaxSolver : public Solver<SolutionDB::METHOD_MAX> {
+  using Solver::Solver;
 
-  static constexpr int HISTO_LINES = 32;
+  std::tuple<double, frame3, frame3> RunOne(ArcFour *rc) override {
+    Timer prep_timer;
+    quat4 outer_rot = RandomQuaternion(rc);
 
-  std::mutex m;
-  bool should_die = false;
-  Timer run_timer;
-  Periodically status_per(1.0);
-  Periodically image_per(10.0);
-  double best_error = 1.0e42;
-  AutoHisto error_histo(100000);
-  constexpr int NUM_THREADS = 4;
+    auto OuterFrame = [&outer_rot](const std::array<double, 4> &args) {
+        const auto &[di, dj, dk, dl] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = outer_rot.x + di,
+            .y = outer_rot.y + dj,
+            .z = outer_rot.z + dk,
+            .w = outer_rot.w + dl,
+          });
+        frame3 rotate = yocto::rotation_frame(tweaked_rot);
+        return rotate;
+      };
 
-  double prep_time = 0.0, opt_time = 0.0;
+    auto AreaLoss = [&](const std::array<double, 4> &args) {
+        const frame3 outer_frame = OuterFrame(args);
+        Polyhedron outer = Rotate(polyhedron, outer_frame);
+        Mesh2D souter = Shadow(outer);
 
-  ParallelFan(
-      NUM_THREADS,
-      [&](int thread_idx) {
-        ArcFour rc(StringPrintf("solve.%d.%lld", thread_idx,
-                                time(nullptr)));
-        for (;;) {
-          {
-            MutexLock ml(&m);
-            if (should_die) return;
-            if (time_limit.has_value() &&
-                run_timer.Seconds() > time_limit.value()) {
-              should_die = true;
-              SolutionDB db;
-              db.AddAttempt(polyhedron.name, METHOD,
-                            best_error, iters.Read(),
-                            attempts.Read());
-              status->Printf("Time limit exceeded after %s\n",
-                             ANSI::Time(run_timer.Seconds()).c_str());
-              return;
-            }
+        // PERF: Now we want a faster convex hull algorithm...
+        const std::vector<int> shadow_hull = QuickHull(souter.vertices);
+        return -AreaOfHull(souter, shadow_hull);
+      };
+
+    const std::array<double, 4> area_lb =
+      {-0.05, -0.05, -0.05, -0.05};
+    const std::array<double, 4> area_ub =
+      {+0.05, +0.05, +0.05, +0.05};
+
+    const auto &[area_args, area_error] =
+      Opt::Minimize<4>(AreaLoss, area_lb, area_ub, 1000, 1);
+
+    const frame3 outer_frame = OuterFrame(area_args);
+    Polyhedron outer = Rotate(polyhedron, outer_frame);
+    Mesh2D souter = Shadow(outer);
+    const std::vector<int> shadow_hull = QuickHull(souter.vertices);
+
+    // Starting orientation/position for inner polyhedron.
+    const quat4 inner_rot = RandomQuaternion(rc);
+
+    static constexpr int D = 6;
+    auto InnerFrame = [&inner_rot](const std::array<double, D> &args) {
+        const auto &[di, dj, dk, dl, dx, dy] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = inner_rot.x + di,
+            .y = inner_rot.y + dj,
+            .z = inner_rot.z + dk,
+            .w = inner_rot.w + dl,
+          });
+        frame3 rotate = yocto::rotation_frame(tweaked_rot);
+        frame3 translate = yocto::translation_frame(
+            vec3{.x = dx, .y = dy, .z = 0.0});
+        return rotate * translate;
+      };
+
+    std::function<double(const std::array<double, D> &)> Loss =
+      [this, &souter, &shadow_hull, &InnerFrame](
+          const std::array<double, D> &args) {
+        attempts++;
+        frame3 frame = InnerFrame(args);
+        Polyhedron inner = Rotate(polyhedron, frame);
+        Mesh2D sinner = Shadow(inner);
+
+        // Does every vertex in inner fall inside the outer shadow?
+        double error = 0.0;
+        for (const vec2 &iv : sinner.vertices) {
+          if (!InHull(souter, shadow_hull, iv)) {
+            error += DistanceToHull(souter.vertices, shadow_hull, iv);
           }
-
-          Timer prep_timer;
-          quat4 outer_rot = RandomQuaternion(&rc);
-
-          auto OuterFrame = [&outer_rot](const std::array<double, 4> &args) {
-              const auto &[di, dj, dk, dl] = args;
-              quat4 tweaked_rot = normalize(quat4{
-                  .x = outer_rot.x + di,
-                  .y = outer_rot.y + dj,
-                  .z = outer_rot.z + dk,
-                  .w = outer_rot.w + dl,
-                });
-              frame3 rotate = yocto::rotation_frame(tweaked_rot);
-              return rotate;
-            };
-
-          auto AreaLoss = [&](const std::array<double, 4> &args) {
-              const frame3 outer_frame = OuterFrame(args);
-              Polyhedron outer = Rotate(polyhedron, outer_frame);
-              Mesh2D souter = Shadow(outer);
-
-              // PERF: Now we want a faster convex hull algorithm...
-              const std::vector<int> shadow_hull = QuickHull(souter.vertices);
-              return -AreaOfHull(souter, shadow_hull);
-            };
-
-          const std::array<double, 4> area_lb =
-            {-0.05, -0.05, -0.05, -0.05};
-          const std::array<double, 4> area_ub =
-            {+0.05, +0.05, +0.05, +0.05};
-
-          const auto &[area_args, area_error] =
-            Opt::Minimize<4>(AreaLoss, area_lb, area_ub, 1000, 1);
-
-          const frame3 outer_frame = OuterFrame(area_args);
-          Polyhedron outer = Rotate(polyhedron, outer_frame);
-          Mesh2D souter = Shadow(outer);
-          const std::vector<int> shadow_hull = QuickHull(souter.vertices);
-
-          // Starting orientation/position for inner polyhedron.
-          const quat4 inner_rot = RandomQuaternion(&rc);
-
-          static constexpr int D = 6;
-          auto InnerFrame = [&inner_rot](const std::array<double, D> &args) {
-              const auto &[di, dj, dk, dl, dx, dy] = args;
-              quat4 tweaked_rot = normalize(quat4{
-                  .x = inner_rot.x + di,
-                  .y = inner_rot.y + dj,
-                  .z = inner_rot.z + dk,
-                  .w = inner_rot.w + dl,
-                });
-              frame3 rotate = yocto::rotation_frame(tweaked_rot);
-              frame3 translate = yocto::translation_frame(
-                  vec3{.x = dx, .y = dy, .z = 0.0});
-              return rotate * translate;
-            };
-
-          auto WriteImage = [&](const std::string &filename,
-                                const std::array<double, D> &args) {
-              Rendering rendering(polyhedron, 3840, 2160);
-              rendering.RenderMesh(souter);
-              rendering.DarkenBG();
-
-              auto inner_frame = InnerFrame(args);
-              Polyhedron inner = Rotate(polyhedron, inner_frame);
-              Mesh2D sinner = Shadow(inner);
-              rendering.RenderMesh(sinner);
-              rendering.RenderBadPoints(sinner, souter);
-
-              rendering.img.Save(filename);
-              status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
-            };
-
-          auto Parameters = [&](const std::array<double, D> &args,
-                                double error) {
-              auto inner_frame = InnerFrame(args);
-              std::string contents =
-                StringPrintf("Error: %.17g\n", error);
-
-              contents += "Outer frame:\n";
-              contents += FrameString(outer_frame);
-              contents += "\nInner frame:\n";
-              contents += FrameString(inner_frame);
-              StringAppendF(&contents,
-                            "\nTook %lld iters, %lld attempts, %.3f seconds\n",
-                            iters.Read(), attempts.Read(), run_timer.Seconds());
-              return contents;
-            };
-
-
-          std::function<double(const std::array<double, D> &)> Loss =
-            [&polyhedron, &souter, &shadow_hull, &InnerFrame](
-                const std::array<double, D> &args) {
-              attempts++;
-              frame3 frame = InnerFrame(args);
-              Polyhedron inner = Rotate(polyhedron, frame);
-              Mesh2D sinner = Shadow(inner);
-
-              // Does every vertex in inner fall inside the outer shadow?
-              double error = 0.0;
-              for (const vec2 &iv : sinner.vertices) {
-                if (!InHull(souter, shadow_hull, iv)) {
-                  error += DistanceToHull(souter.vertices, shadow_hull, iv);
-                }
-              }
-
-              return error;
-            };
-
-          const std::array<double, D> lb =
-            {-0.15, -0.15, -0.15, -0.15, -0.25, -0.25};
-          const std::array<double, D> ub =
-            {+0.15, +0.15, +0.15, +0.15, +0.25, +0.25};
-          const double prep_sec = prep_timer.Seconds();
-
-          Timer opt_timer;
-          const auto &[args, error] =
-            Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-          const double opt_sec = opt_timer.Seconds();
-
-          if (error == 0.0) {
-            MutexLock ml(&m);
-            // For easy ones, many threads will solve it at once, and then
-            // write over each other's solutions.
-            if (should_die && iters.Read() < 1000)
-              return;
-            should_die = true;
-
-            status->Printf("Solved! %lld iters, %lld attempts, in %s\n",
-                           iters.Read(),
-                           attempts.Read(),
-                           ANSI::Time(run_timer.Seconds()).c_str());
-
-            WriteImage(StringPrintf("solved-%s.png", polyhedron.name), args);
-
-            std::string contents = Parameters(args, error);
-            StringAppendF(&contents,
-                          "\n%s\n",
-                          error_histo.SimpleAsciiString(50).c_str());
-
-            std::string sfile = StringPrintf("solution-%s.txt",
-                                             polyhedron.name);
-            Util::WriteFile(sfile, contents);
-            status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
-
-            SaveSolution(polyhedron,
-                         outer_frame,
-                         InnerFrame(args),
-                         SolutionDB::METHOD_MAX);
-
-            return;
-          }
-
-          {
-            MutexLock ml(&m);
-            prep_time += prep_sec;
-            opt_time += opt_sec;
-            error_histo.Observe(log(error));
-            if (error < best_error) {
-              best_error = error;
-              if (image_per.ShouldRun()) {
-                std::string file_base =
-                  StringPrintf("best3-%s.%lld", polyhedron.name, iters.Read());
-                WriteImage(file_base + ".png", args);
-                Util::WriteFile(file_base + ".txt", Parameters(args, error));
-              }
-            }
-
-            status_per.RunIf([&]() {
-                double total_time = prep_time + opt_time;
-
-                int64_t it = iters.Read();
-                double ips = it / total_time;
-
-                status->Statusf(
-                    "%s\n"
-                    "%s " ABLUE("prep") " %s " APURPLE("opt")
-                    " (" ABLUE("%.3f%%") " / " APURPLE("%.3f%%") ") "
-                    "[" AWHITE("%.3f") "/s]\n"
-                    "%s iters, %s attempts; best: %.11g",
-                    error_histo.SimpleANSI(HISTO_LINES).c_str(),
-                    ANSI::Time(prep_time).c_str(),
-                    ANSI::Time(opt_time).c_str(),
-                    (100.0 * prep_time) / total_time,
-                    (100.0 * opt_time) / total_time,
-                    ips,
-                    FormatNum(it).c_str(),
-                    FormatNum(attempts.Read()).c_str(),
-                    best_error);
-              });
-          }
-
-          iters++;
         }
-      });
+
+        return error;
+      };
+
+    const std::array<double, D> lb =
+      {-0.15, -0.15, -0.15, -0.15, -0.25, -0.25};
+    const std::array<double, D> ub =
+      {+0.15, +0.15, +0.15, +0.15, +0.25, +0.25};
+    const double prep_sec = prep_timer.Seconds();
+
+    Timer opt_timer;
+    const auto &[args, error] =
+      Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+    const double opt_sec = opt_timer.Seconds();
+
+    return std::make_tuple(error, outer_frame, InnerFrame(args));
+  }
+};
+
+static void SolveMax(const Polyhedron &polyhedron, StatusBar *status,
+                       std::optional<double> time_limit = std::nullopt) {
+  MaxSolver s(polyhedron, status, time_limit);
+  s.Run();
 }
 
 [[maybe_unused]]
@@ -822,267 +576,104 @@ static quat4 MakeTwoFacesParallelToZ(const std::vector<vec3> &vertices,
 // orientation where a face is parallel to the z axis. Then only
 // consider rotations around the z axis (and translations) for the
 // inner.
-[[maybe_unused]]
-static void SolveParallel(const Polyhedron &polyhedron,
-                          StatusBar *status,
-                          std::optional<double> time_limit = std::nullopt) {
-  static constexpr int METHOD = SolutionDB::METHOD_PARALLEL;
-  status->Printf("Solve [method 4] " AWHITE("%s") ":\n",
-                 polyhedron.name);
+struct ParallelSolver : public Solver<SolutionDB::METHOD_PARALLEL> {
+  using Solver::Solver;
 
-  static constexpr int HISTO_LINES = 32;
+  std::tuple<double, frame3, frame3> RunOne(ArcFour *rc) override {
+    // four params for outer rotation, and two for its
+    // translation. The inner polyhedron is fixed.
+    static constexpr int D = 6;
 
-  std::mutex m;
-  bool should_die = false;
-  Timer run_timer;
-  Periodically status_per(1.0);
-  Periodically image_per(10.0);
-  double best_error = 1.0e42;
-  AutoHisto error_histo(100000);
-  constexpr int NUM_THREADS = 4;
+    Timer prep_timer;
+    const quat4 initial_outer_rot = RandomQuaternion(rc);
 
-  double prep_time = 0.0, opt_time = 0.0;
+    // Get two face indices that are not parallel.
+    const auto &[face1, face2] = TwoNonParallelFaces(rc, polyhedron);
 
-  ParallelFan(
-      NUM_THREADS,
-      [&](int thread_idx) {
-        ArcFour rc(StringPrintf("solve.%d.%lld", thread_idx,
-                                time(nullptr)));
-        for (;;) {
-          {
-            MutexLock ml(&m);
-            if (should_die) return;
-            if (time_limit.has_value() &&
-                run_timer.Seconds() > time_limit.value()) {
-              should_die = true;
-              SolutionDB db;
-              db.AddAttempt(polyhedron.name, METHOD,
-                            best_error, iters.Read(),
-                            attempts.Read());
-              status->Printf("Time limit exceeded after %s\n",
-                             ANSI::Time(run_timer.Seconds()).c_str());
-              return;
-            }
-          }
+    const quat4 initial_inner_rot = MakeTwoFacesParallelToZ(
+        polyhedron.vertices,
+        polyhedron.faces->v[face1],
+        polyhedron.faces->v[face2]);
 
-          // four params for outer rotation, and two for its
-          // translation. The inner polyhedron is fixed.
-          static constexpr int D = 6;
+    const frame3 initial_inner_frame =
+      yocto::rotation_frame(initial_inner_rot);
 
-          Timer prep_timer;
-          const quat4 initial_outer_rot = RandomQuaternion(&rc);
-
-          // Get two face indices that are not parallel.
-          const auto &[face1, face2] = TwoNonParallelFaces(&rc, polyhedron);
-
-          /*
-          const quat4 initial_inner_rot = AlignFaceNormalWithX(
-              polyhedron.vertices,
-              polyhedron.faces->v[face1]);
-          */
-          const quat4 initial_inner_rot = MakeTwoFacesParallelToZ(
-              polyhedron.vertices,
-              polyhedron.faces->v[face1],
-              polyhedron.faces->v[face2]);
-
-          const frame3 initial_inner_frame =
-            yocto::rotation_frame(initial_inner_rot);
-
-          // The inner polyhedron is fixed, so we can compute its
-          // convex hull once up front.
-          const Mesh2D sinner = Shadow(Rotate(polyhedron, initial_inner_frame));
-          const std::vector<vec2> inner_hull_pts = [&]() {
-              // status->Printf("[%d] Get convex hull.\n", thread_idx);
-              const std::vector<int> inner_hull = QuickHull(sinner.vertices);
-              // status->Printf("[%d] Done: Size %d.\n",
-              //            thread_idx, inner_hull.size());
-              std::vector<vec2> v;
-              v.reserve(inner_hull.size());
-              for (int p : inner_hull) {
-                v.push_back(sinner.vertices[p]);
-              }
-              return v;
-            }();
-
-          // Get the frames from the appropriate positions in the
-          // argument.
-
-          auto OuterFrame = [&initial_outer_rot](
-              const std::array<double, D> &args) {
-              const auto &[o0, o1, o2, o3, dx, dy] = args;
-              quat4 tweaked_rot = normalize(quat4{
-                  .x = initial_outer_rot.x + o0,
-                  .y = initial_outer_rot.y + o1,
-                  .z = initial_outer_rot.z + o2,
-                  .w = initial_outer_rot.w + o3,
-                });
-              frame3 translate = yocto::translation_frame(
-                  vec3{.x = dx, .y = dy, .z = 0.0});
-              return yocto::rotation_frame(tweaked_rot) * translate;
-            };
-
-          // The inner polyhedron is fixed.
-          auto InnerFrame = [&initial_inner_frame](
-              const std::array<double, D> &args) -> const frame3 & {
-              return initial_inner_frame;
-            };
-
-          auto WriteImage = [&](const std::string &filename,
-                                const std::array<double, D> &args) {
-              Rendering rendering(polyhedron, 3840, 2160);
-
-              auto outer_frame = OuterFrame(args);
-              auto inner_frame = InnerFrame(args);
-
-              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-              Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
-
-              rendering.RenderMesh(souter);
-              rendering.DarkenBG();
-
-              rendering.RenderMesh(sinner);
-              std::vector<int> hull = QuickHull(sinner.vertices);
-              status->Printf("Hull points: %d\n", (int)hull.size());
-              rendering.RenderHull(sinner, hull, 0x000000AA);
-              rendering.RenderBadPoints(sinner, souter);
-              rendering.img.Save(filename);
-
-              if (hull.size() < 3) {
-                printf("\n\n\n\n");
-                for (const vec2 &v : sinner.vertices) {
-                  printf("vec2{%.17g, %.17g},\n",
-                         v.x, v.y);
-                }
-                LOG(FATAL) << "INVALID HULL!";
-              }
-
-
-              status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
-            };
-
-          auto Parameters = [&](const std::array<double, D> &args,
-                                double error) {
-              auto outer_frame = OuterFrame(args);
-              auto inner_frame = InnerFrame(args);
-              std::string contents =
-                StringPrintf("Error: %.17g\n", error);
-
-              contents += "Outer frame:\n";
-              contents += FrameString(outer_frame);
-              contents += "\nInner frame:\n";
-              contents += FrameString(inner_frame);
-              StringAppendF(&contents,
-                            "\nTook %lld iters, %lld attempts, %.3f seconds\n",
-                            iters.Read(), attempts.Read(), run_timer.Seconds());
-              return contents;
-            };
-
-          std::function<double(const std::array<double, D> &)> Loss =
-            [&polyhedron, &OuterFrame, &inner_hull_pts](
-                const std::array<double, D> &args) {
-              attempts++;
-              frame3 outer_frame = OuterFrame(args);
-              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-
-              // Does every vertex in inner fall inside the outer shadow?
-              double error = 0.0;
-              for (const vec2 &iv : inner_hull_pts) {
-                if (!InMesh(souter, iv)) {
-                  // slow :(
-                  error += DistanceToMesh(souter, iv);
-                }
-              }
-
-              return error;
-            };
-
-          constexpr double Q = 0.25;
-
-          const std::array<double, D> lb = {-Q, -Q, -Q, -Q, -0.5, -0.5};
-          const std::array<double, D> ub = {+Q, +Q, +Q, +Q, +0.5, +0.5};
-          const double prep_sec = prep_timer.Seconds();
-
-          Timer opt_timer;
-          const auto &[args, error] =
-            Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-          const double opt_sec = opt_timer.Seconds();
-
-          if (error == 0.0) {
-            MutexLock ml(&m);
-            // For easy ones, many threads will solve it at once, and then
-            // write over each other's solutions.
-            if (should_die && iters.Read() < 1000)
-              return;
-            should_die = true;
-
-            status->Printf("Solved! %lld iters, %lld attempts, in %s\n",
-                          iters.Read(),
-                          attempts.Read(),
-                          ANSI::Time(run_timer.Seconds()).c_str());
-
-            WriteImage(StringPrintf("solved-%s.png", polyhedron.name), args);
-
-            std::string contents = Parameters(args, error);
-            StringAppendF(&contents,
-                          "\n%s\n",
-                          error_histo.SimpleAsciiString(50).c_str());
-
-            std::string sfile = StringPrintf("solution-%s.txt",
-                                             polyhedron.name);
-            Util::WriteFile(sfile, contents);
-            status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
-
-            SaveSolution(polyhedron,
-                         OuterFrame(args),
-                         InnerFrame(args),
-                         SolutionDB::METHOD_PARALLEL);
-
-            return;
-          }
-
-          {
-            MutexLock ml(&m);
-            prep_time += prep_sec;
-            opt_time += opt_sec;
-            error_histo.Observe(log(error));
-            if (error < best_error) {
-              best_error = error;
-              if (image_per.ShouldRun()) {
-                std::string file_base =
-                  StringPrintf("best4-%s.%lld", polyhedron.name, iters.Read());
-                WriteImage(file_base + ".png", args);
-                Util::WriteFile(file_base + ".txt", Parameters(args, error));
-              }
-            }
-
-            status_per.RunIf([&]() {
-                double total_time = prep_time + opt_time;
-
-                int64_t it = iters.Read();
-                double ips = it / total_time;
-
-                status->Statusf(
-                    "%s\n"
-                    "%s " ABLUE("prep") " %s " APURPLE("opt")
-                    " (" ABLUE("%.3f%%") " / " APURPLE("%.3f%%") ") "
-                    "[" AWHITE("%.3f") "/s]\n"
-                    "%s iters, %s attempts; best: %.11g",
-                    error_histo.SimpleANSI(HISTO_LINES).c_str(),
-                    ANSI::Time(prep_time).c_str(),
-                    ANSI::Time(opt_time).c_str(),
-                    (100.0 * prep_time) / total_time,
-                    (100.0 * opt_time) / total_time,
-                    ips,
-                    FormatNum(it).c_str(),
-                    FormatNum(attempts.Read()).c_str(),
-                    best_error);
-              });
-          }
-
-          iters++;
+    // The inner polyhedron is fixed, so we can compute its
+    // convex hull once up front.
+    const Mesh2D sinner = Shadow(Rotate(polyhedron, initial_inner_frame));
+    const std::vector<vec2> inner_hull_pts = [&]() {
+        const std::vector<int> inner_hull = QuickHull(sinner.vertices);
+        std::vector<vec2> v;
+        v.reserve(inner_hull.size());
+        for (int p : inner_hull) {
+          v.push_back(sinner.vertices[p]);
         }
-      });
+        return v;
+      }();
+
+    // Get the frames from the appropriate positions in the
+    // argument.
+
+    auto OuterFrame = [&initial_outer_rot](
+        const std::array<double, D> &args) {
+        const auto &[o0, o1, o2, o3, dx, dy] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = initial_outer_rot.x + o0,
+            .y = initial_outer_rot.y + o1,
+            .z = initial_outer_rot.z + o2,
+            .w = initial_outer_rot.w + o3,
+          });
+        frame3 translate = yocto::translation_frame(
+            vec3{.x = dx, .y = dy, .z = 0.0});
+        return yocto::rotation_frame(tweaked_rot) * translate;
+      };
+
+    // The inner polyhedron is fixed.
+    auto InnerFrame = [&initial_inner_frame](
+        const std::array<double, D> &args) -> const frame3 & {
+        return initial_inner_frame;
+      };
+
+    std::function<double(const std::array<double, D> &)> Loss =
+      [this, &OuterFrame, &inner_hull_pts](
+          const std::array<double, D> &args) {
+        attempts++;
+        frame3 outer_frame = OuterFrame(args);
+        Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
+
+        // Does every vertex in inner fall inside the outer shadow?
+        double error = 0.0;
+        for (const vec2 &iv : inner_hull_pts) {
+          if (!InMesh(souter, iv)) {
+            // slow :(
+            error += DistanceToMesh(souter, iv);
+          }
+        }
+
+        return error;
+      };
+
+    constexpr double Q = 0.25;
+
+    const std::array<double, D> lb = {-Q, -Q, -Q, -Q, -0.5, -0.5};
+    const std::array<double, D> ub = {+Q, +Q, +Q, +Q, +0.5, +0.5};
+    const double prep_sec = prep_timer.Seconds();
+
+    Timer opt_timer;
+    const auto &[args, error] =
+      Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+    const double opt_sec = opt_timer.Seconds();
+
+    return std::make_tuple(error, OuterFrame(args), InnerFrame(args));
+  }
+};
+
+static void SolveParallel(const Polyhedron &polyhedron, StatusBar *status,
+                          std::optional<double> time_limit = std::nullopt) {
+  ParallelSolver s(polyhedron, status, time_limit);
+  s.Run();
 }
+
 
 // Solve a constrained problem:
 //   - Both solids have their centers on the projection axis
@@ -1090,472 +681,174 @@ static void SolveParallel(const Polyhedron &polyhedron,
 //
 // TODO: We should additionally rotate the inner shadow so that it has
 // one of those two faces aligned with the x axis.
-[[maybe_unused]]
-static void SolveSpecial(const Polyhedron &polyhedron,
-                         StatusBar *status,
-                         std::optional<double> time_limit = std::nullopt) {
-  static constexpr int METHOD = SolutionDB::METHOD_SPECIAL;
-  status->Printf("Solve [special] " AWHITE("%s") ":\n",
-                 polyhedron.name);
+struct SpecialSolver : public Solver<SolutionDB::METHOD_SPECIAL> {
+  using Solver::Solver;
 
-  static constexpr int HISTO_LINES = 32;
+  std::tuple<double, frame3, frame3> RunOne(ArcFour *rc) override {
+    // four params for outer orientation. The inner solid is
+    // in a fixed orientation. Both are centered at the origin.
+    static constexpr int D = 4;
 
-  std::mutex m;
-  bool should_die = false;
-  Timer run_timer;
-  Periodically status_per(1.0);
-  Periodically image_per(10.0);
-  double best_error = 1.0e42;
-  AutoHisto error_histo(100000);
-  constexpr int NUM_THREADS = 4;
+    Timer prep_timer;
+    const quat4 initial_outer_rot = RandomQuaternion(rc);
 
-  double prep_time = 0.0, opt_time = 0.0;
+    // Get two face indices that are not parallel.
+    const auto &[face1, face2] = TwoNonParallelFaces(rc, polyhedron);
 
-  ParallelFan(
-      NUM_THREADS,
-      [&](int thread_idx) {
-        ArcFour rc(StringPrintf("solve.%d.%lld", thread_idx,
-                                time(nullptr)));
-        for (;;) {
-          {
-            MutexLock ml(&m);
-            if (should_die) return;
-            if (time_limit.has_value() &&
-                run_timer.Seconds() > time_limit.value()) {
-              should_die = true;
-              SolutionDB db;
-              db.AddAttempt(polyhedron.name, METHOD,
-                            best_error, iters.Read(),
-                            attempts.Read());
-              status->Printf("Time limit exceeded after %s\n",
-                             ANSI::Time(run_timer.Seconds()).c_str());
-              return;
-            }
-          }
+    const quat4 initial_inner_rot = MakeTwoFacesParallelToZ(
+        polyhedron.vertices,
+        polyhedron.faces->v[face1],
+        polyhedron.faces->v[face2]);
 
-          // four params for outer orientation. The inner solid is
-          // in a fixed orientation. Both are centered at the origin.
-          static constexpr int D = 4;
+    const frame3 initial_inner_frame =
+      yocto::rotation_frame(initial_inner_rot);
 
-          Timer prep_timer;
-          const quat4 initial_outer_rot = RandomQuaternion(&rc);
-
-          // Get two face indices that are not parallel.
-          const auto &[face1, face2] = TwoNonParallelFaces(&rc, polyhedron);
-
-          const quat4 initial_inner_rot = MakeTwoFacesParallelToZ(
-              polyhedron.vertices,
-              polyhedron.faces->v[face1],
-              polyhedron.faces->v[face2]);
-
-          const frame3 initial_inner_frame =
-            yocto::rotation_frame(initial_inner_rot);
-
-          const Mesh2D sinner = Shadow(Rotate(polyhedron, initial_inner_frame));
-          const std::vector<vec2> inner_hull_pts = [&]() {
-              // status->Printf("[%d] Get convex hull.\n", thread_idx);
-              const std::vector<int> inner_hull = QuickHull(sinner.vertices);
-              // status->Printf("[%d] Done: Size %d.\n",
-              //            thread_idx, inner_hull.size());
-              std::vector<vec2> v;
-              v.reserve(inner_hull.size());
-              for (int p : inner_hull) {
-                v.push_back(sinner.vertices[p]);
-              }
-              return v;
-            }();
-
-          // Get the frames from the appropriate positions in the
-          // argument.
-          auto OuterFrame = [&initial_outer_rot](
-              const std::array<double, D> &args) {
-              const auto &[o0, o1, o2, o3] = args;
-              quat4 tweaked_rot = normalize(quat4{
-                  .x = initial_outer_rot.x + o0,
-                  .y = initial_outer_rot.y + o1,
-                  .z = initial_outer_rot.z + o2,
-                  .w = initial_outer_rot.w + o3,
-                });
-              return yocto::rotation_frame(tweaked_rot);
-            };
-
-          auto InnerFrame = [&initial_inner_frame](
-              const std::array<double, D> &args) -> const frame3 & {
-              return initial_inner_frame;
-            };
-
-          auto WriteImage = [&](const std::string &filename,
-                                const std::array<double, D> &args) {
-              Rendering rendering(polyhedron, 3840, 2160);
-
-              auto outer_frame = OuterFrame(args);
-              auto inner_frame = InnerFrame(args);
-
-              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-              Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
-
-              rendering.RenderMesh(souter);
-              rendering.DarkenBG();
-
-              rendering.RenderMesh(sinner);
-              std::vector<int> hull = QuickHull(sinner.vertices);
-              rendering.RenderHull(sinner, hull, 0x000000AA);
-              rendering.RenderBadPoints(sinner, souter);
-              rendering.img.Save(filename);
-
-              status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
-            };
-
-          auto Parameters = [&](const std::array<double, D> &args,
-                                double error) {
-              auto outer_frame = OuterFrame(args);
-              auto inner_frame = InnerFrame(args);
-              std::string contents =
-                StringPrintf("Error: %.17g\n", error);
-
-              contents += "Outer frame:\n";
-              contents += FrameString(outer_frame);
-              contents += "\nInner frame:\n";
-              contents += FrameString(inner_frame);
-              StringAppendF(&contents,
-                            "\nTook %lld iters, %lld attempts, %.3f seconds\n",
-                            iters.Read(), attempts.Read(), run_timer.Seconds());
-              return contents;
-            };
-
-          std::function<double(const std::array<double, D> &)> Loss =
-            [&polyhedron, &OuterFrame, &inner_hull_pts](
-                const std::array<double, D> &args) {
-              attempts++;
-              frame3 outer_frame = OuterFrame(args);
-              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-
-              // Does every vertex in inner fall inside the outer shadow?
-              double error = 0.0;
-              for (const vec2 &iv : inner_hull_pts) {
-                if (!InMesh(souter, iv)) {
-                  // slow :(
-                  error += DistanceToMesh(souter, iv);
-                }
-              }
-
-              return error;
-            };
-
-          constexpr double Q = 0.25;
-
-          const std::array<double, D> lb = {-Q, -Q, -Q, -Q};
-          const std::array<double, D> ub = {+Q, +Q, +Q, +Q};
-          const double prep_sec = prep_timer.Seconds();
-
-          Timer opt_timer;
-          const auto &[args, error] =
-            Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-          const double opt_sec = opt_timer.Seconds();
-
-          if (error == 0.0) {
-            MutexLock ml(&m);
-            // For easy ones, many threads will solve it at once, and then
-            // write over each other's solutions.
-            if (should_die && iters.Read() < 1000)
-              return;
-            should_die = true;
-
-            status->Printf("Solved! %lld iters, %lld attempts, in %s\n",
-                          iters.Read(),
-                          attempts.Read(),
-                          ANSI::Time(run_timer.Seconds()).c_str());
-
-            WriteImage(StringPrintf("solved-special-%s.png",
-                                    polyhedron.name), args);
-
-            std::string contents = Parameters(args, error);
-            StringAppendF(&contents,
-                          "\n%s\n",
-                          error_histo.SimpleAsciiString(50).c_str());
-
-            std::string sfile = StringPrintf("solution-special-%s.txt",
-                                             polyhedron.name);
-            Util::WriteFile(sfile, contents);
-            status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
-
-            SaveSolution(polyhedron,
-                         OuterFrame(args),
-                         InnerFrame(args),
-                         SolutionDB::METHOD_SPECIAL);
-
-            return;
-          }
-
-          {
-            MutexLock ml(&m);
-            prep_time += prep_sec;
-            opt_time += opt_sec;
-            error_histo.Observe(log(error));
-            if (error < best_error) {
-              best_error = error;
-              if (image_per.ShouldRun()) {
-                std::string file_base =
-                  StringPrintf("best-special-%s.%lld",
-                               polyhedron.name, iters.Read());
-                WriteImage(file_base + ".png", args);
-                Util::WriteFile(file_base + ".txt", Parameters(args, error));
-              }
-            }
-
-            status_per.RunIf([&]() {
-                double total_time = prep_time + opt_time;
-
-                int64_t it = iters.Read();
-                double ips = it / total_time;
-
-                status->Statusf(
-                    "%s\n"
-                    "%s " ABLUE("prep") " %s " APURPLE("opt")
-                    " (" ABLUE("%.3f%%") " / " APURPLE("%.3f%%") ") "
-                    "[" AWHITE("%.3f") "/s]\n"
-                    "%s iters, %s attempts; best: %.11g",
-                    error_histo.SimpleANSI(HISTO_LINES).c_str(),
-                    ANSI::Time(prep_time).c_str(),
-                    ANSI::Time(opt_time).c_str(),
-                    (100.0 * prep_time) / total_time,
-                    (100.0 * opt_time) / total_time,
-                    ips,
-                    FormatNum(it).c_str(),
-                    FormatNum(attempts.Read()).c_str(),
-                    best_error);
-              });
-          }
-
-          iters++;
+    const Mesh2D sinner = Shadow(Rotate(polyhedron, initial_inner_frame));
+    const std::vector<vec2> inner_hull_pts = [&]() {
+        const std::vector<int> inner_hull = QuickHull(sinner.vertices);
+        std::vector<vec2> v;
+        v.reserve(inner_hull.size());
+        for (int p : inner_hull) {
+          v.push_back(sinner.vertices[p]);
         }
-      });
+        return v;
+      }();
+
+    // Get the frames from the appropriate positions in the
+    // argument.
+    auto OuterFrame = [&initial_outer_rot](
+        const std::array<double, D> &args) {
+        const auto &[o0, o1, o2, o3] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = initial_outer_rot.x + o0,
+            .y = initial_outer_rot.y + o1,
+            .z = initial_outer_rot.z + o2,
+            .w = initial_outer_rot.w + o3,
+          });
+        return yocto::rotation_frame(tweaked_rot);
+      };
+
+    auto InnerFrame = [&initial_inner_frame](
+        const std::array<double, D> &args) -> const frame3 & {
+        return initial_inner_frame;
+      };
+
+    std::function<double(const std::array<double, D> &)> Loss =
+      [this, &OuterFrame, &inner_hull_pts](
+          const std::array<double, D> &args) {
+        attempts++;
+        frame3 outer_frame = OuterFrame(args);
+        Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
+
+        // Does every vertex in inner fall inside the outer shadow?
+        double error = 0.0;
+        for (const vec2 &iv : inner_hull_pts) {
+          if (!InMesh(souter, iv)) {
+            // slow :(
+            error += DistanceToMesh(souter, iv);
+          }
+        }
+
+        return error;
+      };
+
+    constexpr double Q = 0.25;
+
+    const std::array<double, D> lb = {-Q, -Q, -Q, -Q};
+    const std::array<double, D> ub = {+Q, +Q, +Q, +Q};
+    const double prep_sec = prep_timer.Seconds();
+
+    Timer opt_timer;
+    const auto &[args, error] =
+      Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+    const double opt_sec = opt_timer.Seconds();
+
+    return std::make_tuple(error, OuterFrame(args), InnerFrame(args));
+  }
+};
+
+static void SolveSpecial(const Polyhedron &polyhedron, StatusBar *status,
+                         std::optional<double> time_limit = std::nullopt) {
+  SpecialSolver s(polyhedron, status, time_limit);
+  s.Run();
 }
 
+
 // Rotation-only solutions (no translation of either polyhedron).
-[[maybe_unused]]
-static void SolveOrigin(const Polyhedron &polyhedron,
-                        StatusBar *status,
+struct OriginSolver : public Solver<SolutionDB::METHOD_ORIGIN> {
+  using Solver::Solver;
+
+  std::tuple<double, frame3, frame3> RunOne(ArcFour *rc) override {
+    static constexpr int D = 8;
+
+    Timer prep_timer;
+    const quat4 initial_outer_rot = RandomQuaternion(rc);
+    const quat4 initial_inner_rot = RandomQuaternion(rc);
+
+    // Get the frames from the appropriate positions in the
+    // argument.
+    auto OuterFrame = [&initial_outer_rot](
+        const std::array<double, D> &args) {
+        const auto &[o0, o1, o2, o3, i0_, i1_, i2_, i3_] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = initial_outer_rot.x + o0,
+            .y = initial_outer_rot.y + o1,
+            .z = initial_outer_rot.z + o2,
+            .w = initial_outer_rot.w + o3,
+          });
+        return yocto::rotation_frame(tweaked_rot);
+      };
+
+    auto InnerFrame = [&initial_inner_rot](
+        const std::array<double, D> &args) {
+        const auto &[o0_, o1_, o2_, o3_, i0, i1, i2, i3] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = initial_inner_rot.x + i0,
+            .y = initial_inner_rot.y + i1,
+            .z = initial_inner_rot.z + i2,
+            .w = initial_inner_rot.w + i3,
+          });
+        return yocto::rotation_frame(tweaked_rot);
+      };
+
+    std::function<double(const std::array<double, D> &)> Loss =
+        [this, &OuterFrame, &InnerFrame](const std::array<double, D> &args) {
+          attempts++;
+          frame3 outer_frame = OuterFrame(args);
+          Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
+          frame3 inner_frame = InnerFrame(args);
+          Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
+
+          // Does every vertex in inner fall inside the outer shadow?
+          double error = 0.0;
+          for (const vec2 &iv : sinner.vertices) {
+            if (!InMesh(souter, iv)) {
+              // slow :(
+              error += DistanceToMesh(souter, iv);
+            }
+          }
+
+          return error;
+        };
+
+    constexpr double Q = 0.25;
+
+    const std::array<double, D> lb = {-Q, -Q, -Q, -Q, -Q, -Q, -Q, -Q};
+    const std::array<double, D> ub = {+Q, +Q, +Q, +Q, +Q, +Q, +Q, +Q};
+    const double prep_sec = prep_timer.Seconds();
+
+    Timer opt_timer;
+    const auto &[args, error] = Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+    const double opt_sec = opt_timer.Seconds();
+
+    return std::make_tuple(error, OuterFrame(args), InnerFrame(args));
+  }
+};
+
+static void SolveOrigin(const Polyhedron &polyhedron, StatusBar *status,
                         std::optional<double> time_limit = std::nullopt) {
-  static constexpr int METHOD = SolutionDB::METHOD_ORIGIN;
-  status->Printf("Solve [origin] " AWHITE("%s") ":\n",
-                 polyhedron.name);
-
-  static constexpr int HISTO_LINES = 32;
-
-  std::mutex m;
-  bool should_die = false;
-  Timer run_timer;
-  Periodically status_per(1.0);
-  Periodically image_per(10.0);
-  double best_error = 1.0e42;
-  AutoHisto error_histo(100000);
-  constexpr int NUM_THREADS = 4;
-
-  double prep_time = 0.0, opt_time = 0.0;
-
-  ParallelFan(
-      NUM_THREADS,
-      [&](int thread_idx) {
-        ArcFour rc(StringPrintf("solve.%d.%lld", thread_idx,
-                                time(nullptr)));
-        for (;;) {
-          {
-            MutexLock ml(&m);
-            if (should_die) return;
-            if (time_limit.has_value() &&
-                run_timer.Seconds() > time_limit.value()) {
-              should_die = true;
-              SolutionDB db;
-              db.AddAttempt(polyhedron.name, METHOD,
-                            best_error, iters.Read(),
-                            attempts.Read());
-              status->Printf("Time limit exceeded after %s\n",
-                             ANSI::Time(run_timer.Seconds()).c_str());
-              return;
-            }
-          }
-
-          static constexpr int D = 8;
-
-          Timer prep_timer;
-          const quat4 initial_outer_rot = RandomQuaternion(&rc);
-          const quat4 initial_inner_rot = RandomQuaternion(&rc);
-
-          // Get the frames from the appropriate positions in the
-          // argument.
-          auto OuterFrame = [&initial_outer_rot](
-              const std::array<double, D> &args) {
-              const auto &[o0, o1, o2, o3, i0_, i1_, i2_, i3_] = args;
-              quat4 tweaked_rot = normalize(quat4{
-                  .x = initial_outer_rot.x + o0,
-                  .y = initial_outer_rot.y + o1,
-                  .z = initial_outer_rot.z + o2,
-                  .w = initial_outer_rot.w + o3,
-                });
-              return yocto::rotation_frame(tweaked_rot);
-            };
-
-          auto InnerFrame = [&initial_inner_rot](
-              const std::array<double, D> &args) {
-              const auto &[o0_, o1_, o2_, o3_, i0, i1, i2, i3] = args;
-              quat4 tweaked_rot = normalize(quat4{
-                  .x = initial_inner_rot.x + i0,
-                  .y = initial_inner_rot.y + i1,
-                  .z = initial_inner_rot.z + i2,
-                  .w = initial_inner_rot.w + i3,
-                });
-              return yocto::rotation_frame(tweaked_rot);
-            };
-
-          auto WriteImage = [&](const std::string &filename,
-                                const std::array<double, D> &args) {
-              Rendering rendering(polyhedron, 3840, 2160);
-
-              auto outer_frame = OuterFrame(args);
-              auto inner_frame = InnerFrame(args);
-
-              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-              Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
-
-              rendering.RenderMesh(souter);
-              rendering.DarkenBG();
-
-              rendering.RenderMesh(sinner);
-              std::vector<int> hull = QuickHull(sinner.vertices);
-              rendering.RenderHull(sinner, hull, 0x000000AA);
-              rendering.RenderBadPoints(sinner, souter);
-              rendering.img.Save(filename);
-
-              status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
-            };
-
-          auto Parameters = [&](const std::array<double, D> &args,
-                                double error) {
-              auto outer_frame = OuterFrame(args);
-              auto inner_frame = InnerFrame(args);
-              std::string contents =
-                StringPrintf("Error: %.17g\n", error);
-
-              contents += "Outer frame:\n";
-              contents += FrameString(outer_frame);
-              contents += "\nInner frame:\n";
-              contents += FrameString(inner_frame);
-              StringAppendF(&contents,
-                            "\nTook %lld iters, %lld attempts, %.3f seconds\n",
-                            iters.Read(), attempts.Read(), run_timer.Seconds());
-              return contents;
-            };
-
-          std::function<double(const std::array<double, D> &)> Loss =
-            [&polyhedron, &OuterFrame, &InnerFrame](
-                const std::array<double, D> &args) {
-              attempts++;
-              frame3 outer_frame = OuterFrame(args);
-              Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-              frame3 inner_frame = InnerFrame(args);
-              Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
-
-              // Does every vertex in inner fall inside the outer shadow?
-              double error = 0.0;
-              for (const vec2 &iv : sinner.vertices) {
-                if (!InMesh(souter, iv)) {
-                  // slow :(
-                  error += DistanceToMesh(souter, iv);
-                }
-              }
-
-              return error;
-            };
-
-          constexpr double Q = 0.25;
-
-          const std::array<double, D> lb = {-Q, -Q, -Q, -Q, -Q, -Q, -Q, -Q};
-          const std::array<double, D> ub = {+Q, +Q, +Q, +Q, +Q, +Q, +Q, +Q};
-          const double prep_sec = prep_timer.Seconds();
-
-          Timer opt_timer;
-          const auto &[args, error] =
-            Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
-          const double opt_sec = opt_timer.Seconds();
-
-          if (error == 0.0) {
-            MutexLock ml(&m);
-            // For easy ones, many threads will solve it at once, and then
-            // write over each other's solutions.
-            if (should_die && iters.Read() < 1000)
-              return;
-            should_die = true;
-
-            status->Printf("Solved! %lld iters, %lld attempts, in %s\n",
-                          iters.Read(),
-                          attempts.Read(),
-                          ANSI::Time(run_timer.Seconds()).c_str());
-
-            WriteImage(StringPrintf("solved-origin-%s.png",
-                                    polyhedron.name), args);
-
-            std::string contents = Parameters(args, error);
-            StringAppendF(&contents,
-                          "\n%s\n",
-                          error_histo.SimpleAsciiString(50).c_str());
-
-            std::string sfile = StringPrintf("solution-origin-%s.txt",
-                                             polyhedron.name);
-            Util::WriteFile(sfile, contents);
-            status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
-
-            SaveSolution(polyhedron,
-                         OuterFrame(args),
-                         InnerFrame(args),
-                         METHOD);
-
-            return;
-          }
-
-          {
-            MutexLock ml(&m);
-            prep_time += prep_sec;
-            opt_time += opt_sec;
-            error_histo.Observe(log(error));
-            if (error < best_error) {
-              best_error = error;
-              if (image_per.ShouldRun()) {
-                std::string file_base =
-                  StringPrintf("best-origin-%s.%lld",
-                               polyhedron.name, iters.Read());
-                WriteImage(file_base + ".png", args);
-                Util::WriteFile(file_base + ".txt", Parameters(args, error));
-              }
-            }
-
-            status_per.RunIf([&]() {
-                double total_time = prep_time + opt_time;
-
-                int64_t it = iters.Read();
-                double ips = it / total_time;
-
-                status->Statusf(
-                    "%s\n"
-                    "%s " ABLUE("prep") " %s " APURPLE("opt")
-                    " (" ABLUE("%.3f%%") " / " APURPLE("%.3f%%") ") "
-                    "[" AWHITE("%.3f") "/s]\n"
-                    "%s iters, %s attempts; best: %.11g",
-                    error_histo.SimpleANSI(HISTO_LINES).c_str(),
-                    ANSI::Time(prep_time).c_str(),
-                    ANSI::Time(opt_time).c_str(),
-                    (100.0 * prep_time) / total_time,
-                    (100.0 * opt_time) / total_time,
-                    ips,
-                    FormatNum(it).c_str(),
-                    FormatNum(attempts.Read()).c_str(),
-                    best_error);
-              });
-          }
-
-          iters++;
-        }
-      });
+  OriginSolver s(polyhedron, status, time_limit);
+  s.Run();
 }
 
 static void SolveWith(const Polyhedron &poly, int method, StatusBar *status,
