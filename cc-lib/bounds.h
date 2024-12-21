@@ -56,10 +56,16 @@ struct Bounds {
   // If empty, does nothing. Arguments must be non-negative.
   void AddMargins(double up, double right, double down, double left);
 
-  // Add a margin on both sides of each dimension that's a fraction
-  // (e.g. 0.01 for 1% on each side) of its current width. If empty,
-  // does nothing. f must be non-negative.
+  // Add a margin on all sides, as a fraction of the maximum of the
+  // current width and height (e.g. 0.01 for 1%). If empty, does
+  // nothing. f must be non-negative. Note that this used to
+  // independently calculate the two padding directions, but I don't
+  // think that's the most useful behavior. See below for other
+  // options.
   void AddMarginFrac(double f);
+  // As above, but set the fraction for each axis independently.
+  void AddTwoMarginsFrac(double updown, double leftright);
+  // As a fraction of each side independently.
   void AddMarginsFrac(double fup, double fright,
                       double fdown, double fleft);
 

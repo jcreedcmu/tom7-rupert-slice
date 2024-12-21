@@ -67,7 +67,14 @@ void Bounds::AddMargins(double up, double right, double down, double left) {
 }
 
 void Bounds::AddMarginFrac(double f) {
-  AddMarginsFrac(f, f, f, f);
+  if (Empty()) return;
+  const double amount = f * std::max(Width(), Height());
+  AddMargins(amount, amount, amount, amount);
+}
+
+void Bounds::AddTwoMarginsFrac(double updown, double leftright) {
+  AddMarginsFrac(updown, leftright,
+                 updown, leftright);
 }
 
 void Bounds::AddMarginsFrac(double fup, double fright,
