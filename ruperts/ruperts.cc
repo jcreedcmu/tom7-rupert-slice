@@ -14,6 +14,7 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+#include <numbers>
 
 #include "ansi.h"
 #include "arcfour.h"
@@ -558,26 +559,25 @@ static quat4 AlignFaceNormalWithX(const std::vector<vec3> &vertices,
   return QuatFromVec(yocto::rotation_quat(rot_axis, rot_angle));
 }
 
+static vec3 FaceNormal(const std::vector<vec3> &vertices,
+                       const std::vector<int> &face) {
+  CHECK(face.size() >= 3);
+  const vec3 &v0 = vertices[face[0]];
+  const vec3 &v1 = vertices[face[1]];
+  const vec3 &v2 = vertices[face[2]];
+  return yocto::normalize(yocto::cross(v1 - v0, v2 - v0));
+}
+
 // face1 and face2 must not be parallel. Rotate the polyhedron such
-// that face1 and face2 are both parallel to the z axis. face1 is made
-// perpendicular to the x axis, and then face2 perpendicular to the xy
-// plane.
+// that face1 and face2 are both parallel to the z axis.
 static quat4 MakeTwoFacesParallelToZ(const std::vector<vec3> &vertices,
                                      const std::vector<int> &face1,
                                      const std::vector<int> &face2) {
-  if (face1.size() < 3 || face1.size() < 3)
+  if (face1.size() < 3 || face2.size() < 3)
     return quat4{0.0, 0.0, 0.0, 1.0};
 
-  auto Normal = [&vertices](const std::vector<int> &face) {
-      const vec3 &v0 = vertices[face[0]];
-      const vec3 &v1 = vertices[face[1]];
-      const vec3 &v2 = vertices[face[2]];
-
-      return yocto::normalize(yocto::cross(v1 - v0, v2 - v0));
-    };
-
-  const vec3 face1_normal = Normal(face1);
-  const vec3 face2_normal = Normal(face2);
+  const vec3 face1_normal = FaceNormal(vertices, face1);
+  const vec3 face2_normal = FaceNormal(vertices, face2);
 
   vec3 x_axis = vec3{1.0, 0.0, 0.0};
   vec3 rot_axis = yocto::cross(face1_normal, x_axis);
@@ -585,19 +585,54 @@ static quat4 MakeTwoFacesParallelToZ(const std::vector<vec3> &vertices,
 
   quat4 rot1 = QuatFromVec(yocto::rotation_quat(rot_axis, rot1_angle));
 
+  // Work with the face2 normal after rot1 is applied.
+  const vec3 rot_face2_normal =
+    yocto::transform_direction(yocto::rotation_frame(rot1), face2_normal);
+
   // Project face2's normal to the yz plane.
-  vec3 proj_normal = vec3{0.0, face2_normal.y, face2_normal.z};
+  vec3 proj_normal = vec3{0.0, rot_face2_normal.y, rot_face2_normal.z};
   double rot2_angle = yocto::angle(proj_normal, vec3{0.0, 1.0, 0.0});
   quat4 rot2 = QuatFromVec(yocto::rotation_quat({1.0, 0.0, 0.0}, rot2_angle));
 
-  return normalize(rot1 * rot2);
+  return normalize(rot2 * rot1);
 }
 
+// Make the two faces parallel to the z axis (as above) and then rotate
+// around z such that face1 is is aligned with the y axis.
+static quat4 AlignFaces(const std::vector<vec3> &vertices,
+                        const std::vector<int> &face1,
+                        const std::vector<int> &face2) {
+
+  const quat4 parallel_inner_rot = MakeTwoFacesParallelToZ(
+      vertices, face1, face2);
+
+  // Now, compute the additional rotation around the z-axis.
+  // First, get the transformed normal of face1.
+  const vec3 face1_normal = FaceNormal(vertices, face1);
+
+  // The face1 normal after the rotation. This is in the xy plane
+  // by the construction above.
+  const vec3 xy_normal = yocto::transform_direction(
+      yocto::rotation_frame(parallel_inner_rot), face1_normal);
+
+  CHECK(std::abs(xy_normal.z) < 0.01) << "The rotated face 1 normal "
+    "should already be in the x/y plane: " << VecString(xy_normal);
+
+  // Compute the angle to the y-axis. Since this is the normal, which
+  // is perpendicular to the face, we then add 90 degrees.
+  const double rot3_angle = std::atan2(xy_normal.x, xy_normal.y) +
+    (std::numbers::pi * 0.5);
+  const quat4 rot3 =
+    QuatFromVec(yocto::rotation_quat({0.0, 0.0, 1.0}, rot3_angle));
+
+  // Apply the additional rotation to the inner rotation.
+  return normalize(rot3 * parallel_inner_rot);
+}
 
 // Third approach: Joint optimization, but place the inner in some
-// orientation where a face is parallel to the z axis. Then only
-// consider rotations around the z axis (and translations) for the
-// inner.
+// orientation where two faces are parallel to the z axis and one is
+// also aligned with they the y axis. The outer polyhedron is
+// unconstrained.
 struct ParallelSolver : public Solver<SolutionDB::METHOD_PARALLEL> {
   using Solver::Solver;
 
@@ -612,11 +647,11 @@ struct ParallelSolver : public Solver<SolutionDB::METHOD_PARALLEL> {
     // Get two face indices that are not parallel.
     const auto &[face1, face2] = TwoNonParallelFaces(rc, polyhedron);
 
-    const quat4 initial_inner_rot = MakeTwoFacesParallelToZ(
+    // Align 'em.
+    const quat4 initial_inner_rot = AlignFaces(
         polyhedron.vertices,
         polyhedron.faces->v[face1],
         polyhedron.faces->v[face2]);
-
     const frame3 initial_inner_frame =
       yocto::rotation_frame(initial_inner_rot);
 
@@ -707,9 +742,6 @@ static void SolveParallel(const Polyhedron &polyhedron, StatusBar *status,
 // Solve a constrained problem:
 //   - Both solids have their centers on the projection axis
 //   - The inner solid has two of its faces aligned to the projection axis.
-//
-// TODO: We should additionally rotate the inner shadow so that it has
-// one of those two faces aligned with the x axis.
 struct SpecialSolver : public Solver<SolutionDB::METHOD_SPECIAL> {
   using Solver::Solver;
 
@@ -724,11 +756,10 @@ struct SpecialSolver : public Solver<SolutionDB::METHOD_SPECIAL> {
     // Get two face indices that are not parallel.
     const auto &[face1, face2] = TwoNonParallelFaces(rc, polyhedron);
 
-    const quat4 initial_inner_rot = MakeTwoFacesParallelToZ(
+    const quat4 initial_inner_rot = AlignFaces(
         polyhedron.vertices,
         polyhedron.faces->v[face1],
         polyhedron.faces->v[face2]);
-
     const frame3 initial_inner_frame =
       yocto::rotation_frame(initial_inner_rot);
 
