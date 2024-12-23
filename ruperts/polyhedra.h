@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <limits>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -83,6 +84,18 @@ std::string VecString(const vec2 &v);
 std::string QuatString(const quat4 &q);
 std::string FrameString(const frame3 &f);
 std::string FormatNum(uint64_t n);
+
+inline bool TriangleIsDegenerate(const vec3 &v0,
+                                 const vec3 &v1,
+                                 const vec3 &v2) {
+  vec3 v0v1 = v1 - v0;
+  vec3 v0v2 = v2 - v0;
+  vec3 cross_product = yocto::cross(v0v1, v0v2);
+  // This is a about 2e-16, which is pretty generous.
+  return yocto::length_squared(cross_product) <
+    std::numeric_limits<double>::epsilon();
+}
+
 
 // For an oriented edge from v0 to v1, return the signed
 // distance to that edge. Negative distance means to the left.

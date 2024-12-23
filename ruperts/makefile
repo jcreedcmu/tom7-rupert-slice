@@ -69,5 +69,9 @@ query.exe : query.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
+noperts.exe : noperts.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
 clean :
 	rm -f *.o *.exe $(OBJECTS)
