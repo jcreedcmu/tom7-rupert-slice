@@ -2,6 +2,7 @@
 #include "polyhedra.h"
 
 #include <limits>
+#include <tuple>
 #include <unordered_set>
 #include <algorithm>
 #include <bit>
@@ -196,8 +197,7 @@ double TriangleSignedDistance(vec2 p0, vec2 p1, vec2 p2, vec2 p) {
   return -sqrt(d.x) * sgn(d.y);
 }
 
-Faces::Faces(int num_vertices, std::vector<std::vector<int>> v_in) :
-  v(std::move(v_in)) {
+Faces *Faces::Create(int num_vertices, std::vector<std::vector<int>> v) {
 
   std::vector<std::unordered_set<int>> collated(num_vertices);
   for (const std::vector<int> &face : v) {
@@ -213,22 +213,38 @@ Faces::Faces(int num_vertices, std::vector<std::vector<int>> v_in) :
   }
 
   // Now flatten into vector.
+  std::vector<std::vector<int>> neighbors;
   neighbors.resize(num_vertices);
   for (int i = 0; i < (int)collated.size(); i++) {
     neighbors[i] = SetToSortedVec(collated[i]);
     // printf("#%d has %d neighbors\n", i, (int)neighbors[i].size());
-    CHECK(!neighbors[i].empty());
+    // e.g. if there are points that are not on faces. One cause
+    // of this would be if the convex hull and facetization disagree
+    // on epsilon, and so there are disconnected points.
+    if (neighbors[i].empty()) return nullptr;
   }
 
   // And triangulate. Since the faces are convex, we can
   // just do this by creating triangle fans.
+  std::vector<std::tuple<int, int, int>> triangulation;
   for (const std::vector<int> &face : v) {
-    CHECK(face.size() >= 3);
+    if (face.size() < 3) return nullptr;
     int p0 = face[0];
     for (int i = 1; i + 1 < face.size(); i++) {
       triangulation.emplace_back(p0, face[i], face[i + 1]);
     }
   }
+
+  Faces *faces = new Faces;
+  faces->v = std::move(v);
+  faces->neighbors = std::move(neighbors);
+  faces->triangulation = std::move(triangulation);
+  return faces;
+}
+
+Faces::Faces(int num_vertices, std::vector<std::vector<int>> v_in) :
+  v(std::move(v_in)) {
+
 }
 
 
@@ -1090,8 +1106,14 @@ Polyhedron Dodecahedron() {
 // This is not fast but it should work for any convex polyhedron,
 // so it's a clean way to generate a wide variety from just the
 // vertices.
-Polyhedron ConvexPolyhedronFromVertices(
-    std::vector<vec3> vertices, const char *name) {
+//
+// If FRAGILE is true, then it aborts if anything is wrong.
+// Otherwise, returns false if anything is wrong.
+template<bool FRAGILE>
+static bool InitPolyhedronInternal(
+    std::vector<vec3> vertices,
+    const char *name,
+    Polyhedron *out) {
   static constexpr int VERBOSE = 0;
 
   // All faces (as a set of vertices) we've already found. The
@@ -1100,6 +1122,7 @@ Polyhedron ConvexPolyhedronFromVertices(
   std::unordered_set<std::vector<int>, Hashing<std::vector<int>>>
     all_faces;
 
+  bool degenerate = false;
   // Given a plane defined by distinct points (v0, v1, v2), classify
   // all of the other points as either above, below, or on the plane.
   // If there are nonzero points both above and below, then this is
@@ -1107,8 +1130,9 @@ Polyhedron ConvexPolyhedronFromVertices(
   // vertices on the face, which will include at least i, j, and k.
   // The vertices are returned in sorted order (by index), which may
   // not be a proper winding for the polygon.
-  auto GetFace = [&vertices](int i, int j, int k) ->
+  auto GetFace = [&vertices, &degenerate](int i, int j, int k) ->
     std::optional<std::vector<int>> {
+    (void)degenerate;
     // Three vertices define a plane.
     const vec3 &v0 = vertices[i];
     const vec3 &v1 = vertices[j];
@@ -1153,9 +1177,16 @@ Polyhedron ConvexPolyhedronFromVertices(
       }
     }
 
-    CHECK(!(below && above));
-    CHECK(below || above) << "This would only happen if we had "
+    if constexpr (FRAGILE) {
+      CHECK(!(below && above));
+      CHECK(below || above) << "This would only happen if we had "
         "a degenerate, volumeless polyhedron, which we do not.";
+    } else {
+      if (below == above) {
+        degenerate = true;
+        return std::nullopt;
+      }
+    }
 
     coplanar.push_back(i);
     coplanar.push_back(j);
@@ -1180,6 +1211,8 @@ Polyhedron ConvexPolyhedronFromVertices(
       }
     }
   }
+
+  if (degenerate) return false;
 
   if (VERBOSE > 0) {
     printf("%s: There are %d distinct faces.\n",
@@ -1238,11 +1271,26 @@ Polyhedron ConvexPolyhedronFromVertices(
   }
 
   Faces *faces = new Faces(vertices.size(), std::move(fs));
-  return Polyhedron{
-    .vertices = std::move(vertices),
-    .faces = faces,
-    .name = name,
-  };
+  out->vertices = std::move(vertices);
+  out->faces = faces;
+  out->name = name;
+  return true;
+}
+
+static Polyhedron MakeConvexOrDie(
+    std::vector<vec3> vertices, const char *name) {
+  Polyhedron poly;
+  (void)InitPolyhedronInternal<true>(vertices, name, &poly);
+  return poly;
+}
+
+std::optional<Polyhedron> ConvexPolyhedronFromVertices(
+    std::vector<vec3> vertices, const char *name) {
+  Polyhedron poly;
+  if (!InitPolyhedronInternal<false>(vertices, name, &poly)) {
+    return std::nullopt;
+  }
+  return std::make_optional<Polyhedron>(std::move(poly));
 }
 
 
@@ -1295,7 +1343,7 @@ Polyhedron SnubCube() {
     vertices.emplace_back(vec3(c, b, a) * signs);
   }
 
-  return ConvexPolyhedronFromVertices(std::move(vertices), "snubcube");
+  return MakeConvexOrDie(std::move(vertices), "snubcube");
 }
 
 Polyhedron Tetrahedron() {
@@ -1306,7 +1354,7 @@ Polyhedron Tetrahedron() {
     vec3{-1.0, -1.0,  1.0},
   };
 
-  return ConvexPolyhedronFromVertices(std::move(vertices), "tetrahedron");
+  return MakeConvexOrDie(std::move(vertices), "tetrahedron");
 }
 
 Polyhedron Cube() {
@@ -1370,7 +1418,7 @@ Polyhedron Octahedron() {
   }
 
   CHECK(vertices.size() == 6);
-  return ConvexPolyhedronFromVertices(std::move(vertices), "octahedron");
+  return MakeConvexOrDie(std::move(vertices), "octahedron");
 }
 
 Polyhedron Icosahedron() {
@@ -1387,7 +1435,7 @@ Polyhedron Icosahedron() {
     vertices.push_back(vec3{.x = 0.0, .y = s1, .z = s2 * phi});
   }
 
-  return ConvexPolyhedronFromVertices(std::move(vertices), "icosahedron");
+  return MakeConvexOrDie(std::move(vertices), "icosahedron");
 }
 
 Polyhedron Cuboctahedron() {
@@ -1400,7 +1448,7 @@ Polyhedron Cuboctahedron() {
     vertices.emplace_back(s1, 0.0, s2);
     vertices.emplace_back(0.0, s1, s2);
   }
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "cuboctahedron");
 }
 
@@ -1419,7 +1467,7 @@ Polyhedron Rhombicuboctahedron() {
   }
 
   // printf("Get faces..\n");
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "rhombicuboctahedron");
 }
 
@@ -1447,7 +1495,7 @@ Polyhedron TruncatedCuboctahedron() {
   }
 
   CHECK(vertices.size() == 48);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "truncatedcuboctahedron");
 }
 
@@ -1504,7 +1552,7 @@ Polyhedron Icosidodecahedron() {
   }
 
   CHECK(vertices.size() == 30);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "icosidodecahedron");
 }
 
@@ -1533,7 +1581,7 @@ Polyhedron TruncatedDodecahedron() {
   }
 
   CHECK(vertices.size() == 60);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "truncateddodecahedron");
 }
 
@@ -1559,7 +1607,7 @@ Polyhedron TruncatedIcosahedron() {
   ico.faces = nullptr;
 
   CHECK(vertices.size() == 60);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "truncatedicosahedron");
 }
 
@@ -1594,7 +1642,7 @@ Polyhedron TruncatedIcosidodecahedron() {
   }
 
   CHECK(vertices.size() == 120);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "truncatedicosidodecahedron");
 }
 
@@ -1625,7 +1673,7 @@ Polyhedron Rhombicosidodecahedron() {
   }
 
   CHECK(vertices.size() == 60) << vertices.size();
-  return ConvexPolyhedronFromVertices(std::move(vertices),
+  return MakeConvexOrDie(std::move(vertices),
                                       "rhombicosidodecahedron");
 }
 
@@ -1651,7 +1699,7 @@ Polyhedron TruncatedTetrahedron() {
   }
 
   CHECK(vertices.size() == 12);
-  return ConvexPolyhedronFromVertices(std::move(vertices),
+  return MakeConvexOrDie(std::move(vertices),
                                       "truncatedtetrahedron");
 }
 
@@ -1670,7 +1718,7 @@ Polyhedron TruncatedCube() {
   }
 
   CHECK(vertices.size() == 24);
-  return ConvexPolyhedronFromVertices(std::move(vertices),
+  return MakeConvexOrDie(std::move(vertices),
                                       "truncatedcube");
 }
 
@@ -1694,7 +1742,7 @@ Polyhedron TruncatedOctahedron() {
   }
 
   CHECK(vertices.size() == 24);
-  return ConvexPolyhedronFromVertices(std::move(vertices),
+  return MakeConvexOrDie(std::move(vertices),
                                       "truncatedoctahedron");
 }
 
@@ -1769,7 +1817,7 @@ Polyhedron SnubDodecahedron() {
   std::vector<vec3> vertices = TwoEdgeLengthSnubDodecahedron();
 
   CHECK(vertices.size() == 60);
-  return ConvexPolyhedronFromVertices(std::move(vertices),
+  return MakeConvexOrDie(std::move(vertices),
                                       "snubdodecahedron");
 }
 
@@ -1786,7 +1834,7 @@ Polyhedron TriakisTetrahedron() {
     vec3{-1, -1, -1},
   };
 
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "triakistetrahedron");
 }
 
@@ -1810,7 +1858,7 @@ Polyhedron RhombicDodecahedron() {
 
   CHECK(vertices.size() == 14);
 
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "rhombicdodecahedron");
 }
 
@@ -1835,7 +1883,7 @@ Polyhedron TriakisOctahedron() {
 
   CHECK(vertices.size() == 14);
 
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "triakisoctahedron");
 }
 
@@ -1858,7 +1906,7 @@ Polyhedron TetrakisHexahedron() {
 
   CHECK(vertices.size() == 14);
 
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "tetrakishexahedron");
 }
 
@@ -1891,7 +1939,7 @@ Polyhedron DeltoidalIcositetrahedron() {
 
   CHECK(vertices.size() == 26);
 
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
     std::move(vertices), "deltoidalicositetrahedron");
 }
 
@@ -1926,7 +1974,7 @@ Polyhedron DisdyakisDodecahedron() {
 
   CHECK(vertices.size() == 26);
 
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "disdyakisdodecahedron");
 }
 
@@ -2019,7 +2067,7 @@ Polyhedron DeltoidalHexecontahedron() {
   vertices.emplace_back(-C4, -C4, -C4);
 
   CHECK(vertices.size() == 62);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "deltoidalhexecontahedron");
 }
 
@@ -2071,7 +2119,7 @@ Polyhedron PentagonalIcositetrahedron() {
 
   CHECK(vertices.size() == 38);
 
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "pentagonalicositetrahedron");
 }
 
@@ -2109,7 +2157,7 @@ Polyhedron RhombicTriacontahedron() {
 
   CHECK(vertices.size() == 32);
 
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "rhombictriacontahedron");
 }
 
@@ -2147,7 +2195,7 @@ Polyhedron TriakisIcosahedron() {
   }
 
   CHECK(vertices.size() == 32);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "triakisicosahedron");
 }
 
@@ -2187,7 +2235,7 @@ Polyhedron PentakisDodecahedron() {
   }
 
   CHECK(vertices.size() == 32);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "pentakisdodecahedron");
 }
 
@@ -2237,7 +2285,7 @@ Polyhedron DisdyakisTriacontahedron() {
   }
 
   CHECK(vertices.size() == 62);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "disdyakistriacontahedron");
 }
 
@@ -2403,6 +2451,6 @@ Polyhedron PentagonalHexecontahedron() {
   vertices.emplace_back( C11,  C11,  C11);
 
   CHECK(vertices.size() == 92);
-  return ConvexPolyhedronFromVertices(
+  return MakeConvexOrDie(
       std::move(vertices), "pentagonalhexecontahedron");
 }

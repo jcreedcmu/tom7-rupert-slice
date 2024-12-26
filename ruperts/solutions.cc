@@ -12,6 +12,7 @@
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "database.h"
+#include "polyhedra.h"
 #include "util.h"
 
 using frame3 = SolutionDB::frame3;
@@ -98,18 +99,32 @@ void SolutionDB::Init() {
 
   db->ExecuteAndPrint("create table "
                       "if not exists "
-                      "noperts ("
+                      "nopertattempts ("
                       "id integer primary key, "
                       "points integer not null, "
                       // Number of random polyhedra solved
                       "attempts integer not null, "
                       "iterhisto string not null, "
-                      "createdate integer not null"
+                      "createdate integer not null, "
+                      "method integer not null"
                       ")");
+
+  db->ExecuteAndPrint("create table "
+                      "if not exists "
+                      "noperts ("
+                      "id integer primary key, "
+                      "points integer not null, "
+                      // comma-separated doubles in xyz order.
+                      "vertices string not null, "
+                      "createdate integer not null, "
+                      "method integer not null"
+                      ")");
+
 }
 
-void SolutionDB::AddNopert(int points, int64_t attempts,
-                           const AutoHisto &iterhisto) {
+void SolutionDB::AddNopertAttempt(int points, int64_t attempts,
+                                  const AutoHisto &iterhisto,
+                                  int method) {
   AutoHisto::Histo h = iterhisto.GetHisto(20);
   std::string histo;
   for (int i = 0; i < h.buckets.size(); i++) {
@@ -117,17 +132,33 @@ void SolutionDB::AddNopert(int points, int64_t attempts,
     double start = h.BucketLeft(i);
     if (start >= 0.0 ||
         h.buckets[i] > 0.0) {
-      StringAppendF(&histo, "%.3f=%lld\n",
+      StringAppendF(&histo, "%.3f=%lld",
                     start, (int64_t)h.buckets[i]);
     }
   }
 
   db->ExecuteAndPrint(
       StringPrintf(
+          "insert into nopertattempts "
+          "(points, attempts, iterhisto, createdate, method) "
+          "values (%d, %lld, '%s', %lld, %d)",
+          points, attempts, histo.c_str(), time(nullptr), method));
+}
+
+void SolutionDB::AddNopert(const Polyhedron &poly, int method) {
+  std::string vs;
+  for (const vec3 &v : poly.vertices) {
+    if (vs.empty()) vs.push_back(',');
+    StringAppendF(&vs, "%.17g,%17g,%17g", v.x, v.y, v.z);
+  }
+
+  db->ExecuteAndPrint(
+      StringPrintf(
           "insert into noperts "
-          "(points, attempts, iterhisto, createdate) "
-          "values (%d, %lld, '%s', %lld)",
-          points, attempts, histo.c_str(), time(nullptr)));
+          "(points, vertices, createdate, method) "
+          "values (%d, '%s', %lld, %d)",
+          (int)poly.vertices.size(),
+          vs.c_str(), time(nullptr), method));
 }
 
 std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {

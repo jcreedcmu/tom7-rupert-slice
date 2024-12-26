@@ -9,10 +9,11 @@
 #include <string>
 #include <vector>
 
+#include "auto-histo.h"
 #include "base/logging.h"
 #include "database.h"
+#include "polyhedra.h"
 #include "yocto_matht.h"
-#include "auto-histo.h"
 
 struct SolutionDB {
   using vec3 = yocto::vec<double, 3>;
@@ -89,8 +90,12 @@ struct SolutionDB {
                   double best_error, int64_t iters,
                   int64_t evals);
 
-  void AddNopert(int points, int64_t attempts,
-                 const AutoHisto &iterhisto);
+  static constexpr int NOPERT_METHOD_RANDOM = 1;
+  void AddNopertAttempt(int points, int64_t attempts,
+                        const AutoHisto &iterhisto,
+                        int method);
+
+  void AddNopert(const Polyhedron &poly, int method);
 
   void ExecuteAndPrint(const std::string &s) {
     db->ExecuteAndPrint(s);

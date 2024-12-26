@@ -1,28 +1,36 @@
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <optional>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "ansi.h"
 #include "arcfour.h"
 #include "atomic-util.h"
 #include "auto-histo.h"
 #include "base/stringprintf.h"
+#include "hull.h"
 #include "opt/opt.h"
 #include "periodically.h"
 #include "polyhedra.h"
 #include "randutil.h"
+#include "rendering.h"
 #include "solutions.h"
 #include "status-bar.h"
+#include "threadutil.h"
 #include "timer.h"
 #include "yocto_matht.h"
 
 // Try to find counterexamples.
 // TODO: Expand beyond tetrahedra.
 
-DECLARE_COUNTERS(tetrahedra, attempts, degenerate, u1_, u2_, u3_, u4_, u5_);
+DECLARE_COUNTERS(polyhedra, attempts, degenerate, u1_, u2_, u3_, u4_, u5_);
 
 
 using vec2 = yocto::vec<double, 2>;
@@ -42,6 +50,8 @@ static vec3 RandomVec(ArcFour *rc) {
 // the limit.
 static constexpr int MAX_ITERS = 10000;
 static std::optional<int> TrySolve(ArcFour *rc, const Polyhedron &poly) {
+  CHECK(!poly.faces->v.empty());
+
   for (int iter = 0; iter < MAX_ITERS; iter++) {
 
     // four params for outer rotation, four params for inner
@@ -131,32 +141,17 @@ static std::optional<int> TrySolve(ArcFour *rc, const Polyhedron &poly) {
   return std::nullopt;
 }
 
-static void Nopert(double max_seconds) {
-  static constexpr int NUM_POINTS = 3;
-
-  static constexpr int HISTO_LINES = 10;
-  ArcFour rc(StringPrintf("noperts.%lld\n", time(nullptr)));
-  Timer timer;
-  AutoHisto histo(10000);
-  StatusBar status(HISTO_LINES + 2);
-  Periodically status_per(5.0);
+[[maybe_unused]]
+static Polyhedron RandomTetrahedron(ArcFour *rc) {
   Polyhedron tetra = Tetrahedron();
   for (;;) {
-    if (timer.Seconds() > max_seconds) {
-      status.Printf("Stopping after %s\n",
-                    ANSI::Time(timer.Seconds()).c_str());
-      SolutionDB db;
-      db.AddNopert(NUM_POINTS, tetrahedra.Read(), histo);
-    }
-
-    tetrahedra++;
     // TODO: We could maybe frame this as an optimization problem
     // (an adversarial one). But to start, we just generate
     // random tetrahedra.
-    vec3 v0 = RandomVec(&rc);
-    vec3 v1 = RandomVec(&rc);
-    vec3 v2 = RandomVec(&rc);
-    vec3 v3 = RandomVec(&rc);
+    vec3 v0 = RandomVec(rc);
+    vec3 v1 = RandomVec(rc);
+    vec3 v2 = RandomVec(rc);
+    vec3 v3 = RandomVec(rc);
     if (TriangleIsDegenerate(v0, v1, v2) ||
         TriangleIsDegenerate(v0, v1, v3) ||
         TriangleIsDegenerate(v0, v2, v3) ||
@@ -175,45 +170,152 @@ static void Nopert(double max_seconds) {
 
     // Now we try to solve it.
     tetra.vertices = {v0, v1, v2, v3};
-    std::optional<int> iters = TrySolve(&rc, tetra);
-    if (iters.has_value()) {
-      histo.Observe(iters.value());
-    } else {
-      printf("\n\n\n\nFailed to solve:\n"
-             "%s\n"
-             "%s\n"
-             "%s\n"
-             "%s\n",
-             VecString(v0).c_str(),
-             VecString(v1).c_str(),
-             VecString(v2).c_str(),
-             VecString(v3).c_str());
-      return;
+
+    return tetra;
+  }
+}
+
+static int NUM_POINTS = 6;
+Polyhedron RandomPolyhedron(ArcFour *rc) {
+  for (;;) {
+    std::vector<vec3> pts;
+    pts.reserve(NUM_POINTS);
+    for (int i = 0; i < NUM_POINTS; i++) {
+      pts.push_back(RandomVec(rc));
     }
 
-    if (status_per.ShouldRun()) {
-      double total_time = timer.Seconds();
-      double tps = tetrahedra.Read() / total_time;
-      // TODO: Can use progress bar when there's a timer.
-      status.Statusf(
-          "%s\n"
-          ABLUE("%s") " tetrahedra "
-          "in %s "
-          "[" ACYAN("%.3f") "/s]\n",
-          histo.SimpleANSI(HISTO_LINES).c_str(),
-          FormatNum(tetrahedra.Read()).c_str(),
-          ANSI::Time(total_time).c_str(),
-          tps);
+    // Just the set of points.
+    std::unordered_set<int> hull_pts;
+    for (const auto &[a, b, c] : QuickHull3D::Hull(pts)) {
+      hull_pts.insert(a);
+      hull_pts.insert(b);
+      hull_pts.insert(c);
+    }
+
+    // printf("Poly has %d points\n", (int)hull_pts.size());
+    std::vector<vec3> pts2;
+    pts2.reserve(hull_pts.size());
+    for (int i : hull_pts) {
+      pts2.push_back(pts[i]);
+    }
+
+    std::optional<Polyhedron> poly =
+      ConvexPolyhedronFromVertices(std::move(pts2), "");
+    if (poly.has_value()) {
+      return std::move(poly.value());
+    } else {
+      degenerate++;
     }
   }
+}
+
+static void Nopert(double max_seconds) {
+  polyhedra.Reset();
+  attempts.Reset();
+  degenerate.Reset();
+
+  static constexpr int NUM_THREADS = 4;
+  static constexpr int HISTO_LINES = 10;
+  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
+
+  Timer timer;
+  AutoHisto histo(10000);
+  StatusBar status(HISTO_LINES + 2);
+  Periodically status_per(5.0);
+  std::mutex m;
+  bool should_die = false;
+
+  ParallelFan(
+      NUM_THREADS,
+      [&](int thread_idx) {
+        ArcFour rc(StringPrintf("noperts.%d.%lld\n",
+                                thread_idx, time(nullptr)));
+
+        for (;;) {
+          {
+            MutexLock ml(&m);
+            if (should_die) return;
+
+            if (timer.Seconds() > max_seconds) {
+              should_die = true;
+              status.Printf("Stopping after %s\n",
+                            ANSI::Time(timer.Seconds()).c_str());
+              SolutionDB db;
+              db.AddNopertAttempt(NUM_POINTS, polyhedra.Read(), histo,
+                                  METHOD);
+              return;
+            }
+          }
+
+          polyhedra++;
+
+          Polyhedron poly = RandomPolyhedron(&rc);
+
+          if constexpr (false) {
+            Rendering r(poly, 1920, 1080);
+            r.RenderMesh(Shadow(poly));
+            static int count = 0;
+            r.Save(StringPrintf("poly.%d.png", count++));
+          }
+
+          std::optional<int> iters = TrySolve(&rc, poly);
+
+          {
+            MutexLock ml(&m);
+            if (should_die) return;
+
+            if (iters.has_value()) {
+              histo.Observe(iters.value());
+            } else {
+              SolutionDB db;
+              db.AddNopert(poly, METHOD);
+
+              status.Printf(
+                  "\n\n" APURPLE("** NOPERT **") "\n");
+              for (const vec3 &v : poly.vertices) {
+                status.Printf("  %s\n",
+                              VecString(v).c_str());
+              }
+              should_die = true;
+              exit(0);
+            }
+          }
+
+          if (status_per.ShouldRun()) {
+            MutexLock ml(&m);
+            double total_time = timer.Seconds();
+            double tps = polyhedra.Read() / total_time;
+            // TODO: Can use progress bar when there's a timer.
+            status.Statusf(
+                "%s\n"
+                AWHITE("%d") " pt " AGREY("|") " "
+                ABLUE("%s") " polyhedra "
+                "in %s "
+                "[" ACYAN("%.3f") "/s]\n",
+                NUM_POINTS,
+                histo.SimpleANSI(HISTO_LINES).c_str(),
+                FormatNum(polyhedra.Read()).c_str(),
+                ANSI::Time(total_time).c_str(),
+                tps);
+          }
+
+          delete poly.faces;
+        }
+      });
 }
 
 int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
 
+  if (argc == 2) {
+    NUM_POINTS = strtol(argv[1], nullptr, 10);
+    CHECK(NUM_POINTS >= 3);
+  }
+
   for (;;) {
     Nopert(60 * 60);
+    NUM_POINTS++;
   }
 
   printf("OK\n");

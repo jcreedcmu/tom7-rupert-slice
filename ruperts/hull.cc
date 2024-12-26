@@ -972,9 +972,10 @@ void QuickHull<T>::BuildMesh(const VertexDataSource<T> &pointCloud, T epsilon) {
 }
 
 template <typename T>
-ConvexHull<T> QuickHull<T>::GetConvexHullInternal(const VertexDataSource<T> &pointCloud,
-                                          bool ccw, bool useOriginalIndices,
-                                          T epsilon) {
+ConvexHull<T> QuickHull<T>::GetConvexHullInternal(
+    const VertexDataSource<T> &pointCloud,
+    bool ccw, bool useOriginalIndices,
+    T epsilon) {
   BuildMesh(pointCloud, epsilon);
   return ConvexHull<T>(mesh, vertex_data, ccw, useOriginalIndices);
 }
@@ -1018,7 +1019,8 @@ void QuickHull<T>::CreateConvexHalfEdgeMesh() {
     auto &tf = mesh.m_faces[topFaceIndex];
     tf.m_inFaceStack = 0;
 
-    assert(!tf.points_on_positive_side || tf.points_on_positive_side->size() > 0);
+    assert(!tf.points_on_positive_side ||
+           tf.points_on_positive_side->size() > 0);
     if (!tf.points_on_positive_side || tf.isDisabled()) {
       continue;
     }
@@ -1188,8 +1190,8 @@ void QuickHull<T>::CreateConvexHalfEdgeMesh() {
           m_newHalfEdgeIndices[((i + 1) * 2) % (horizonEdgeCount * 2)];
     }
 
-    // Assign points that were on the positive side of the disabled faces to the
-    // new faces.
+    // Assign points that were on the positive side of the disabled
+    // faces to the new faces.
     for (auto &disabledPoints : m_disabledFacePointVectors) {
       assert(disabledPoints);
       for (const auto &point : *(disabledPoints)) {

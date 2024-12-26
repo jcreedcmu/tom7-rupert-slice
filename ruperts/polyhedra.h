@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <limits>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -43,9 +44,15 @@ struct Faces {
   int NumVertices() const { return (int)neighbors.size(); }
 
   // Computes the neighbors from the faces. This assumes that
-  // very vertex is on at least one face, which will be true
+  // every vertex is on at least one face, which will be true
   // for well-formed polyhedra.
   Faces(int num_vertices, std::vector<std::vector<int>> v);
+
+  Faces() {}
+
+  // Like the constructor, but returns nullptr if something goes wrong
+  // (like there are vertices that are not on faces).
+  static Faces *Create(int num_vertices, std::vector<std::vector<int>> v);
 };
 
 struct Polyhedron {
@@ -235,8 +242,9 @@ double TriangleSignedDistance(vec2 p0, vec2 p1, vec2 p2, vec2 p);
 // Creates faces as all planes where all the other points are on one
 // side. This is not fast; it's intended for a small number of
 // vertices. The Faces pointer in the returned Polyhedron is owned
-// by the caller.
-Polyhedron ConvexPolyhedronFromVertices(
+// by the caller. Can fail if the points are not actually a convex
+// hull, returning nullopt.
+std::optional<Polyhedron> ConvexPolyhedronFromVertices(
     std::vector<vec3> vertices, const char *name = "");
 
 // Generate some polyhedra. Note that each call new-ly allocates a
