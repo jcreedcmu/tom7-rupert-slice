@@ -9,6 +9,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -53,6 +54,9 @@ struct Faces {
   // Like the constructor, but returns nullptr if something goes wrong
   // (like there are vertices that are not on faces).
   static Faces *Create(int num_vertices, std::vector<std::vector<int>> v);
+
+ private:
+  bool Init(int num_vertices, std::vector<std::vector<int>> v);
 };
 
 struct Polyhedron {
@@ -246,6 +250,10 @@ double TriangleSignedDistance(vec2 p0, vec2 p1, vec2 p2, vec2 p);
 // hull, returning nullopt.
 std::optional<Polyhedron> ConvexPolyhedronFromVertices(
     std::vector<vec3> vertices, const char *name = "");
+
+// Return a newly constructed polyhedron (from below) by its name,
+// or abort.
+Polyhedron PolyhedronByName(std::string_view name);
 
 // Generate some polyhedra. Note that each call new-ly allocates a
 // Faces object, which is then owned by the caller. Many of these are

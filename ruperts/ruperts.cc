@@ -80,6 +80,7 @@ static void SaveSolution(const Polyhedron &poly,
 
 static constexpr int NUM_THREADS = 4;
 static constexpr int HISTO_LINES = 32;
+static constexpr int STATUS_LINES = HISTO_LINES + 3;
 
 template<int METHOD>
 struct Solver {
@@ -95,7 +96,6 @@ struct Solver {
   Periodically image_per;
   double best_error = 1.0e42;
   AutoHisto error_histo;
-  // ArcFour rc(&
 
   double prep_time = 0.0, opt_time = 0.0;
 
@@ -228,19 +228,28 @@ struct Solver {
                 int64_t it = iters.Read();
                 double ips = it / total_time;
 
+
+                int64_t end_sec =
+                  time_limit.has_value() ? (int64_t)time_limit.value() :
+                  9999999;
+                std::string bar =
+                  ANSI::ProgressBar(
+                      (int64_t)total_time, end_sec,
+                      StringPrintf(APURPLE("%s") " | " ACYAN("%s"),
+                                   polyhedron.name, LowerMethod().c_str()),
+                      total_time);
+
                 // TODO: Can use progress bar when there's a timer.
                 status->Statusf(
                     "%s\n"
-                    "[" AWHITE("%s") "]" " run for %s "
-                    "[" ACYAN("%.3f") "/s]\n"
-                    "%s iters, %s attempts; best: %.11g",
+                    "%s\n"
+                    "%s iters, %s attempts; best: %.11g"
+                    " [" ACYAN("%.3f") "/s]\n",
                     error_histo.SimpleANSI(HISTO_LINES).c_str(),
-                    LowerMethod().c_str(),
-                    ANSI::Time(total_time).c_str(),
-                    ips,
+                    bar.c_str(),
                     FormatNum(it).c_str(),
                     FormatNum(attempts.Read()).c_str(),
-                    best_error);
+                    best_error, ips);
               });
           }
 
@@ -971,7 +980,7 @@ static void ReproduceEasySolutions(
       return false;
     };
 
-  StatusBar status(3 + HISTO_LINES);
+  StatusBar status(STATUS_LINES);
 
   auto MaybeSolve = [&](Polyhedron poly) {
       if (HasSolutionWithMethod(poly)) {
@@ -1131,7 +1140,7 @@ static void GrindRandom() {
 
   printf("Total remaining: " APURPLE("%d") "\n", (int)remaining.size());
 
-StatusBar status(3 + HISTO_LINES);
+StatusBar status(STATUS_LINES);
   ArcFour rc(StringPrintf("grind.%lld", time(nullptr)));
   for (;;) {
     int idx = RandTo(&rc, remaining.size());
@@ -1198,7 +1207,7 @@ int main(int argc, char **argv) {
 
   // Call one of the solution procedures:
 
-  StatusBar status(3 + HISTO_LINES);
+  StatusBar status(STATUS_LINES);
 
   SolveSimul(target, &status);
 

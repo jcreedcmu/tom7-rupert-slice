@@ -161,21 +161,15 @@ void SolutionDB::AddNopert(const Polyhedron &poly, int method) {
           vs.c_str(), time(nullptr), method));
 }
 
-std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
-  std::unique_ptr<Query> q =
-    db->ExecuteString(
-        "select "
-        "polyhedron, method, outerframe, innerframe, "
-        "createdate, ratio "
-        "from solutions");
-
-  std::vector<Solution> ret;
-  while (std::unique_ptr<Row> r = q->NextRow()) {
-    Solution sol;
+static std::vector<SolutionDB::Solution> GetSolutionsForQuery(
+    std::unique_ptr<Database::Query> q) {
+  std::vector<SolutionDB::Solution> ret;
+  while (std::unique_ptr<Database::Row> r = q->NextRow()) {
+    SolutionDB::Solution sol;
     sol.polyhedron = r->GetString(0);
     sol.method = r->GetInt(1);
-    auto oo = StringFrame(r->GetString(2));
-    auto io = StringFrame(r->GetString(3));
+    auto oo = SolutionDB::StringFrame(r->GetString(2));
+    auto io = SolutionDB::StringFrame(r->GetString(3));
     if (!oo.has_value() || !io.has_value()) continue;
     sol.outer_frame = oo.value();
     sol.inner_frame = io.value();
@@ -184,6 +178,29 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
     ret.push_back(std::move(sol));
   }
   return ret;
+}
+
+std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
+  return GetSolutionsForQuery(
+    db->ExecuteString(
+        "select "
+        "polyhedron, method, outerframe, innerframe, "
+        "createdate, ratio "
+        "from solutions"));
+
+}
+
+std::vector<SolutionDB::Solution> SolutionDB::GetSolutionsFor(
+    const std::string &name) {
+  return GetSolutionsForQuery(
+    db->ExecuteString(
+        StringPrintf(
+            "select "
+            "polyhedron, method, outerframe, innerframe, "
+            "createdate, ratio "
+            "from solutions "
+            "where polyhedron = '%s'",
+            name.c_str())));
 }
 
 std::vector<SolutionDB::Attempt> SolutionDB::GetAllAttempts() {

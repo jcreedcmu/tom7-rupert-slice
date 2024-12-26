@@ -2,7 +2,7 @@
 #include "polyhedra.h"
 
 #include <limits>
-#include <tuple>
+#include <string_view>
 #include <unordered_set>
 #include <algorithm>
 #include <bit>
@@ -199,6 +199,18 @@ double TriangleSignedDistance(vec2 p0, vec2 p1, vec2 p2, vec2 p) {
 
 Faces *Faces::Create(int num_vertices, std::vector<std::vector<int>> v) {
 
+  Faces *faces = new Faces;
+  if (faces->Init(num_vertices, std::move(v))) {
+    return faces;
+  } else {
+    delete faces;
+    return nullptr;
+  }
+}
+
+bool Faces::Init(int num_vertices, std::vector<std::vector<int>> v_in) {
+  v = std::move(v_in);
+
   std::vector<std::unordered_set<int>> collated(num_vertices);
   for (const std::vector<int> &face : v) {
     // Add each edge forwards and backwards.
@@ -213,7 +225,6 @@ Faces *Faces::Create(int num_vertices, std::vector<std::vector<int>> v) {
   }
 
   // Now flatten into vector.
-  std::vector<std::vector<int>> neighbors;
   neighbors.resize(num_vertices);
   for (int i = 0; i < (int)collated.size(); i++) {
     neighbors[i] = SetToSortedVec(collated[i]);
@@ -221,30 +232,24 @@ Faces *Faces::Create(int num_vertices, std::vector<std::vector<int>> v) {
     // e.g. if there are points that are not on faces. One cause
     // of this would be if the convex hull and facetization disagree
     // on epsilon, and so there are disconnected points.
-    if (neighbors[i].empty()) return nullptr;
+    if (neighbors[i].empty()) return false;
   }
 
   // And triangulate. Since the faces are convex, we can
   // just do this by creating triangle fans.
-  std::vector<std::tuple<int, int, int>> triangulation;
   for (const std::vector<int> &face : v) {
-    if (face.size() < 3) return nullptr;
+    if (face.size() < 3) return false;
     int p0 = face[0];
     for (int i = 1; i + 1 < face.size(); i++) {
       triangulation.emplace_back(p0, face[i], face[i + 1]);
     }
   }
 
-  Faces *faces = new Faces;
-  faces->v = std::move(v);
-  faces->neighbors = std::move(neighbors);
-  faces->triangulation = std::move(triangulation);
-  return faces;
+  return true;
 }
 
-Faces::Faces(int num_vertices, std::vector<std::vector<int>> v_in) :
-  v(std::move(v_in)) {
-
+Faces::Faces(int num_vertices, std::vector<std::vector<int>> v_in) {
+  CHECK(Init(num_vertices, std::move(v_in)));
 }
 
 
@@ -950,6 +955,41 @@ std::pair<int, int> TwoNonParallelFaces(ArcFour *rc, const Polyhedron &poly) {
   }
 }
 
+Polyhedron PolyhedronByName(std::string_view name) {
+  if (name == "tetrahedron") return Tetrahedron();
+  if (name == "cube") return Cube();
+  if (name == "dodecahedron") return Dodecahedron();
+  if (name == "icosahedron") return Icosahedron();
+  if (name == "octahedron") return Octahedron();
+  if (name == "truncatedtetrahedron") return TruncatedTetrahedron();
+  if (name == "cuboctahedron") return Cuboctahedron();
+  if (name == "truncatedcube") return TruncatedCube();
+  if (name == "truncatedoctahedron") return TruncatedOctahedron();
+  if (name == "rhombicuboctahedron") return Rhombicuboctahedron();
+  if (name == "truncatedcuboctahedron") return TruncatedCuboctahedron();
+  if (name == "snubcube") return SnubCube();
+  if (name == "icosidodecahedron") return Icosidodecahedron();
+  if (name == "truncateddodecahedron") return TruncatedDodecahedron();
+  if (name == "truncatedicosahedron") return TruncatedIcosahedron();
+  if (name == "rhombicosidodecahedron") return Rhombicosidodecahedron();
+  if (name == "truncatedicosidodecahedron") return TruncatedIcosidodecahedron();
+  if (name == "snubdodecahedron") return SnubDodecahedron();
+  if (name == "triakistetrahedron") return TriakisTetrahedron();
+  if (name == "rhombicdodecahedron") return RhombicDodecahedron();
+  if (name == "triakisoctahedron") return TriakisOctahedron();
+  if (name == "tetrakishexahedron") return TetrakisHexahedron();
+  if (name == "deltoidalicositetrahedron") return DeltoidalIcositetrahedron();
+  if (name == "disdyakisdodecahedron") return DisdyakisDodecahedron();
+  if (name == "deltoidalhexecontahedron") return DeltoidalHexecontahedron();
+  if (name == "pentagonalicositetrahedron") return PentagonalIcositetrahedron();
+  if (name == "rhombictriacontahedron") return RhombicTriacontahedron();
+  if (name == "triakisicosahedron") return TriakisIcosahedron();
+  if (name == "pentakisdodecahedron") return PentakisDodecahedron();
+  if (name == "disdyakistriacontahedron") return DisdyakisTriacontahedron();
+  if (name == "pentagonalhexecontahedron") return PentagonalHexecontahedron();
+  LOG(FATAL) << "Unknown polyhedron " << name;
+}
+
 Polyhedron Dodecahedron() {
   constexpr bool VERBOSE = false;
 
@@ -1590,7 +1630,9 @@ Polyhedron TruncatedIcosahedron() {
 
   // Derive from the icosahedron.
   Polyhedron ico = Icosahedron();
-  for (int i = 0; i < ico.vertices.size(); i++) {
+  CHECK(ico.vertices.size() == ico.faces->neighbors.size()) <<
+    ico.vertices.size() << " vs " << ico.faces->neighbors.size();
+  for (int i = 0; i < ico.faces->neighbors.size(); i++) {
     for (int j : ico.faces->neighbors[i]) {
       // Consider every edge, but only once.
       if (i < j) {
@@ -1673,8 +1715,7 @@ Polyhedron Rhombicosidodecahedron() {
   }
 
   CHECK(vertices.size() == 60) << vertices.size();
-  return MakeConvexOrDie(std::move(vertices),
-                                      "rhombicosidodecahedron");
+  return MakeConvexOrDie(std::move(vertices), "rhombicosidodecahedron");
 }
 
 Polyhedron TruncatedTetrahedron() {

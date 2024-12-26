@@ -292,8 +292,8 @@ static void Nopert(double max_seconds) {
                 ABLUE("%s") " polyhedra "
                 "in %s "
                 "[" ACYAN("%.3f") "/s]\n",
-                NUM_POINTS,
                 histo.SimpleANSI(HISTO_LINES).c_str(),
+                NUM_POINTS,
                 FormatNum(polyhedra.Read()).c_str(),
                 ANSI::Time(total_time).c_str(),
                 tps);

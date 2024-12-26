@@ -80,6 +80,8 @@ struct SolutionDB {
   std::vector<Solution> GetAllSolutions();
   std::vector<Attempt> GetAllAttempts();
 
+  std::vector<Solution> GetSolutionsFor(const std::string &name);
+
   void AddSolution(const std::string &polyhedron,
                    const frame3 &outer_frame,
                    const frame3 &inner_frame,
