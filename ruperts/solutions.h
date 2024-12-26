@@ -28,6 +28,7 @@ struct SolutionDB {
   static constexpr int METHOD_GPU1 = 5;
   static constexpr int METHOD_SPECIAL = 6;
   static constexpr int METHOD_ORIGIN = 7;
+  static constexpr int METHOD_ALMOST_ID = 8;
 
   static const char *MethodName(int m) {
     switch (m) {
@@ -38,6 +39,7 @@ struct SolutionDB {
     case METHOD_GPU1: return "METHOD_GPU1";
     case METHOD_SPECIAL: return "METHOD_SPECIAL";
     case METHOD_ORIGIN: return "METHOD_ORIGIN";
+    case METHOD_ALMOST_ID: return "METHOD_ALMOST_ID";
     default: return "UNKNOWN";
     }
   }

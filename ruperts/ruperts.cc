@@ -293,7 +293,7 @@ struct HullSolver : public Solver<SolutionDB::METHOD_HULL> {
         frame3 rotate = yocto::rotation_frame(tweaked_rot);
         frame3 translate = yocto::translation_frame(
             vec3{.x = dx, .y = dy, .z = 0.0});
-        return rotate * translate;
+        return translate * rotate;
       };
 
     std::function<double(const std::array<double, D> &)> Loss =
@@ -390,7 +390,7 @@ struct SimulSolver : public Solver<SolutionDB::METHOD_SIMUL> {
         frame3 rotate = yocto::rotation_frame(tweaked_rot);
         frame3 translate = yocto::translation_frame(
             vec3{.x = dx, .y = dy, .z = 0.0});
-        return rotate * translate;
+        return translate * rotate;
       };
 
     std::function<double(const std::array<double, D> &)> Loss =
@@ -505,7 +505,7 @@ struct MaxSolver : public Solver<SolutionDB::METHOD_MAX> {
         frame3 rotate = yocto::rotation_frame(tweaked_rot);
         frame3 translate = yocto::translation_frame(
             vec3{.x = dx, .y = dy, .z = 0.0});
-        return rotate * translate;
+        return translate * rotate;
       };
 
     std::function<double(const std::array<double, D> &)> Loss =
@@ -937,6 +937,107 @@ static void SolveOrigin(const Polyhedron &polyhedron, StatusBar *status,
   s.Run();
 }
 
+// Simultaneous optimization, but starting from a transformation that is
+// almost the identity.
+struct AlmostIdSolver : public Solver<SolutionDB::METHOD_ALMOST_ID> {
+  using Solver::Solver;
+
+  std::tuple<double, frame3, frame3> RunOne(ArcFour *rc) override {
+    // four params for outer rotation, four params for inner
+    // rotation, two for 2d translation of inner.
+    static constexpr int D = 10;
+
+    Timer prep_timer;
+    const quat4 initial_outer_rot = RandomQuaternion(rc);
+    // ... use the same orientation for both.
+    const quat4 initial_inner_rot = initial_outer_rot;
+
+    // Get the frames from the appropriate positions in the
+    // argument.
+
+    auto OuterFrame = [&initial_outer_rot](
+        const std::array<double, D> &args) {
+        const auto &[o0, o1, o2, o3,
+                     i0_, i1_, i2_, i3_, dx_, dy_] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = initial_outer_rot.x + o0,
+            .y = initial_outer_rot.y + o1,
+            .z = initial_outer_rot.z + o2,
+            .w = initial_outer_rot.w + o3,
+          });
+        return yocto::rotation_frame(tweaked_rot);
+      };
+
+    auto InnerFrame = [&initial_inner_rot](
+        const std::array<double, D> &args) {
+        const auto &[o0_, o1_, o2_, o3_,
+                     i0, i1, i2, i3, dx, dy] = args;
+        quat4 tweaked_rot = normalize(quat4{
+            .x = initial_inner_rot.x + i0,
+            .y = initial_inner_rot.y + i1,
+            .z = initial_inner_rot.z + i2,
+            .w = initial_inner_rot.w + i3,
+          });
+        frame3 rotate = yocto::rotation_frame(tweaked_rot);
+        frame3 translate = yocto::translation_frame(
+            vec3{.x = dx, .y = dy, .z = 0.0});
+        return translate * rotate;
+      };
+
+    std::function<double(const std::array<double, D> &)> Loss =
+      [this, &OuterFrame, &InnerFrame](
+          const std::array<double, D> &args) {
+        attempts++;
+        frame3 outer_frame = OuterFrame(args);
+        frame3 inner_frame = InnerFrame(args);
+        Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
+        Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
+
+        // Does every vertex in inner fall inside the outer shadow?
+        double error = 0.0;
+        int errors = 0;
+        for (const vec2 &iv : sinner.vertices) {
+          if (!InMesh(souter, iv)) {
+            // slow :(
+            error += DistanceToMesh(souter, iv);
+            errors++;
+          }
+        }
+
+        if (error == 0.0 && errors > 0) [[unlikely]] {
+          // If they are not in the mesh, don't return an actual zero.
+          return std::numeric_limits<double>::min() * errors;
+        } else {
+          return error;
+        }
+      };
+
+    constexpr double Q = 0.001;
+
+    const std::array<double, D> lb =
+      {-Q, -Q, -Q, -Q,
+       -Q, -Q, -Q, -Q, -0.001, -0.001};
+    const std::array<double, D> ub =
+      {+Q, +Q, +Q, +Q,
+       +Q, +Q, +Q, +Q, +0.001, +0.001};
+    [[maybe_unused]] const double prep_sec = prep_timer.Seconds();
+
+    Timer opt_timer;
+    const auto &[args, error] =
+      Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+    [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
+
+    return std::make_tuple(error, OuterFrame(args), InnerFrame(args));
+  }
+};
+
+static void SolveAlmostId(const Polyhedron &polyhedron, StatusBar *status,
+                       std::optional<double> time_limit = std::nullopt) {
+  AlmostIdSolver s(polyhedron, status, time_limit);
+  s.Run();
+}
+
+
 static void SolveWith(const Polyhedron &poly, int method, StatusBar *status,
                       std::optional<double> time_limit) {
   status->Printf("Solve " AYELLOW("%s") " with " AWHITE("%s") "...\n",
@@ -956,6 +1057,8 @@ static void SolveWith(const Polyhedron &poly, int method, StatusBar *status,
     return SolveSpecial(poly, status, time_limit);
   case SolutionDB::METHOD_ORIGIN:
     return SolveOrigin(poly, status, time_limit);
+  case SolutionDB::METHOD_ALMOST_ID:
+    return SolveAlmostId(poly, status, time_limit);
   default:
     LOG(FATAL) << "Method not available";
   }
@@ -1095,54 +1198,59 @@ static void GrindRandom() {
     PentagonalHexecontahedron(),
   };
 
-  std::vector<SolutionDB::Solution> sols = []() {
-      SolutionDB db;
-      return db.GetAllSolutions();
-    }();
-  auto HasSolutionWithMethod = [&](const Polyhedron &poly, int method) {
-      for (const auto &sol : sols)
-        if (sol.method == method && sol.polyhedron == poly.name)
-          return true;
-      return false;
+  auto GetRemaining = [&all]() {
+      std::vector<SolutionDB::Solution> sols = []() {
+          SolutionDB db;
+          return db.GetAllSolutions();
+        }();
+      auto HasSolutionWithMethod = [&](const Polyhedron &poly, int method) {
+          for (const auto &sol : sols)
+            if (sol.method == method && sol.polyhedron == poly.name)
+              return true;
+          return false;
+        };
+
+      std::vector<std::pair<const Polyhedron *, int>> remaining;
+      for (const Polyhedron &poly : all) {
+        printf(AWHITE("%s") ":", poly.name);
+        bool has_solution = false;
+        for (int method : {
+            SolutionDB::METHOD_HULL,
+            SolutionDB::METHOD_SIMUL,
+            SolutionDB::METHOD_MAX,
+            SolutionDB::METHOD_PARALLEL,
+            SolutionDB::METHOD_SPECIAL,
+            SolutionDB::METHOD_ORIGIN,
+            SolutionDB::METHOD_ALMOST_ID}) {
+          if (HasSolutionWithMethod(poly, method)) {
+            has_solution = true;
+            std::string name = Util::lcase(SolutionDB::MethodName(method));
+            (void)Util::TryStripPrefix("method_", &name);
+            printf(" " ACYAN("%s"), name.c_str());
+          } else {
+            remaining.emplace_back(&poly, method);
+          }
+        }
+
+        if (has_solution) {
+          printf("\n");
+        } else {
+          printf(" " ARED("unsolved") "\n");
+        }
+      }
+
+      printf("Total remaining: " APURPLE("%d") "\n", (int)remaining.size());
+      return remaining;
     };
 
-  std::vector<std::pair<const Polyhedron *, int>> remaining;
-  for (const Polyhedron &poly : all) {
-    printf(AWHITE("%s") ":", poly.name);
-    bool has_solution = false;
-    for (int method : {
-        SolutionDB::METHOD_HULL,
-        SolutionDB::METHOD_SIMUL,
-        SolutionDB::METHOD_MAX,
-        SolutionDB::METHOD_PARALLEL,
-        SolutionDB::METHOD_SPECIAL,
-        SolutionDB::METHOD_ORIGIN}) {
-      if (HasSolutionWithMethod(poly, method)) {
-        has_solution = true;
-        std::string name = Util::lcase(SolutionDB::MethodName(method));
-        (void)Util::TryStripPrefix("method_", &name);
-        printf(" " ACYAN("%s"), name.c_str());
-      } else {
-        remaining.emplace_back(&poly, method);
-        /*
-          printf("Unsolved: " AWHITE("%s") " with " ACYAN("%s") "\n",
-          poly.name, SolutionDB::MethodName(method));
-        */
-      }
-    }
-
-    if (has_solution) {
-      printf("\n");
-    } else {
-      printf(" " ARED("unsolved") "\n");
-    }
-  }
-
-  printf("Total remaining: " APURPLE("%d") "\n", (int)remaining.size());
-
-StatusBar status(STATUS_LINES);
+  StatusBar status(STATUS_LINES);
   ArcFour rc(StringPrintf("grind.%lld", time(nullptr)));
+  Periodically database_per(10.0 * 60.0);
+  std::vector<std::pair<const Polyhedron *, int>> remaining;
   for (;;) {
+    if (database_per.ShouldRun() || remaining.empty()) {
+      remaining = GetRemaining();
+    }
     int idx = RandTo(&rc, remaining.size());
     const auto &[poly, method] = remaining[idx];
     SolveWith(*poly, method, &status, 3600.0);
