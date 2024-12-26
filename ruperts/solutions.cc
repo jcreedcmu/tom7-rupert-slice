@@ -8,9 +8,10 @@
 #include <utility>
 #include <vector>
 
-#include "database.h"
+#include "auto-histo.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
+#include "database.h"
 #include "util.h"
 
 using frame3 = SolutionDB::frame3;
@@ -94,6 +95,39 @@ void SolutionDB::Init() {
                       "evals integer not null, "
                       "createdate integer not null"
                       ")");
+
+  db->ExecuteAndPrint("create table "
+                      "if not exists "
+                      "noperts ("
+                      "id integer primary key, "
+                      "points integer not null, "
+                      // Number of random polyhedra solved
+                      "attempts integer not null, "
+                      "iterhisto string not null, "
+                      "createdate integer not null"
+                      ")");
+}
+
+void SolutionDB::AddNopert(int points, int64_t attempts,
+                           const AutoHisto &iterhisto) {
+  AutoHisto::Histo h = iterhisto.GetHisto(20);
+  std::string histo;
+  for (int i = 0; i < h.buckets.size(); i++) {
+    if (!histo.empty()) histo.push_back(',');
+    double start = h.BucketLeft(i);
+    if (start >= 0.0 ||
+        h.buckets[i] > 0.0) {
+      StringAppendF(&histo, "%.3f=%lld\n",
+                    start, (int64_t)h.buckets[i]);
+    }
+  }
+
+  db->ExecuteAndPrint(
+      StringPrintf(
+          "insert into noperts "
+          "(points, attempts, iterhisto, createdate) "
+          "values (%d, %lld, '%s', %lld)",
+          points, attempts, histo.c_str(), time(nullptr)));
 }
 
 std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {

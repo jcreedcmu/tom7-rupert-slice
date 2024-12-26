@@ -38,6 +38,8 @@
 
 DECLARE_COUNTERS(iters, attempts, u1_, u2_, u3_, u4_, u5_, u6_);
 
+static constexpr bool WRITE_BEST_IMAGES = false;
+
 using vec2 = yocto::vec<double, 2>;
 using vec3 = yocto::vec<double, 3>;
 using vec4 = yocto::vec<double, 4>;
@@ -208,7 +210,8 @@ struct Solver {
             error_histo.Observe(log(error));
             if (error < best_error) {
               best_error = error;
-              if (iters.Read() > 4096 &&
+              if (WRITE_BEST_IMAGES &&
+                  iters.Read() > 4096 &&
                   image_per.ShouldRun()) {
                 // PERF: Maybe only write this at the end when
                 // there is a time limit?

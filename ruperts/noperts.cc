@@ -5,18 +5,19 @@
 #include <limits>
 #include <optional>
 
-#include "timer.h"
 #include "ansi.h"
+#include "arcfour.h"
+#include "atomic-util.h"
 #include "auto-histo.h"
 #include "base/stringprintf.h"
 #include "opt/opt.h"
-#include "arcfour.h"
 #include "periodically.h"
-#include "randutil.h"
 #include "polyhedra.h"
+#include "randutil.h"
+#include "solutions.h"
 #include "status-bar.h"
+#include "timer.h"
 #include "yocto_matht.h"
-#include "atomic-util.h"
 
 // Try to find counterexamples.
 // TODO: Expand beyond tetrahedra.
@@ -130,7 +131,9 @@ static std::optional<int> TrySolve(ArcFour *rc, const Polyhedron &poly) {
   return std::nullopt;
 }
 
-static void Nopert() {
+static void Nopert(double max_seconds) {
+  static constexpr int NUM_POINTS = 3;
+
   static constexpr int HISTO_LINES = 10;
   ArcFour rc(StringPrintf("noperts.%lld\n", time(nullptr)));
   Timer timer;
@@ -139,6 +142,13 @@ static void Nopert() {
   Periodically status_per(5.0);
   Polyhedron tetra = Tetrahedron();
   for (;;) {
+    if (timer.Seconds() > max_seconds) {
+      status.Printf("Stopping after %s\n",
+                    ANSI::Time(timer.Seconds()).c_str());
+      SolutionDB db;
+      db.AddNopert(NUM_POINTS, tetrahedra.Read(), histo);
+    }
+
     tetrahedra++;
     // TODO: We could maybe frame this as an optimization problem
     // (an adversarial one). But to start, we just generate
@@ -202,7 +212,9 @@ int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
 
-  Nopert();
+  for (;;) {
+    Nopert(60 * 60);
+  }
 
   printf("OK\n");
   return 0;

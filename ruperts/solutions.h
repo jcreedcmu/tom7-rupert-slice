@@ -12,6 +12,7 @@
 #include "base/logging.h"
 #include "database.h"
 #include "yocto_matht.h"
+#include "auto-histo.h"
 
 struct SolutionDB {
   using vec3 = yocto::vec<double, 3>;
@@ -87,6 +88,9 @@ struct SolutionDB {
   void AddAttempt(const std::string &poly, int method,
                   double best_error, int64_t iters,
                   int64_t evals);
+
+  void AddNopert(int points, int64_t attempts,
+                 const AutoHisto &iterhisto);
 
   void ExecuteAndPrint(const std::string &s) {
     db->ExecuteAndPrint(s);

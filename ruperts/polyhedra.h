@@ -231,6 +231,14 @@ std::pair<int, int> TwoNonParallelFaces(ArcFour *rc, const Polyhedron &poly);
 // does not matter. Negative sign means the interior of the triangle.
 double TriangleSignedDistance(vec2 p0, vec2 p1, vec2 p2, vec2 p);
 
+// Takes ownership of the vertices, which should be a convex hull.
+// Creates faces as all planes where all the other points are on one
+// side. This is not fast; it's intended for a small number of
+// vertices. The Faces pointer in the returned Polyhedron is owned
+// by the caller.
+Polyhedron ConvexPolyhedronFromVertices(
+    std::vector<vec3> vertices, const char *name = "");
+
 // Generate some polyhedra. Note that each call new-ly allocates a
 // Faces object, which is then owned by the caller. Many of these are
 // not fast because they do some kind of search (e.g. a

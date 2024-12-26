@@ -1090,8 +1090,8 @@ Polyhedron Dodecahedron() {
 // This is not fast but it should work for any convex polyhedron,
 // so it's a clean way to generate a wide variety from just the
 // vertices.
-static Polyhedron ConvexPolyhedronFromVertices(
-    std::vector<vec3> vertices, const char *name = "") {
+Polyhedron ConvexPolyhedronFromVertices(
+    std::vector<vec3> vertices, const char *name) {
   static constexpr int VERBOSE = 0;
 
   // All faces (as a set of vertices) we've already found. The
