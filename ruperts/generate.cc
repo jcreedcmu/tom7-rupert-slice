@@ -44,7 +44,13 @@ int main() {
   polys.emplace_back(TetrakisHexahedron());
   polys.emplace_back(DeltoidalIcositetrahedron());
   polys.emplace_back(DisdyakisDodecahedron());
-  //  polys.emplace_back(PentagonalIcositetrahedron()); // unimp
+  polys.emplace_back(DeltoidalHexecontahedron());
+  polys.emplace_back(PentagonalIcositetrahedron());
+  polys.emplace_back(RhombicTriacontahedron());
+  polys.emplace_back(TriakisIcosahedron());
+  polys.emplace_back(PentakisDodecahedron());
+  polys.emplace_back(DisdyakisTriacontahedron());
+  polys.emplace_back(PentagonalHexecontahedron());
 
   std::cout << R"(
 import { Point3 } from "./lib/types";
