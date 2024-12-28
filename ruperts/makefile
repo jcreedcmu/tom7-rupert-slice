@@ -13,8 +13,8 @@ SQLITE=../sqlite
 
 OPT=-O3
 
-# ASAN=-g -fsanitize=address
-# OPT=-O
+ASAN=-g -fsanitize=address
+OPT=-O
 
 CXXFLAGS=$(ASAN) $(OPT) -march=native -m64 -Wall -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -I. -I$(CC_LIB) -I$(CODEC) -I$(SQLITE) --std=c++20
 LFLAGS=$(ASAN) -lz

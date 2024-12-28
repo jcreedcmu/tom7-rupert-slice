@@ -249,7 +249,7 @@ bool Faces::Init(int num_vertices, std::vector<std::vector<int>> v_in) {
 }
 
 Faces::Faces(int num_vertices, std::vector<std::vector<int>> v_in) {
-  CHECK(Init(num_vertices, std::move(v_in)));
+  CHECK(Init(num_vertices, std::move(v_in))) << num_vertices;
 }
 
 
@@ -1310,9 +1310,12 @@ static bool InitPolyhedronInternal(
     fs.push_back(std::move(face));
   }
 
-  Faces *faces = new Faces(vertices.size(), std::move(fs));
+
+  out->faces = Faces::Create(vertices.size(), std::move(fs));
+  if (out->faces == nullptr)
+    return false;
+
   out->vertices = std::move(vertices);
-  out->faces = faces;
   out->name = name;
   return true;
 }

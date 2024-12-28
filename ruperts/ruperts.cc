@@ -1141,8 +1141,6 @@ static void ReproduceEasySolutions(
   MaybeSolve(DeltoidalIcositetrahedron());
   MaybeSolve(DisdyakisDodecahedron());
   if (hard) {
-    // New: Not sure it's actually hard, but it didn't
-    // get solved immediately
     MaybeSolve(DeltoidalHexecontahedron());
   }
   if (hard || method != SolutionDB::METHOD_SPECIAL) {

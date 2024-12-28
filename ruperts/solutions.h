@@ -95,6 +95,17 @@ struct SolutionDB {
                   int64_t evals);
 
   static constexpr int NOPERT_METHOD_RANDOM = 1;
+  static constexpr int NOPERT_METHOD_CYCLIC = 2;
+  static constexpr int NOPERT_METHOD_SYMMETRIC = 3;
+  static const char *NopertMethodName(int m) {
+    switch (m) {
+    case NOPERT_METHOD_RANDOM: return "NOPERT_METHOD_RANDOM";
+    case NOPERT_METHOD_CYCLIC: return "NOPERT_METHOD_CYCLIC";
+    case NOPERT_METHOD_SYMMETRIC: return "NOPERT_METHOD_SYMMETRIC";
+    default: return "UNKNOWN";
+    }
+  }
+
   void AddNopertAttempt(int points, int64_t attempts,
                         const AutoHisto &iterhisto,
                         int method);

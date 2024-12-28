@@ -651,7 +651,7 @@ template <typename T, int N>
 inline vec<T, N> transform_direction_inverse(
     const frame<T, N>& a, const vec<T, N>& b);
 
-// Translation, scaling and rotations transforms.
+// Translation, scaling and rotation transforms.
 template <typename T>
 inline frame<T, 3> translation_frame(const vec<T, 3>& a);
 template <typename T>
@@ -670,7 +670,7 @@ template <typename T>
 inline frame<T, 3> lookat_frame(const vec<T, 3>& eye, const vec<T, 3>& center,
     const vec<T, 3>& up, bool inv_xz = false);
 
-// OpenGL frustum, ortho and perspecgive matrices.
+// OpenGL frustum, ortho and perspective matrices.
 template <typename T>
 inline mat<T, 4> frustum_mat(T l, T r, T b, T t, T n, T f);
 template <typename T>
@@ -2133,7 +2133,7 @@ inline vec<T, N> transform_direction_inverse(
   return normalize(transform_vector_inverse(a, b));
 }
 
-// Translation, scaling and rotations transforms.
+// Translation, scaling and rotation transforms.
 template <typename T>
 inline frame<T, 3> translation_frame(const vec<T, 3>& a) {
   return {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, a};
@@ -2197,7 +2197,7 @@ inline frame<T, 3> lookat_frame(const vec<T, 3>& eye, const vec<T, 3>& center,
   return {u, v, w, eye};
 }
 
-// OpenGL frustum, ortho and perspecgive matrices.
+// OpenGL frustum, ortho and perspective matrices.
 template <typename T>
 inline mat<T, 4> frustum_mat(T l, T r, T b, T t, T n, T f) {
   return {{2 * n / (r - l), 0, 0, 0}, {0, 2 * n / (t - b), 0, 0},

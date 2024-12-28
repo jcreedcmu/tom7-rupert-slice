@@ -107,11 +107,15 @@ Rendering::Rendering(const Polyhedron &p, int width_in, int height_in) :
 
 void Rendering::RenderPerspectiveWireframe(const Polyhedron &p,
                                            uint32_t color) {
+  const double scale = polyscale;
   constexpr double aspect = 1.0;
   const mat4 proj = yocto::perspective_mat(
       yocto::radians(60.0), aspect, 0.1, 100.0);
 
+  // XXX Something is probably messed up here, because if I change
+  // the eye location I get wild distortions.
   const frame3 camera_frame = yocto::lookat_frame<double>(
+      // eye, center, up
       {0, 0, 5}, {0, 0, 0}, {0, 1, 0});
   const mat4 view_matrix = yocto::frame_to_mat(camera_frame);
   const mat4 model_view_projection = proj * view_matrix;
@@ -126,10 +130,12 @@ void Rendering::RenderPerspectiveWireframe(const Polyhedron &p,
 
       // Note that polyscale will fit an orthographic projection,
       // but it might not fit a perspective one.
-      const float x0 = (p0.x * polyscale + width * 0.5);
-      const float y0 = (p0.y * polyscale + height * 0.5);
-      const float x1 = (p1.x * polyscale + width * 0.5);
-      const float y1 = (p1.y * polyscale + height * 0.5);
+      const float x0 = (p0.x * scale + width * 0.5);
+      const float y0 = (p0.y * scale + height * 0.5);
+      const float x1 = (p1.x * scale + width * 0.5);
+      const float y1 = (p1.y * scale + height * 0.5);
+      printf("%d. Thickline %.2f %.2f -> %.2f %.2f\n",
+             i, x0, y0, x1, y1);
       img.BlendThickLine32(x0, y0, x1, y1, 4.0f, color & 0xFFFFFF88);
     }
   }
