@@ -206,7 +206,7 @@ std::string UTF8::Truncate(std::string_view utf8, int max_length) {
   if ((int)codepoints.size() > max_length) {
     codepoints.resize(max_length);
     std::string ret;
-    ret.resize(utf8.size());
+    ret.reserve(utf8.size());
     for (uint32_t cp : codepoints) {
       ret += Encode(cp);
     }
