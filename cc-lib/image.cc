@@ -805,6 +805,12 @@ void ImageRGBA::BlendThickLine32(float x1, float y1, float x2, float y2,
   int ymin = std::floor(std::min(y1, y2) - radius);
   int ymax = std::ceil(std::max(y1, y2) + radius);
 
+  // And only consider on-screen pixels.
+  xmin = std::clamp(xmin, 0, width);
+  xmax = std::clamp(xmax, 0, width);
+  ymin = std::clamp(ymin, 0, height);
+  ymax = std::clamp(ymax, 0, height);
+
   for (int y = ymin; y < ymax; y++) {
     for (int x = xmin; x < xmax; x++) {
       float d = PointLineDistance(x1, y1, x2, y2, x, y);
