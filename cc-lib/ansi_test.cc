@@ -19,6 +19,15 @@ static void TestProgress() {
                                    45.0 * 3600.0 * 24.0 * 365.25).c_str());
 }
 
+static std::string Escaped(const std::string &ansi) {
+  std::string ret;
+  for (int i = 0; i < (int)ansi.size(); i++) {
+    if (ansi[i] == '\x1B') StringAppendF(&ret, "(ESC)");
+    else ret.push_back(ansi[i]);
+  }
+  return ret;
+}
+
 static void TestMacros() {
   printf("NORMAL" " "
          ARED("ARED") " "
@@ -106,7 +115,8 @@ static void TestDecompose() {
   }
 
   {
-    // Note the ANSI_ macros set both foreground and background (to black).
+    // Note the ANSI_ macros used to set the background to black, but
+    // I changed my mind on that.
     const auto &[s, fg, bg] =
       ANSI::Decompose("n" ANSI_RED "o" ANSI_RESET "w",
                       0x333333FF, 0x111111FF);
@@ -115,7 +125,7 @@ static void TestDecompose() {
     CHECK(bg.size() == 3);
     CHECK(fg == std::vector<uint32_t>({0x333333FF, 0xff7676FF, 0x333333FF}))
       << PrintColors(fg);
-    CHECK(bg == std::vector<uint32_t>({0x111111FF, 0x000000FF, 0x111111FF}))
+    CHECK(bg == std::vector<uint32_t>({0x111111FF, 0x111111FF, 0x111111FF}))
       << PrintColors(bg);
   }
 
@@ -128,7 +138,7 @@ static void TestDecompose() {
     CHECK(bg.size() == 3);
     CHECK(fg == std::vector<uint32_t>({0x333333FF, 0x1ca800FF, 0x1ca800FF}))
       << PrintColors(fg);
-    CHECK(bg == std::vector<uint32_t>({0x111111FF, 0x000000FF, 0x000000FF}))
+    CHECK(bg == std::vector<uint32_t>({0x111111FF, 0x111111FF, 0x111111FF}))
       << PrintColors(bg);
   }
 
@@ -142,7 +152,37 @@ static void TestDecompose() {
     CHECK(bg.size() == 3);
     CHECK(fg == std::vector<uint32_t>({0x333333FF, 0xff7676ff, 0x333333FF}))
       << PrintColors(fg);
-    CHECK(bg == std::vector<uint32_t>({0x111111FF, 0x000000FF, 0x111111FF}))
+    CHECK(bg == std::vector<uint32_t>({0x111111FF, 0x111111FF, 0x111111FF}))
+      << PrintColors(bg);
+  }
+
+  {
+    // Test with explicit foreground color.
+    std::string str = "Y" AFGCOLOR(12, 34, 56, "∃") "S";
+    const auto &[s, fg, bg] =
+      ANSI::Decompose(str, 0x333333FF, 0x111111FF);
+    CHECK(s == "Y∃S") << s;
+    CHECK(fg.size() == 3);
+    CHECK(bg.size() == 3);
+    CHECK(fg == std::vector<uint32_t>({0x333333FF, 0x0c2238ff, 0x333333FF}))
+      << Escaped(str) << "\n"
+      << PrintColors(fg);
+    CHECK(bg == std::vector<uint32_t>({0x111111FF, 0x111111FF, 0x111111FF}))
+      << PrintColors(bg);
+  }
+
+  {
+    // And background color.
+    std::string str = "N" ABGCOLOR(12, 34, 56, "O") "T";
+    const auto &[s, fg, bg] =
+      ANSI::Decompose(str, 0x333333FF, 0x111111FF);
+    CHECK(s == "NOT") << s;
+    CHECK(fg.size() == 3);
+    CHECK(bg.size() == 3);
+    CHECK(fg == std::vector<uint32_t>({0x333333FF, 0x333333ff, 0x333333FF}))
+      << Escaped(str) << "\n"
+      << PrintColors(fg);
+    CHECK(bg == std::vector<uint32_t>({0x111111FF, 0x0c2238ff, 0x111111FF}))
       << PrintColors(bg);
   }
 

@@ -235,15 +235,19 @@ std::string ANSI::ProgressBar(uint64_t numer, uint64_t denom,
     bgraster[i] = i < filled_width ? options.bar_filled : options.bar_empty;
   }
 
+  printf("[2] Bar text plain [%s]\n", bar_text_plain.c_str());
 
   // could do "..."
   if ((int)bar_text_plain.size() > bar_width) {
     bar_text_plain = UTF8::Truncate(bar_text_plain, bar_width);
+    printf("[2.5] Truncated [%s]\n", bar_text_plain.c_str());
   }
   bar_text_plain.reserve(bar_width);
   while ((int)bar_text_plain.size() < bar_width)
     bar_text_plain.push_back(' ');
 
+  printf("[3] Bar text plain [%s]\n", bar_text_plain.c_str());
+  abort();
   string colored_bar = Composite(bar_text_plain, fgraster, bgraster);
   string out = AWHITE("[") + colored_bar + AWHITE("]") " " + eta;
 
@@ -418,7 +422,8 @@ ANSI::Decompose(const std::string &text_with_codes,
           bg = default_bg;
         }
 
-        for (int p : pleft) {
+        for (int pidx = 0; pidx < (int)pleft.size(); pidx++) {
+          const int p = pleft[pidx];
           if (p == 1) {
             is_bright = true;
           } else if (p >= 30 && p <= 37) {
@@ -440,10 +445,42 @@ ANSI::Decompose(const std::string &text_with_codes,
             fg = default_fg;
           } else if (p == 49) {
             bg = default_bg;
+          } else if (p == 38 || p == 48) {
+            // Set RGB colors directly.
+
+            if (VERBOSE) {
+              printf("Pidx: %d\n", pidx);
+              for (int i = 0; i < pleft.size(); i++) {
+                printf("Pleft[%d] = %d\n", i, pleft[i]);
+              }
+            }
+
+            if (pidx + 4 >= (int)pleft.size() || pleft[pidx + 1] != 2) {
+              if (VERBOSE) printf("Expected 2;R;G;B.\n");
+              break;
+            }
+
+            const uint8_t r = pleft[pidx + 2];
+            const uint8_t g = pleft[pidx + 3];
+            const uint8_t b = pleft[pidx + 4];
+            const uint32_t rgb = ((uint32_t)r << 24) |
+              ((uint32_t)g << 16) |
+              ((uint32_t)b << 8) |
+              0xFF;
+
+            if (VERBOSE) {
+              printf("GOT: %04x\n", rgb);
+            }
+
+            if (p == 38) fg = rgb;
+            else bg = rgb;
+
+            pidx += 5;
+
           } else {
             if (VERBOSE) printf("Unknown param %d\n", p);
           }
-          // TODO: 38, 48 to set RGB colors.
+
 
         }
       } else {

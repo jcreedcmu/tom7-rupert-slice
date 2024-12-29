@@ -1,6 +1,11 @@
 
 #include "status-bar.h"
 
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <vector>
+
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "base/port.h"
@@ -85,7 +90,8 @@ void StatusBar::MoveUp() {
 
 void StatusBar::EmitStatusLinesWithLock(const std::vector<std::string> &lines) {
   if ((int)lines.size() != num_lines) {
-    printf(ARED("...wrong number of lines...") "\n");
+    printf(ARED("...wrong number of lines (have %d want %d)...") "\n",
+           (int)lines.size(), num_lines);
   }
   for (const string &line : lines) {
     printf("%s\n", line.c_str());
