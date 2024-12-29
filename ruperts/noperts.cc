@@ -1,6 +1,6 @@
 #include <algorithm>
 #include <array>
-#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -38,6 +38,11 @@
 
 DECLARE_COUNTERS(polyhedra, attempts, degenerate, u1_, u2_, u3_, u4_, u5_);
 
+static constexpr int VERBOSE = 0;
+static constexpr bool SAVE_EVERY_IMAGE = false;
+static constexpr int HISTO_LINES = 10;
+
+static StatusBar *status = nullptr;
 
 using vec2 = yocto::vec<double, 2>;
 using vec3 = yocto::vec<double, 3>;
@@ -55,10 +60,25 @@ static vec3 RandomVec(ArcFour *rc) {
 // Return the number of iterations taken, or nullopt if we exceeded
 // the limit.
 static constexpr int MAX_ITERS = 10000;
-static std::optional<int> TrySolve(ArcFour *rc, const Polyhedron &poly) {
+static std::optional<int> TrySolve(int thread_idx,
+                                   ArcFour *rc, const Polyhedron &poly) {
   CHECK(!poly.faces->v.empty());
 
   for (int iter = 0; iter < MAX_ITERS; iter++) {
+
+    if (iter > 0 && (iter % 100) == 0) {
+      status->Printf("[" APURPLE("%d") "] %d-point polyhedron "
+                     AFGCOLOR(190, 220, 190, "not solved")
+                     " after " AWHITE("%d") " iters...\n",
+                     thread_idx,
+                     (int)poly.vertices.size(), iter);
+
+      if (iter == 2000) {
+        std::string filename = StringPrintf("hard.%lld.%d.stl",
+                                            time(nullptr), thread_idx);
+        SaveAsSTL(poly, filename);
+      }
+    }
 
     // four params for outer rotation, four params for inner
     // rotation, two for 2d translation of inner.
@@ -136,10 +156,16 @@ static std::optional<int> TrySolve(ArcFour *rc, const Polyhedron &poly) {
       {+Q, +Q, +Q, +Q,
        +Q, +Q, +Q, +Q, +1.0, +1.0};
 
+    const int seed = RandTo(rc, 0x7FFFFFFE);
     const auto &[args, error] =
-      Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+      Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 10, seed);
 
     if (error == 0.0) {
+      if (iter > 100) {
+        printf("%d-point polyhedron " AYELLOW("solved") " after "
+               AWHITE("%d") " iters.\n",
+               (int)poly.vertices.size(), iter);
+      }
       return {iter};
     }
   }
@@ -243,61 +269,144 @@ static Polyhedron RandomCyclicPolyhedron(ArcFour *rc, int num_points) {
 // symmetry groups. We normalize them and convert each vertex to
 // a rotation frame.
 struct SymmetryGroups {
-  std::vector<frame3> tetrahedron;
-  std::vector<frame3> octahedron;
-  std::vector<frame3> icosahedron;
+  struct Group {
+    std::vector<frame3> rots;
+    int points = 0;
+  };
+  Group tetrahedron, octahedron, icosahedron;
   SymmetryGroups() {
-    tetrahedron = MakeFrames(Tetrahedron());
-    octahedron = MakeFrames(Octahedron());
-    icosahedron = MakeFrames(Icosahedron());
+    {
+      Polyhedron t = Tetrahedron();
+      VertexRotationsTriangular(t, &tetrahedron.rots);
+      tetrahedron.points = 4;
+      delete t.faces;
+    }
+
+    {
+      Polyhedron o = Octahedron();
+      VertexRotationsQuadrilateral(o, &octahedron.rots);
+      EdgeRotations(o, &octahedron.rots);
+      octahedron.points = 6;
+      delete o.faces;
+    }
+
+    {
+      Polyhedron i = Icosahedron();
+      VertexRotationsTriangular(i, &icosahedron.rots);
+      EdgeRotations(i, &icosahedron.rots);
+      icosahedron.points = 20;
+      delete i.faces;
+    }
+
+    status->Printf(
+        AYELLOW("tetrahedron") " has " ACYAN("%d") " rotations, %d pts\n",
+        (int)tetrahedron.rots.size(), tetrahedron.points);
+    status->Printf(
+        AYELLOW("octahedron") " has " ACYAN("%d") " rotations, %d pts\n",
+        (int)octahedron.rots.size(), octahedron.points);
+    status->Printf(
+        AYELLOW("icosahedron") " has " ACYAN("%d") " rotations, %d pts\n",
+        (int)icosahedron.rots.size(), icosahedron.points);
   }
 
  private:
-  // For normalized vectors a and b (interpreted as orientations on
-  // the sphere), compute the rotation from a to b.
-  quat4 RotationFromAToB(const vec3 &a, const vec3 &b) {
-    vec3 norma = normalize(a);
-    vec3 normb = normalize(b);
-    double d = dot(norma, normb);
-    vec3 axis = cross(norma, normb);
-    if (length_squared(axis) < 1e-10) {
-      if (d > 0) {
-        return quat4{0, 0, 0, 1};
-      } else {
-        // Rotate around any perpendicular axis.
-        vec3 perp_axis = orthogonal(norma);
-        return QuatFromVec(yocto::rotation_quat(perp_axis, std::numbers::pi));
+
+  // For tetrahedron and icosahedron.
+  void VertexRotationsTriangular(const Polyhedron &poly,
+                                 std::vector<frame3> *rots) {
+    for (const vec3 &v : poly.vertices) {
+      vec3 axis = normalize(v);
+      rots->push_back(
+          yocto::rotation_frame(
+              yocto::rotation_quat(axis, 2.0 / 3.0 * std::numbers::pi)));
+      rots->push_back(
+          yocto::rotation_frame(
+              yocto::rotation_quat(axis, -2.0 / 3.0 * std::numbers::pi)));
+    }
+  }
+
+  // For octahedron.
+  void VertexRotationsQuadrilateral(const Polyhedron &poly,
+                                    std::vector<frame3> *rots) {
+    for (const vec3 &v : poly.vertices) {
+      vec3 axis = normalize(v);
+      for (int quarter_turn = 1; quarter_turn < 4; quarter_turn++) {
+        rots->push_back(
+            yocto::rotation_frame(
+                yocto::rotation_quat(axis,
+                                     quarter_turn * std::numbers::pi / 2.0)));
+      }
+    }
+  }
+
+  // Take an edge and rotate it 180 degrees, using the axis that runs
+  // from the origin to its midpoint. This flips the edge around (so it
+  // ends up the same).
+  void EdgeRotations(const Polyhedron &poly,
+                     std::vector<frame3> *rots) {
+    for (int i = 0; i < poly.vertices.size(); ++i) {
+      const vec3 &v0 = poly.vertices[i];
+      for (int j : poly.faces->neighbors[i]) {
+        CHECK(i != j);
+        // Only consider the edge in one orientation.
+        if (i < j) {
+          const vec3 &v1 = poly.vertices[j];
+          const vec3 mid = (v0 + v1) * 0.5;
+          const vec3 axis = normalize(mid);
+
+          // But also, we don't want to do this for both an edge and
+          // its opposite edge, because that gives us an equivalent
+          // rotation. So only do this when the axis is in one half
+          // space. We can check the dot product with an arbitrary
+          // reference axis. This only fails if the rotation axis is
+          // perpendicular to the reference axis, so use one that we
+          // know is not perpendicular to any of the rotation axes in
+          // these regular polyhedra.
+          constexpr vec3 half_space{1.23456789, 0.1133557799, 0.777555};
+
+          if (dot(half_space, axis) > 0.0) {
+            // Rotate 180 degrees about the axis.
+            rots->push_back(yocto::rotation_frame(
+                                yocto::rotation_quat(axis, std::numbers::pi)));
+          }
+        }
+      }
+    }
+  }
+
+};
+
+struct PointSet {
+  static constexpr double SQDIST = 0.000001;
+
+  size_t Size() const {
+    return pts.size();
+  }
+
+  bool Contains(const vec3 &p) const {
+    for (const vec3 &q : pts) {
+      if (distance_squared(p, q) < SQDIST) {
+        return true;
       }
     }
 
-    double angle = std::acos(std::clamp(d, -1.0, 1.0));
-    return QuatFromVec(yocto::rotation_quat(axis, angle));
-
-    // TODO: We should be able to do this without the special cases?
-#if 0
-    double d = dot(a, b);
-    vec3 axis = cross(a, b);
-
-    double s = sqrt((1.0 + d) * 2.0);
-    double inv_s = 1.0 / s;
-    return normalize(quat4(axis.x * inv_s, axis.y * inv_s, axis.z * inv_s,
-                           s * 0.5));
-#endif
+    return false;
   }
 
-  std::vector<frame3> MakeFrames(Polyhedron &&poly) {
-    std::vector<frame3> rots;
-    rots.reserve(poly.vertices.size());
-
-    const vec3 z_axis(0, 0, 1);
-    for (const vec3 &v : poly.vertices) {
-      quat4 q = RotationFromAToB(z_axis, normalize(v));
-      rots.push_back(yocto::rotation_frame(q));
-    }
-
-    delete poly.faces;
-    return rots;
+  // Must not already be present.
+  void Add(const vec3 &q) {
+    pts.push_back(q);
   }
+
+  std::vector<vec3> ExtractVector() {
+    std::vector<vec3> ret = std::move(pts);
+    pts.clear();
+    return ret;
+  }
+
+ private:
+  // PERF use kd-tree
+  std::vector<vec3> pts;
 };
 
 // Note that we can get more (because we require a minimum of
@@ -308,13 +417,17 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
   static SymmetryGroups *symmetry = new SymmetryGroups;
 
   auto MakePoints = [rc](int num) {
-      printf("MakePoints %d\n", num);
+      if (VERBOSE > 1) {
+        status->Printf("MakePoints %d\n", num);
+      }
       std::vector<vec3> pts;
       pts.reserve(num);
       for (int i = 0; i < num; i++) {
         vec3 v = normalize(RandomVec(rc));
         pts.push_back(v);
-        printf("  point %s\n", VecString(v).c_str());
+        if (VERBOSE > 1) {
+          status->Printf("  point %s\n", VecString(v).c_str());
+        }
       }
       return pts;
   };
@@ -337,34 +450,62 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
     // we just get a rotated version of that polyhedron.
     auto UsePolyhedralGroup = [&](
         const char *what,
-        const std::vector<frame3> &group, int chance) -> bool {
-        if (target_points >= group.size() * 2 &&
+        const SymmetryGroups::Group &group, int chance) -> bool {
+        if (target_points >= group.points &&
             RandTo(rc, chance) == 0) {
-          target_points = std::max(target_points / (int)group.size(), 2);
-          // const std::vector<vec3> r = MakePoints(target_points);
-          const std::vector<vec3> r = {normalize(vec3(1.0, 0.0, 0.0))};
-          for (const vec3 &v : r) {
-            for (const frame3 &rot : group) {
-              printf("Rotate %s by %s\n",
-                     VecString(v).c_str(),
-                     FrameString(rot).c_str());
-              points.push_back(yocto::transform_point(rot, v));
+          PointSet pointset;
+
+          if (VERBOSE > 0) {
+            status->Printf("To quiescence, method " ACYAN("%s") ", target %d\n",
+                           what, target_points);
+          }
+          while (pointset.Size() < target_points) {
+            std::vector<vec3> todo = {
+              normalize(RandomVec(rc))
+            };
+
+            // Run until quiescence, even if we exceed the target
+            // point size.
+            while (!todo.empty()) {
+              CHECK(todo.size() < 600);
+
+              vec3 v = todo.back();
+              todo.pop_back();
+
+              if (!pointset.Contains(v)) {
+                // identity is not included.
+                pointset.Add(v);
+              }
+
+              for (const frame3 &rot : group.rots) {
+                vec3 vr = yocto::transform_point(rot, v);
+                if (pointset.Contains(vr)) {
+                  // Skip.
+                } else {
+                  pointset.Add(vr);
+                  todo.push_back(vr);
+                }
+              }
             }
           }
+
+          points = pointset.ExtractVector();
+          if (VERBOSE > 0) {
+            status->Printf("Done with num points = " AYELLOW("%d") "\n",
+                           (int)points.size());
+          }
+
           method = what;
           return true;
         }
         return false;
       };
 
-    if (UsePolyhedralGroup("icosahedron", symmetry->icosahedron, 3)) {
+    if (false && UsePolyhedralGroup("icosahedron", symmetry->icosahedron, 3)) {
       // nothing
     } else if (UsePolyhedralGroup("octahedron", symmetry->octahedron, 3)) {
       // nothing
-    } else if (UsePolyhedralGroup("tetrahedron", symmetry->tetrahedron,
-
-                                  // XXX!
-                                  1)) {
+    } else if (UsePolyhedralGroup("tetrahedron", symmetry->tetrahedron, 3)) {
       // nothing
     } else {
       // Then we can always use the cyclic (or dihedral if reflections
@@ -373,7 +514,9 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
       // Pick a nontrivial n, but not too big.
       int n = std::max((int)RandTo(rc, target_points), 2);
       target_points = std::max(target_points / n, 2);
-      printf("Cyclic n=" AYELLOW("%d") "\n", n);
+      if (VERBOSE > 0) {
+        status->Printf("Cyclic n=" AYELLOW("%d") "\n", n);
+      }
 
       std::vector<vec3> r = MakePoints(target_points);
       for (int i = 0; i < n; ++i) {
@@ -413,35 +556,41 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
       points = std::move(dedup_pts);
     }
 
-    printf("Target points " AWHITE("%d") " method " ACYAN("%s")
-           " refl %s\n",
-           target_points, method, include_reflection ? AGREEN("y") :
-           AORANGE("n"));
+    if (VERBOSE > 0) {
+      status->Printf("Target points " AWHITE("%d") " method " ACYAN("%s")
+                     " refl %s\n",
+                     target_points, method, include_reflection ? AGREEN("y") :
+                     AORANGE("n"));
+    }
 
-    printf("Result:\n");
-    for (const vec3 & v: points) {
-      printf("  %s\n", VecString(v).c_str());
+    if (VERBOSE > 1) {
+      status->Printf("Result:\n");
+      for (const vec3 & v: points) {
+        status->Printf("  %s\n", VecString(v).c_str());
+      }
     }
 
     std::optional<Polyhedron> poly =
       ConvexPolyhedronFromVertices(std::move(points), "randomsymmetric");
     if (poly.has_value()) {
+      CHECK(!poly.value().vertices.empty());
       return std::move(poly.value());
     } else {
-      printf(AORANGE("degenerate") "\n");
+      if (VERBOSE > 0) {
+        status->Printf(AORANGE("degenerate") "\n");
+      }
       degenerate++;
     }
   }
 }
 
 
-static void Nopert(double max_seconds, int num_points) {
+static bool Nopert(double max_seconds, int num_points) {
   polyhedra.Reset();
   attempts.Reset();
   degenerate.Reset();
 
-  static constexpr int NUM_THREADS = 1;
-  static constexpr int HISTO_LINES = 10;
+  static constexpr int NUM_THREADS = 4;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
   static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
 
@@ -453,10 +602,12 @@ static void Nopert(double max_seconds, int num_points) {
 
   Timer timer;
   AutoHisto histo(10000);
-  StatusBar status(HISTO_LINES + 2);
   Periodically status_per(5.0);
   std::mutex m;
   bool should_die = false;
+  double total_gen_sec = 0.0;
+  double total_solve_sec = 0.0;
+  bool success = false;
 
   ParallelFan(
       NUM_THREADS,
@@ -471,8 +622,8 @@ static void Nopert(double max_seconds, int num_points) {
 
             if (timer.Seconds() > max_seconds) {
               should_die = true;
-              status.Printf("Stopping after %s\n",
-                            ANSI::Time(timer.Seconds()).c_str());
+              status->Printf("Stopping after %s\n",
+                             ANSI::Time(timer.Seconds()).c_str());
               SolutionDB db;
               db.AddNopertAttempt(num_points, polyhedra.Read(), histo,
                                   METHOD);
@@ -482,6 +633,7 @@ static void Nopert(double max_seconds, int num_points) {
 
           polyhedra++;
 
+          Timer gen_timer;
           Polyhedron poly = [&rc, num_points]() {
               switch (METHOD) {
               case SolutionDB::NOPERT_METHOD_RANDOM:
@@ -495,8 +647,9 @@ static void Nopert(double max_seconds, int num_points) {
                 return Cube();
               }
             }();
+          const double gen_sec = gen_timer.Seconds();
 
-          if constexpr (true) {
+          if constexpr (SAVE_EVERY_IMAGE) {
             printf("Rendering %d points %d faces...\n",
                    (int)poly.vertices.size(),
                    (int)poly.faces->v.size());
@@ -507,11 +660,16 @@ static void Nopert(double max_seconds, int num_points) {
             r.Save(StringPrintf("poly.%d.png", count++));
           }
 
-          std::optional<int> iters = TrySolve(&rc, poly);
+          Timer solve_timer;
+          std::optional<int> iters = TrySolve(thread_idx, &rc, poly);
+          const double solve_sec = solve_timer.Seconds();
 
           {
             MutexLock ml(&m);
             if (should_die) return;
+
+            total_gen_sec += gen_sec;
+            total_solve_sec += solve_sec;
 
             if (iters.has_value()) {
               histo.Observe(iters.value());
@@ -519,45 +677,63 @@ static void Nopert(double max_seconds, int num_points) {
               SolutionDB db;
               db.AddNopert(poly, METHOD);
 
-              status.Printf(
-                  "\n\n" APURPLE("** NOPERT **") "\n");
+              status->Printf(
+                  "\n\n" ABGCOLOR(200, 0, 200,
+                                  ADARKGREY("***** ")
+                                  AYELLOW("NOPERT")
+                                  ADARKGREY(" with ")
+                                  AWHITE("%d")
+                                  ADARKGREY(" vertices *****"))
+                  "\n", (int)poly.vertices.size());
+
               for (const vec3 &v : poly.vertices) {
-                status.Printf("  %s\n",
-                              VecString(v).c_str());
+                status->Printf("  %s\n",
+                               VecString(v).c_str());
               }
+
               should_die = true;
-              exit(0);
+              success = true;
+              return;
             }
           }
 
           if (status_per.ShouldRun()) {
             MutexLock ml(&m);
             double total_time = timer.Seconds();
-            double tps = polyhedra.Read() / total_time;
+            const int64_t polys = polyhedra.Read();
+            double tps = polys / total_time;
 
-            status.Statusf(
+            status->Statusf(
                 "%s\n"
                 ACYAN("%s") " " AGREY("|") " "
                 AWHITE("%d") " pt " AGREY("|") " "
-                ABLUE("%s") " polyhedra "
+                ARED("%s") " ⛔ "
+                ABLUE("%s") " polys "
                 "in %s "
-                "[" AWHITE("%.3f") "/s]\n",
+                "[" AWHITE("%.1f") "/s] %s gen %s sol\n",
                 histo.SimpleANSI(HISTO_LINES).c_str(),
                 lower_method.c_str(),
                 num_points,
-                FormatNum(polyhedra.Read()).c_str(),
+                FormatNum(degenerate.Read()).c_str(),
+                FormatNum(polys).c_str(),
                 ANSI::Time(total_time).c_str(),
-                tps);
+                tps,
+                ANSI::Time(total_gen_sec).c_str(),
+                ANSI::Time(total_solve_sec).c_str());
           }
 
           delete poly.faces;
         }
       });
+
+  return success;
 }
 
 int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
+
+  status = new StatusBar(HISTO_LINES + 2);
 
   int NUM_POINTS = 6;
 
@@ -567,7 +743,9 @@ int main(int argc, char **argv) {
   }
 
   for (;;) {
-    Nopert(60 * 60, NUM_POINTS);
+    // Could break if we find one, but might as well try to find
+    // more examples.
+    (void)Nopert(60 * 60, NUM_POINTS);
     NUM_POINTS++;
   }
 

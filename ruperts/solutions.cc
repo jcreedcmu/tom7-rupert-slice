@@ -148,8 +148,8 @@ void SolutionDB::AddNopertAttempt(int points, int64_t attempts,
 void SolutionDB::AddNopert(const Polyhedron &poly, int method) {
   std::string vs;
   for (const vec3 &v : poly.vertices) {
-    if (vs.empty()) vs.push_back(',');
-    StringAppendF(&vs, "%.17g,%17g,%17g", v.x, v.y, v.z);
+    if (!vs.empty()) vs.push_back(',');
+    StringAppendF(&vs, "%.17g,%.17g,%.17g", v.x, v.y, v.z);
   }
 
   db->ExecuteAndPrint(

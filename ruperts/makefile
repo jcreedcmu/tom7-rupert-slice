@@ -1,4 +1,4 @@
-default : ruperts.exe tosvg.exe gpuperts.exe polyhedra_test.exe scoreboard.exe query.exe visualize.exe
+default : ruperts.exe tosvg.exe gpuperts.exe polyhedra_test.exe scoreboard.exe query.exe visualize.exe tostl.exe
 
 # This assumes OpenCL is installed as a system library, which
 # is now the case for msys2 clang64. If it's not, you could
@@ -13,8 +13,8 @@ SQLITE=../sqlite
 
 OPT=-O3
 
-ASAN=-g -fsanitize=address
-OPT=-O
+# ASAN=-g -fsanitize=address
+# OPT=-O
 
 CXXFLAGS=$(ASAN) $(OPT) -march=native -m64 -Wall -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -I. -I$(CC_LIB) -I$(CODEC) -I$(SQLITE) --std=c++20
 LFLAGS=$(ASAN) -lz
@@ -50,6 +50,10 @@ gpuperts.exe : gpuperts.o $(OBJECTS) $(CL_OBJECTS)
 	@echo -n "!"
 
 tosvg.exe : tosvg.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+tostl.exe : tostl.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

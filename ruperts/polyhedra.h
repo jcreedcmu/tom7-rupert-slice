@@ -234,6 +234,12 @@ inline bool InHull(const Mesh2D &mesh, const std::vector<int> &hull,
   return PointInPolygon(pt, mesh.vertices, hull);
 }
 
+void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
+
+// For normalized vectors a and b (interpreted as orientations on
+// the sphere), compute a rotation from a to b.
+quat4 RotationFromAToB(const vec3 &a, const vec3 &b);
+
 // Sample two faces from the polyhedron that are not parallel to each
 // other.
 std::pair<int, int> TwoNonParallelFaces(ArcFour *rc, const Polyhedron &poly);

@@ -955,6 +955,34 @@ std::pair<int, int> TwoNonParallelFaces(ArcFour *rc, const Polyhedron &poly) {
   }
 }
 
+void SaveAsSTL(const Polyhedron &poly, std::string_view filename) {
+  const char *name = (poly.name != nullptr && poly.name[0] != '\0') ?
+    poly.name : "polyhedron";
+  std::string contents = StringPrintf("solid %s\n", name);
+
+  for (const auto &[v0, v1, v2] : poly.faces->triangulation) {
+    const vec3 &p0 = poly.vertices[v0];
+    const vec3 &p1 = poly.vertices[v1];
+    const vec3 &p2 = poly.vertices[v2];
+
+    vec3 normal = yocto::normalize(yocto::cross(p1 - p0, p2 - p0));
+
+    StringAppendF(&contents, "  facet normal %f %f %f\n",
+                  normal.x, normal.y, normal.z);
+    StringAppendF(&contents, "    outer loop\n");
+    StringAppendF(&contents, "      vertex %f %f %f\n", p0.x, p0.y, p0.z);
+    StringAppendF(&contents, "      vertex %f %f %f\n", p1.x, p1.y, p1.z);
+    StringAppendF(&contents, "      vertex %f %f %f\n", p2.x, p2.y, p2.z);
+    StringAppendF(&contents, "    endloop\n");
+    StringAppendF(&contents, "  endfacet\n");
+  }
+
+  StringAppendF(&contents, "endsolid %s\n", name);
+  std::string f = (std::string)filename;
+  Util::WriteFile(f, contents);
+  printf("Wrote " AGREEN("%s") "\n", f.c_str());
+}
+
 Polyhedron PolyhedronByName(std::string_view name) {
   if (name == "tetrahedron") return Tetrahedron();
   if (name == "cube") return Cube();
@@ -1140,6 +1168,37 @@ Polyhedron Dodecahedron() {
     .name = "dodecahedron",
   };
 }
+
+quat4 RotationFromAToB(const vec3 &a, const vec3 &b) {
+  vec3 norma = normalize(a);
+  vec3 normb = normalize(b);
+  double d = dot(norma, normb);
+  vec3 axis = cross(norma, normb);
+  if (length_squared(axis) < 1e-10) {
+    if (d > 0) {
+      return quat4{0, 0, 0, 1};
+    } else {
+      // Rotate around any perpendicular axis.
+      vec3 perp_axis = orthogonal(norma);
+      return QuatFromVec(yocto::rotation_quat(perp_axis, std::numbers::pi));
+    }
+  }
+
+  double angle = std::acos(std::clamp(d, -1.0, 1.0));
+  return QuatFromVec(yocto::rotation_quat(axis, angle));
+
+  // TODO: We should be able to do this without the special cases?
+#if 0
+  double d = dot(a, b);
+  vec3 axis = cross(a, b);
+
+  double s = sqrt((1.0 + d) * 2.0);
+  double inv_s = 1.0 / s;
+  return normalize(quat4(axis.x * inv_s, axis.y * inv_s, axis.z * inv_s,
+                         s * 0.5));
+#endif
+}
+
 
 // Take all planes where all of the other vertices
 // are on one side. (Basically, the 3D convex hull.)
