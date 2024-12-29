@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <vector>
 #include <utility>
+#include <tuple>
 
 // TODO: Template over RNG; don't include this here.
 #include "arcfour.h"

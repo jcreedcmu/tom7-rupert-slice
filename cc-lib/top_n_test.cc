@@ -1,5 +1,7 @@
-
 #include "gtl/top_n.h"
+
+#include <memory>
+#include <vector>
 
 #include "base/logging.h"
 

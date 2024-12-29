@@ -1,6 +1,9 @@
 #ifndef _MONTGOMERY64_H
 #define _MONTGOMERY64_H
 
+#include <array>
+#include <cstdint>
+
 #include "base/int128.h"
 
 // TODO: To cc-lib. Could also support 32 and 128 bit?

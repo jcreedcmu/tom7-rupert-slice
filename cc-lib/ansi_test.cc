@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <tuple>
 
 #include "base/logging.h"
 #include "base/stringprintf.h"
