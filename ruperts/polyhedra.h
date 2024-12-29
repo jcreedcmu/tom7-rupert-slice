@@ -235,6 +235,9 @@ inline bool InHull(const Mesh2D &mesh, const std::vector<int> &hull,
 }
 
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
+// Generate little tetrahedra at the points, for debugging.
+void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
+                          std::string_view filename);
 
 // For normalized vectors a and b (interpreted as orientations on
 // the sphere), compute a rotation from a to b.

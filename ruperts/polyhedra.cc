@@ -983,6 +983,46 @@ void SaveAsSTL(const Polyhedron &poly, std::string_view filename) {
   printf("Wrote " AGREEN("%s") "\n", f.c_str());
 }
 
+void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
+                          std::string_view filename) {
+  static constexpr double OBJECT_SCALE = 2.40;
+  // For each vertex, generate a tiny tetrahedron.
+  static constexpr double TETRAHEDRON_SCALE = 0.05;
+  std::string contents = "solid debug\n";
+
+  Polyhedron tet = Tetrahedron();
+
+  for (const vec3 &c_orig : vertices) {
+    const vec3 c = c_orig * OBJECT_SCALE;
+    // Generate a tetrahedron at this point.
+    for (const std::vector<int> &face : tet.faces->v) {
+      CHECK(face.size() == 3);
+      vec3 p0 = c + tet.vertices[face[0]] * TETRAHEDRON_SCALE;
+      vec3 p1 = c + tet.vertices[face[1]] * TETRAHEDRON_SCALE;
+      vec3 p2 = c + tet.vertices[face[2]] * TETRAHEDRON_SCALE;
+
+      vec3 normal = yocto::normalize(yocto::cross(p1 - p0, p2 - p0));
+
+      StringAppendF(&contents, "  facet normal %f %f %f\n", normal.x, normal.y,
+                    normal.z);
+      StringAppendF(&contents, "    outer loop\n");
+      StringAppendF(&contents, "      vertex %f %f %f\n", p0.x, p0.y, p0.z);
+      StringAppendF(&contents, "      vertex %f %f %f\n", p1.x, p1.y, p1.z);
+      StringAppendF(&contents, "      vertex %f %f %f\n", p2.x, p2.y, p2.z);
+      StringAppendF(&contents, "    endloop\n");
+      StringAppendF(&contents, "  endfacet\n");
+    }
+  }
+
+  StringAppendF(&contents, "endsolid debug\n");
+
+  std::string f = (std::string)filename;
+  Util::WriteFile(f, contents);
+  printf("Wrote " AGREEN("%s") "\n", f.c_str());
+
+  delete tet.faces;
+}
+
 Polyhedron PolyhedronByName(std::string_view name) {
   if (name == "tetrahedron") return Tetrahedron();
   if (name == "cube") return Cube();

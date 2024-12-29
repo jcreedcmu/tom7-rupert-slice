@@ -6,6 +6,7 @@
 #include <ctime>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <numbers>
 #include <optional>
@@ -22,6 +23,7 @@
 #include "hull.h"
 #include "opt/opt.h"
 #include "periodically.h"
+#include "point-set.h"
 #include "polyhedra.h"
 #include "randutil.h"
 #include "rendering.h"
@@ -33,8 +35,8 @@
 #include "yocto_matht.h"
 
 // Try to find counterexamples.
-//
-// TODO: Generate symmetric polyhedra.
+
+#define ABLOOD(s) AFGCOLOR(148, 0, 0, s)
 
 DECLARE_COUNTERS(polyhedra, attempts, degenerate, u1_, u2_, u3_, u4_, u5_);
 
@@ -292,7 +294,7 @@ struct SymmetryGroups {
 
     {
       Polyhedron i = Icosahedron();
-      VertexRotationsTriangular(i, &icosahedron.rots);
+      VertexRotationsPentagonal(i, &icosahedron.rots);
       EdgeRotations(i, &icosahedron.rots);
       icosahedron.points = 20;
       delete i.faces;
@@ -311,7 +313,7 @@ struct SymmetryGroups {
 
  private:
 
-  // For tetrahedron and icosahedron.
+  // For tetrahedron.
   void VertexRotationsTriangular(const Polyhedron &poly,
                                  std::vector<frame3> *rots) {
     for (const vec3 &v : poly.vertices) {
@@ -333,11 +335,27 @@ struct SymmetryGroups {
       for (int quarter_turn = 1; quarter_turn < 4; quarter_turn++) {
         rots->push_back(
             yocto::rotation_frame(
-                yocto::rotation_quat(axis,
-                                     quarter_turn * std::numbers::pi / 2.0)));
+                yocto::rotation_quat(
+                    axis, quarter_turn * std::numbers::pi / 2.0)));
       }
     }
   }
+
+  // For icosahedron.
+  void VertexRotationsPentagonal(const Polyhedron &poly,
+                                 std::vector<frame3> *rots) {
+
+    for (const vec3 &v : poly.vertices) {
+      vec3 axis = normalize(v);
+      for (int fifth_turn = 1; fifth_turn < 5; fifth_turn++) {
+        rots->push_back(
+            yocto::rotation_frame(
+                yocto::rotation_quat(
+                    axis, fifth_turn / 5.0 * std::numbers::pi / 2.0)));
+      }
+    }
+  }
+
 
   // Take an edge and rotate it 180 degrees, using the axis that runs
   // from the origin to its midpoint. This flips the edge around (so it
@@ -376,38 +394,6 @@ struct SymmetryGroups {
 
 };
 
-struct PointSet {
-  static constexpr double SQDIST = 0.000001;
-
-  size_t Size() const {
-    return pts.size();
-  }
-
-  bool Contains(const vec3 &p) const {
-    for (const vec3 &q : pts) {
-      if (distance_squared(p, q) < SQDIST) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  // Must not already be present.
-  void Add(const vec3 &q) {
-    pts.push_back(q);
-  }
-
-  std::vector<vec3> ExtractVector() {
-    std::vector<vec3> ret = std::move(pts);
-    pts.clear();
-    return ret;
-  }
-
- private:
-  // PERF use kd-tree
-  std::vector<vec3> pts;
-};
 
 // Note that we can get more (because we require a minimum of
 // two random points so that they aren't just the platonic solids)
@@ -456,10 +442,17 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
           PointSet pointset;
 
           if (VERBOSE > 0) {
-            status->Printf("To quiescence, method " ACYAN("%s") ", target %d\n",
-                           what, target_points);
+            status->Printf(
+                "* To quiescence, method " ACYAN("%s") ", target %d\n",
+                what, target_points);
           }
+
           while (pointset.Size() < target_points) {
+            if (VERBOSE > 1) {
+              status->Printf(
+                  "Enter loop with %d points, target %d\n",
+                  (int)pointset.Size(), target_points);
+            }
             std::vector<vec3> todo = {
               normalize(RandomVec(rc))
             };
@@ -467,7 +460,17 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
             // Run until quiescence, even if we exceed the target
             // point size.
             while (!todo.empty()) {
-              CHECK(todo.size() < 600);
+              if (pointset.Size() > 6000) {
+                status->Printf(ARED("Too big!!") "\n");
+
+                DebugPointCloudAsSTL(pointset.ExtractVector(),
+                                     "too-big.stl");
+
+                LOG(FATAL) << "Something is wrong";
+              }
+
+              if (pointset.Size() == target_points)
+                break;
 
               vec3 v = todo.back();
               todo.pop_back();
@@ -584,8 +587,67 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
   }
 }
 
+// Must be thread safe.
+struct CandidateMaker {
+  virtual ~CandidateMaker() {}
+  virtual std::string Name() const = 0;
 
-static bool Nopert(double max_seconds, int num_points) {
+  virtual std::pair<int64_t, int64_t> Frac() = 0;
+
+  // or nullopt when done.
+  virtual std::optional<Polyhedron> Next() = 0;
+};
+
+struct RandomCandidateMaker : public CandidateMaker {
+
+  RandomCandidateMaker(int num_points, int method, int64_t max_seconds) :
+    rc(StringPrintf("rand.%d.%lld", method, time(nullptr))),
+    num_points(num_points),
+    method(method), max_seconds(max_seconds) {
+    std::string name = Util::lcase(SolutionDB::NopertMethodName(method));
+    (void)Util::TryStripPrefix("nopert_method_", &name);
+    lower_name = name;
+  }
+
+  std::string Name() const override {
+    return lower_name;
+  }
+
+  std::pair<int64_t, int64_t> Frac() override {
+    MutexLock ml(&m);
+    return std::make_pair((int64_t)run_timer.Seconds(), max_seconds);
+  }
+
+  std::optional<Polyhedron> Next() override {
+    MutexLock ml(&m);
+    if (run_timer.Seconds() > max_seconds)
+      return std::nullopt;
+    // PERF: If we had multiple random streams, this could avoid
+    // taking the lock.
+    switch (method) {
+    case SolutionDB::NOPERT_METHOD_RANDOM:
+      return {RandomPolyhedron(&rc, num_points)};
+    case SolutionDB::NOPERT_METHOD_CYCLIC:
+      return {RandomCyclicPolyhedron(&rc, num_points)};
+    case SolutionDB::NOPERT_METHOD_SYMMETRIC:
+      return {RandomSymmetricPolyhedron(&rc, num_points)};
+    default:
+      LOG(FATAL) << "Bad Nopert method";
+      return Cube();
+    }
+  }
+
+ private:
+  std::mutex m;
+  ArcFour rc;
+  const int num_points = 0;
+  const int method = 0;
+  const int64_t max_seconds = 0;
+  std::string lower_name;
+  Timer run_timer;
+};
+
+static bool Nopert(int num_points) {
   polyhedra.Reset();
   attempts.Reset();
   degenerate.Reset();
@@ -593,12 +655,12 @@ static bool Nopert(double max_seconds, int num_points) {
   static constexpr int NUM_THREADS = 4;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
   static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
+  static constexpr int64_t MAX_SECONDS = 60 * 60;
 
-  const std::string lower_method = []() {
-      std::string name = Util::lcase(SolutionDB::NopertMethodName(METHOD));
-      (void)Util::TryStripPrefix("nopert_method_", &name);
-      return name;
-    }();
+  std::unique_ptr<CandidateMaker> candidates(
+      new RandomCandidateMaker(num_points, METHOD, MAX_SECONDS));
+
+  std::string name = candidates->Name();
 
   Timer timer;
   AutoHisto histo(10000);
@@ -619,35 +681,28 @@ static bool Nopert(double max_seconds, int num_points) {
           {
             MutexLock ml(&m);
             if (should_die) return;
-
-            if (timer.Seconds() > max_seconds) {
-              should_die = true;
-              status->Printf("Stopping after %s\n",
-                             ANSI::Time(timer.Seconds()).c_str());
-              SolutionDB db;
-              db.AddNopertAttempt(num_points, polyhedra.Read(), histo,
-                                  METHOD);
-              return;
-            }
           }
 
-          polyhedra++;
-
           Timer gen_timer;
-          Polyhedron poly = [&rc, num_points]() {
-              switch (METHOD) {
-              case SolutionDB::NOPERT_METHOD_RANDOM:
-                return RandomPolyhedron(&rc, num_points);
-              case SolutionDB::NOPERT_METHOD_CYCLIC:
-                return RandomCyclicPolyhedron(&rc, num_points);
-              case SolutionDB::NOPERT_METHOD_SYMMETRIC:
-                return RandomSymmetricPolyhedron(&rc, num_points);
-              default:
-                LOG(FATAL) << "Bad Nopert method";
-                return Cube();
-              }
-            }();
+          std::optional<Polyhedron> opoly =
+            candidates->Next();
           const double gen_sec = gen_timer.Seconds();
+
+          if (!opoly.has_value()) {
+            MutexLock ml(&m);
+            if (should_die) return;
+
+            should_die = true;
+            status->Printf("No more polyhedra after %s\n",
+                           ANSI::Time(timer.Seconds()).c_str());
+            SolutionDB db;
+            db.AddNopertAttempt(num_points, polyhedra.Read(), histo,
+                                METHOD);
+            return;
+          }
+
+          Polyhedron poly = std::move(opoly.value());
+          polyhedra++;
 
           if constexpr (SAVE_EVERY_IMAGE) {
             printf("Rendering %d points %d faces...\n",
@@ -679,11 +734,11 @@ static bool Nopert(double max_seconds, int num_points) {
 
               status->Printf(
                   "\n\n" ABGCOLOR(200, 0, 200,
-                                  ADARKGREY("***** ")
-                                  AYELLOW("NOPERT")
-                                  ADARKGREY(" with ")
-                                  AWHITE("%d")
-                                  ADARKGREY(" vertices *****"))
+                                  ANSI_DARK_GREY "***** "
+                                  ANSI_YELLOW "NOPERT"
+                                  ANSI_DARK_GREY " with "
+                                  ANSI_WHITE "%d"
+                                  ANSI_DARK_GREY " vertices *****")
                   "\n", (int)poly.vertices.size());
 
               for (const vec3 &v : poly.vertices) {
@@ -703,25 +758,35 @@ static bool Nopert(double max_seconds, int num_points) {
             const int64_t polys = polyhedra.Read();
             double tps = polys / total_time;
 
+            const auto &[numer, denom] = candidates->Frac();
+
+            std::string msg =
+              StringPrintf(
+                  AWHITE("%d") AWHITE("⋮") " "
+                  ACYAN("%s") " " AGREY("|") " " AGREY("|") " "
+                  ARED("%s") ABLOOD("×") " "
+                  ABLUE("%s") AWHITE("∎") " "
+                  "[" AWHITE("%.1f") "/s] %s gen %s sol",
+                  num_points,
+                  name.c_str(),
+                  FormatNum(degenerate.Read()).c_str(),
+                  FormatNum(polys).c_str(),
+                  tps,
+                  ANSI::Time(total_gen_sec).c_str(),
+                  ANSI::Time(total_solve_sec).c_str());
+
+            status->Printf("%s\n", msg.c_str());
+
+            std::string bar =
+              ANSI::ProgressBar(numer, denom,
+                                msg, total_time);
+
             status->Statusf(
                 "%s\n"
-                ACYAN("%s") " " AGREY("|") " "
-                AWHITE("%d") " pt " AGREY("|") " "
-                ARED("%s") " ⛔ "
-                ABLUE("%s") " polys "
-                "in %s "
-                "[" AWHITE("%.1f") "/s] %s gen %s sol\n",
+                "%s\n",
                 histo.SimpleANSI(HISTO_LINES).c_str(),
-                lower_method.c_str(),
-                num_points,
-                FormatNum(degenerate.Read()).c_str(),
-                FormatNum(polys).c_str(),
-                ANSI::Time(total_time).c_str(),
-                tps,
-                ANSI::Time(total_gen_sec).c_str(),
-                ANSI::Time(total_solve_sec).c_str());
+                bar.c_str());
           }
-
           delete poly.faces;
         }
       });
@@ -745,7 +810,7 @@ int main(int argc, char **argv) {
   for (;;) {
     // Could break if we find one, but might as well try to find
     // more examples.
-    (void)Nopert(60 * 60, NUM_POINTS);
+    (void)Nopert(NUM_POINTS);
     NUM_POINTS++;
   }
 
