@@ -118,6 +118,8 @@ struct IntervalCover {
   // Won't show data unless it's of a limited number of basic types.
   void DebugPrint() const;
 
+  bool operator ==(const IntervalCover<D> &other) const;
+
  private:
   static constexpr uint64_t MAX64 = (uint64_t)-1;
   // Make a Span by looking at the next entry in the map to
@@ -464,6 +466,26 @@ void IntervalCover<D>::CheckInvariants() const {
     prev = it->first;
     prev_data = it->second;
   }
+}
+
+template<class D>
+bool IntervalCover<D>::operator ==(const IntervalCover<D> &other) const {
+  if (spans.size() != other.spans.size()) return false;
+
+  auto ita = spans.begin();
+  auto itb = other.spans.begin();
+  while (ita != spans.end() && itb != other.spans.end()) {
+    if (ita->first != itb->first) return false;
+    if (!(ita->second == itb->second)) return false;
+
+    ++ita;
+    ++itb;
+  }
+
+  // They were supposedly the same length.
+  CHECK(ita == spans.end() && itb == other.spans.end());
+
+  return true;
 }
 
 #endif
