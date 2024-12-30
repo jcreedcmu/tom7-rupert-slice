@@ -18,6 +18,8 @@
 // Value semantics.
 //
 // Not thread safe; clients should manage mutual exclusion.
+//
+// See also interval-cover-util.h for serialization with common types.
 
 #ifndef _CC_LIB_INTERVAL_COVER_H
 #define _CC_LIB_INTERVAL_COVER_H

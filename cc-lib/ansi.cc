@@ -235,19 +235,14 @@ std::string ANSI::ProgressBar(uint64_t numer, uint64_t denom,
     bgraster[i] = i < filled_width ? options.bar_filled : options.bar_empty;
   }
 
-  printf("[2] Bar text plain [%s]\n", bar_text_plain.c_str());
-
   // could do "..."
   if ((int)bar_text_plain.size() > bar_width) {
     bar_text_plain = UTF8::Truncate(bar_text_plain, bar_width);
-    printf("[2.5] Truncated [%s]\n", bar_text_plain.c_str());
   }
   bar_text_plain.reserve(bar_width);
   while ((int)bar_text_plain.size() < bar_width)
     bar_text_plain.push_back(' ');
 
-  printf("[3] Bar text plain [%s]\n", bar_text_plain.c_str());
-  abort();
   string colored_bar = Composite(bar_text_plain, fgraster, bgraster);
   string out = AWHITE("[") + colored_bar + AWHITE("]") " " + eta;
 

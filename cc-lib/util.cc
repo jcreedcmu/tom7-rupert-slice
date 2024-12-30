@@ -353,9 +353,9 @@ vector<string> Util::NormalizeLines(const std::vector<string> &lines) {
   return out;
 }
 
-bool Util::WriteLinesToFile(const string &fn,
+bool Util::WriteLinesToFile(const string &filename,
                             const std::vector<string> &lines) {
-  FILE *f = fopen(fn.c_str(), "wb");
+  FILE *f = fopen(filename.c_str(), "wb");
   if (f == nullptr) return false;
 
   for (const string &s : lines) {
@@ -376,7 +376,7 @@ bool Util::WriteLinesToFile(const string &fn,
   return true;
 }
 
-vector<string> Util::SplitToLines(const string &s) {
+vector<string> Util::SplitToLines(string_view s) {
   vector<string> v;
   string line;
   // PERF don't need to do so much copying.
@@ -1342,6 +1342,26 @@ vector<string> Util::Split(std::string_view s, char sep) {
 
 vector<string> Util::Tokenize(std::string_view s, char sep) {
   return Tokens(s, [sep](char c) { return c == sep; });
+}
+
+std::string_view Util::NextToken(std::string_view *str, char sep) {
+  while (!str->empty() && (*str)[0] == sep) str->remove_prefix(1);
+
+  std::string_view ret = *str;
+  size_t len = 0;
+  while (!str->empty() && (*str)[0] != sep) {
+    len++;
+    str->remove_prefix(1);
+  }
+
+  // Trim to the token.
+  ret = ret.substr(0, len);
+
+  // Remove more separator characters, which makes it easier for the
+  // caller to tell if there are no more tokens.
+  while (!str->empty() && (*str)[0] == sep) str->remove_prefix(1);
+
+  return ret;
 }
 
 vector<string> Util::SplitWith(std::string_view str,

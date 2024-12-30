@@ -196,6 +196,48 @@ static void TestTokens() {
            Util::Tokens("", IsSpace));
 }
 
+static void TestNextToken() {
+  {
+    std::string s = " this  is a teststring   ";
+    std::string_view view(s);
+    CHECK_EQ(Util::NextToken(&view, ' '), "this");
+    CHECK_EQ(Util::NextToken(&view, ' '), "is");
+    CHECK_EQ(Util::NextToken(&view, ' '), "a");
+    CHECK_EQ(Util::NextToken(&view, ' '), "teststring");
+    CHECK(view.empty());
+    CHECK(Util::NextToken(&view, ' ').empty());
+    CHECK(view.empty());
+    CHECK(!s.empty());
+  }
+
+  {
+    std::string s = "";
+    std::string_view view(s);
+    CHECK(view.empty());
+    CHECK(Util::NextToken(&view, ' ').empty());
+    CHECK(view.empty());
+  }
+
+  {
+    std::string s = "x";
+    std::string_view view(s);
+    CHECK_EQ(Util::NextToken(&view, ' '), "x");
+    CHECK(view.empty());
+    CHECK(Util::NextToken(&view, ' ').empty());
+    CHECK(view.empty());
+  }
+
+  {
+    std::string s = " ";
+    std::string_view view(s);
+    CHECK(!view.empty());
+    CHECK(Util::NextToken(&view, ' ').empty());
+    CHECK(view.empty());
+    CHECK(!s.empty());
+  }
+
+}
+
 static void TestTokenize() {
   CHECK_EQ((vector<string>{"hello", "world"}),
            Util::Tokenize("....hello.world...", '.'));
@@ -600,6 +642,7 @@ int main(int argc, char **argv) {
   TestSplitToLines();
   TestTokens();
   TestTokenize();
+  TestNextToken();
   TestCdup();
   TestPrefixSuffix();
   TestParseDouble();

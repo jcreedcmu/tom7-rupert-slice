@@ -53,7 +53,7 @@ struct Util {
   // If the file doesn't end with a newline, and the last line is
   // not empty (i.e., the file is not empty), then that line is also
   // returned.
-  static std::vector<string> SplitToLines(const string &s);
+  static std::vector<string> SplitToLines(string_view s);
 
   // Calls f on each line (without the newline), streamed from
   // the file. Ignores \r. Suitable for very large files.
@@ -97,6 +97,12 @@ struct Util {
   // are separators.
   static std::vector<string> Tokenize(std::string_view str, char sep);
 
+  // Ignore leading separators, and then get the non-separator characters
+  // up until the end of the string or a separator character. The result
+  // will be empty if there are no such tokens. The argument is modified
+  // to skip the token and separators.
+  static std::string_view NextToken(std::string_view *str, char sep);
+
   // Like Split, but with an arbitrary function (char -> bool) determining
   // the separator.
   template<class F>
@@ -106,6 +112,8 @@ struct Util {
   // are separators.
   template<class F>
   static std::vector<std::string> Tokens(std::string_view s, F is_sep);
+
+
 
   /* converts int to byte string that represents it */
   static string sizes(int i);

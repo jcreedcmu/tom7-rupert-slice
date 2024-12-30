@@ -272,5 +272,8 @@ stats_test.exe : stats_test.o ansi.o $(BASE)
 map-util_test.exe : map-util_test.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
+interval-cover-util_test.exe : interval-cover-util_test.o ansi.o util.o $(BASE)
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
 clean :
 	rm -f base/*.o bignum/*.o *.o *.exe *.deleteme test-*.png $(BASE) $(RE2_OBJECTS)
