@@ -97,13 +97,13 @@ struct SolutionDB {
   static constexpr int NOPERT_METHOD_RANDOM = 1;
   static constexpr int NOPERT_METHOD_CYCLIC = 2;
   static constexpr int NOPERT_METHOD_SYMMETRIC = 3;
-  static constexpr int NOPERT_METHOD_REDUCE = 4;
+  static constexpr int NOPERT_METHOD_REDUCE_SC = 4;
   static const char *NopertMethodName(int m) {
     switch (m) {
     case NOPERT_METHOD_RANDOM: return "NOPERT_METHOD_RANDOM";
     case NOPERT_METHOD_CYCLIC: return "NOPERT_METHOD_CYCLIC";
     case NOPERT_METHOD_SYMMETRIC: return "NOPERT_METHOD_SYMMETRIC";
-    case NOPERT_METHOD_REDUCE: return "NOPERT_METHOD_REDUCE";
+    case NOPERT_METHOD_REDUCE_SC: return "NOPERT_METHOD_REDUCE_SC";
     default: return "UNKNOWN";
     }
   }

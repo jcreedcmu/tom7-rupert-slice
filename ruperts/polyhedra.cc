@@ -288,7 +288,7 @@ static vec2 ClosestPointOnSegment(
 }
 
 // Return the minimum distance between the point and the line segment.
-inline double PointLineDistance(
+inline double SquaredPointLineDistance(
     // Line segment
     const vec2 &v0, const vec2 &v1,
     // Point to test
@@ -298,6 +298,14 @@ inline double PointLineDistance(
   const double dx = pt.x - c.x;
   const double dy = pt.y - c.y;
   return sqrt(dx * dx + dy * dy);
+}
+
+inline double PointLineDistance(
+    // Line segment
+    const vec2 &v0, const vec2 &v1,
+    // Point to test
+    const vec2 &pt) {
+  return sqrt(SquaredPointLineDistance(v0, v1, pt));
 }
 
 [[maybe_unused]]
@@ -310,10 +318,6 @@ double BuggyDistanceToEdge(const vec2 &v0, const vec2 &v1, const vec2 &p) {
   double d1 = yocto::length(p - v1);
 
   return std::min(std::min(d0, d1), dist);
-}
-
-double DistanceToEdge(const vec2 &v0, const vec2 &v1, const vec2 &p) {
-  return PointLineDistance(v0, v1, p);
 }
 
 // Create the shadow of the polyhedron on the x-y plane.
@@ -332,20 +336,21 @@ double DistanceToHull(
     const std::vector<vec2> &points, const std::vector<int> &hull,
     const vec2 &pt) {
 
-  std::optional<double> best_dist;
+  std::optional<double> best_sqdist;
   for (int i = 0; i < hull.size(); i++) {
     const vec2 &v0 = points[hull[i]];
     const vec2 &v1 = points[hull[(i + 1) % hull.size()]];
 
-    double dist = DistanceToEdge(v0, v1, pt);
-    if (!best_dist.has_value() || dist < best_dist.value()) {
-      best_dist = {dist};
+    double sqdist = SquaredPointLineDistance(v0, v1, pt);
+    if (!best_sqdist.has_value() || sqdist < best_sqdist.value()) {
+      best_sqdist = {sqdist};
     }
   }
-  CHECK(best_dist.has_value());
-  return best_dist.value();
+  CHECK(best_sqdist.has_value());
+  return sqrt(best_sqdist.value());
 }
 
+// PERF: Hoist out square root.
 double DistanceToMesh(const Mesh2D &mesh, const vec2 &pt) {
   std::optional<double> best_dist;
   for (const std::vector<int> &polygon : mesh.faces->v) {
@@ -830,6 +835,18 @@ double Diameter(const Polyhedron &p) {
     }
   }
   return std::sqrt(dist);
+}
+
+Polyhedron NormalizeRadius(const Polyhedron &p) {
+  double max_dist = 0.0;
+  for (const vec3 &v : p.vertices) {
+    max_dist = std::max(max_dist, yocto::length(v));
+  }
+  Polyhedron copy = p;
+  for (vec3 &v : copy.vertices) {
+    v /= max_dist;
+  }
+  return copy;
 }
 
 double PlanarityError(const Polyhedron &p) {

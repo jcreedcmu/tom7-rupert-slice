@@ -160,7 +160,12 @@ bool IsConvex(const std::vector<vec2> &points,
               const std::vector<int> &polygon);
 
 // Maximum distance between any two points.
+// Note: This is non-standard.
 double Diameter(const Polyhedron &p);
+
+// Normalize so that the most distant point from the origin
+// is distance 1.
+Polyhedron NormalizeRadius(const Polyhedron &p);
 
 // Create the shadow of the polyhedron on the x-y plane.
 // The mesh's faces object aliases the input polyhedron's.

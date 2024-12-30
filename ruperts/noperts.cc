@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -647,18 +648,99 @@ struct RandomCandidateMaker : public CandidateMaker {
   Timer run_timer;
 };
 
-static bool Nopert(int num_points) {
+struct ReduceCandidateMaker : public CandidateMaker {
+  ReduceCandidateMaker(// bitmasks
+                       uint64_t start, uint64_t end,
+                       const char *reference_name) :
+    start(start), end(end) {
+    name = StringPrintf("reduce_%s", reference_name);
+    reference = PolyhedronByName(reference_name);
+    next = start;
+  }
+
+  std::pair<int64_t, int64_t> Frac() override {
+    MutexLock ml(&m);
+    return std::make_pair(next, end);
+  }
+
+  std::optional<Polyhedron> Next() override {
+    MutexLock ml(&m);
+    for (; next < end; next++) {
+
+      int pop = std::popcount<uint64_t>(next);
+      // Skip degenerate ones.
+      if (pop < 4 || pop == reference.vertices.size())
+        continue;
+
+      std::vector<vec3> vertices;
+      vertices.reserve(pop);
+      for (int i = 0; i < reference.vertices.size(); i++) {
+        if (next & (int64_t{1} << i)) {
+          vertices.push_back(reference.vertices[i]);
+        }
+      }
+
+      std::optional<Polyhedron> poly =
+        ConvexPolyhedronFromVertices(std::move(vertices), "reduced");
+      if (poly.has_value()) {
+        next++;
+        CHECK(!poly.value().vertices.empty());
+        return {std::move(poly.value())};
+      } else {
+        degenerate++;
+      }
+    }
+    return std::nullopt;
+  }
+
+  std::string Name() const override {
+    return name;
+  }
+
+  ~ReduceCandidateMaker() {
+    delete reference.faces;
+  }
+
+ private:
+  std::mutex m;
+  Polyhedron reference;
+  uint64_t next = 0;
+  const uint64_t start = 0, end = 0;
+  std::string name;
+};
+
+static bool Nopert(uint64_t parameter) {
   polyhedra.Reset();
   attempts.Reset();
   degenerate.Reset();
 
-  static constexpr int NUM_THREADS = 4;
+  static constexpr int NUM_THREADS = 8;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
-  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
   static constexpr int64_t MAX_SECONDS = 60 * 60;
 
-  std::unique_ptr<CandidateMaker> candidates(
-      new RandomCandidateMaker(num_points, METHOD, MAX_SECONDS));
+  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_REDUCE_SC;
+  const uint64_t reduce_start = parameter;
+  const uint64_t reduce_end = (1 << 25) - 1;
+
+  std::unique_ptr<CandidateMaker> candidates;
+
+  switch (METHOD) {
+  case SolutionDB::NOPERT_METHOD_RANDOM:
+  case SolutionDB::NOPERT_METHOD_CYCLIC:
+  case SolutionDB::NOPERT_METHOD_SYMMETRIC:
+    candidates.reset(new RandomCandidateMaker(
+                         parameter, METHOD, MAX_SECONDS));
+    break;
+  case SolutionDB::NOPERT_METHOD_REDUCE_SC:
+    candidates.reset(new ReduceCandidateMaker(
+                         reduce_start, reduce_end,
+                         "snubcube"));
+    break;
+  default:
+    LOG(FATAL) << "Bad nopert method";
+  }
+
 
   std::string name = candidates->Name();
 
@@ -696,7 +778,7 @@ static bool Nopert(int num_points) {
             status->Printf("No more polyhedra after %s\n",
                            ANSI::Time(timer.Seconds()).c_str());
             SolutionDB db;
-            db.AddNopertAttempt(num_points, polyhedra.Read(), histo,
+            db.AddNopertAttempt(parameter, polyhedra.Read(), histo,
                                 METHOD);
             return;
           }
@@ -760,22 +842,27 @@ static bool Nopert(int num_points) {
 
             const auto &[numer, denom] = candidates->Frac();
 
-            std::string msg =
+            ANSI::ProgressBarOptions options;
+            options.include_percent = false;
+
+            std::string timing =
               StringPrintf(
-                  AWHITE("%d") AWHITE("⋮") " "
-                  ACYAN("%s") " " AGREY("|") " " AGREY("|") " "
-                  ARED("%s") ABLOOD("×") " "
-                  ABLUE("%s") AWHITE("∎") " "
-                  "[" AWHITE("%.1f") "/s] %s gen %s sol",
-                  num_points,
-                  name.c_str(),
-                  FormatNum(degenerate.Read()).c_str(),
-                  FormatNum(polys).c_str(),
+                  "Timing: [" AWHITE("%.1f") "/s] %s " APURPLE("gen")
+                  " %s " ABLUE("sol"),
                   tps,
                   ANSI::Time(total_gen_sec).c_str(),
                   ANSI::Time(total_solve_sec).c_str());
 
-            status->Printf("%s\n", msg.c_str());
+            std::string msg =
+              StringPrintf(
+                  APURPLE("%llu") AWHITE("⋮") " "
+                  ACYAN("%s") " " AGREY("|") " "
+                  ARED("%s") ABLOOD("×") " "
+                  ABLUE("%s") AWHITE("∎"),
+                  parameter,
+                  name.c_str(),
+                  FormatNum(degenerate.Read()).c_str(),
+                  FormatNum(polys).c_str());
 
             std::string bar =
               ANSI::ProgressBar(numer, denom,
@@ -783,8 +870,10 @@ static bool Nopert(int num_points) {
 
             status->Statusf(
                 "%s\n"
+                "%s\n"
                 "%s\n",
                 histo.SimpleANSI(HISTO_LINES).c_str(),
+                timing.c_str(),
                 bar.c_str());
           }
           delete poly.faces;
@@ -798,7 +887,7 @@ int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
 
-  status = new StatusBar(HISTO_LINES + 2);
+  status = new StatusBar(HISTO_LINES + 3);
 
   int NUM_POINTS = 6;
 
