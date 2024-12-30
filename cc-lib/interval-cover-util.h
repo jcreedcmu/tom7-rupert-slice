@@ -3,38 +3,44 @@
 #ifndef _CC_LIB_INTERVAL_COVER_UTIL_H
 #define _CC_LIB_INTERVAL_COVER_UTIL_H
 
-#include "interval-cover.h"
-
 #include <charconv>
 #include <functional>
 #include <string>
 #include <string_view>
 
 #include "base/stringprintf.h"
+#include "interval-cover.h"
 #include "util.h"
 
 struct IntervalCoverUtil {
 
-  // Serialize. The t-to-string function cannot output newlines and
-  // should not care about leading or trailing whitespace.
+  // Routines to serialize common IntervalCover formats.
+
+  // Using "t" and "f".
+  static std::string ToString(const IntervalCover<bool> &ic);
+  static IntervalCover<bool> ParseBool(std::string_view s);
+
+
+  // Generic Serialization. The t-to-string function cannot output
+  // newlines and should not care about leading or trailing
+  // whitespace.
   template<class T>
-  inline static std::string ToString(
+  inline static std::string Serialize(
       const IntervalCover<T> &ic,
       const std::function<std::string(const T&)> &ttos);
 
   template<class T>
-  inline static IntervalCover<T> FromString(
+  inline static IntervalCover<T> Parse(
       std::string_view contents,
       const std::function<T(std::string_view)> &stof,
       T default_value = T{});
-
 };
 
 
 // Template implementations follow.
 
 template<class T>
-inline std::string IntervalCoverUtil::ToString(
+inline std::string IntervalCoverUtil::Serialize(
     const IntervalCover<T> &ic,
     const std::function<std::string(const T&)> &ttos) {
   std::string out;
@@ -48,7 +54,7 @@ inline std::string IntervalCoverUtil::ToString(
 }
 
 template<class T>
-inline IntervalCover<T> IntervalCoverUtil::FromString(
+inline IntervalCover<T> IntervalCoverUtil::Parse(
     std::string_view contents,
     const std::function<T(std::string_view)> &stof,
     T default_value) {
