@@ -59,10 +59,22 @@ static void RoundTripBool() {
   CHECK(ivals == ovals);
 }
 
+static void RoundTripEmpty() {
+  IntervalCover<bool> ivals(false);
+  CHECK(IntervalCover<bool>::IsAfterLast(ivals.GetPoint(0).end));
+  std::string s = IntervalCoverUtil::ToString(ivals);
+  IntervalCover<bool> ovals = IntervalCoverUtil::ParseBool(s);
+  CHECK(IntervalCover<bool>::IsAfterLast(ovals.GetPoint(0).end));
+  std::string t = IntervalCoverUtil::ToString(ivals);
+  CHECK(s == t) << s << "\n---- vs ----\n" << t;
+  CHECK(ivals == ovals);
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
 
   RoundTripBool();
+  RoundTripEmpty();
   RoundTripGeneric();
 
   printf("OK\n");
