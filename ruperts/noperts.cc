@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -12,6 +13,7 @@
 #include <numbers>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -22,6 +24,8 @@
 #include "auto-histo.h"
 #include "base/stringprintf.h"
 #include "hull.h"
+#include "interval-cover-util.h"
+#include "interval-cover.h"
 #include "opt/opt.h"
 #include "periodically.h"
 #include "point-set.h"
@@ -39,11 +43,13 @@
 
 #define ABLOOD(s) AFGCOLOR(148, 0, 0, s)
 
-DECLARE_COUNTERS(polyhedra, attempts, degenerate, u1_, u2_, u3_, u4_, u5_);
+DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped, u1_, u2_, u3_, u4_);
 
 static constexpr int VERBOSE = 0;
 static constexpr bool SAVE_EVERY_IMAGE = false;
 static constexpr int HISTO_LINES = 10;
+
+using IntervalSet = IntervalCover<bool>;
 
 static StatusBar *status = nullptr;
 
@@ -588,15 +594,26 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
   }
 }
 
+// Like a pointer to a polyhedron, but it should be explicitly
+// returned.
+struct LeasedPoly {
+  virtual ~LeasedPoly() {}
+  virtual const Polyhedron &Value() const = 0;
+};
+
 // Must be thread safe.
 struct CandidateMaker {
   virtual ~CandidateMaker() {}
+  virtual int Method() const = 0;
   virtual std::string Name() const = 0;
+  virtual std::string Info() { return ""; }
 
   virtual std::pair<int64_t, int64_t> Frac() = 0;
 
-  // or nullopt when done.
-  virtual std::optional<Polyhedron> Next() = 0;
+  // Or nullptr when done.
+  virtual std::unique_ptr<LeasedPoly> Next() = 0;
+
+  virtual void AttemptFailed(int64_t num_poly, const AutoHisto &iter_histo) = 0;
 };
 
 struct RandomCandidateMaker : public CandidateMaker {
@@ -610,8 +627,14 @@ struct RandomCandidateMaker : public CandidateMaker {
     lower_name = name;
   }
 
+  int Method() const override { return method; }
+
   std::string Name() const override {
     return lower_name;
+  }
+
+  std::string Info() override {
+    return StringPrintf(APURPLE("%d") AWHITE("⋮"), num_points);
   }
 
   std::pair<int64_t, int64_t> Frac() override {
@@ -619,26 +642,48 @@ struct RandomCandidateMaker : public CandidateMaker {
     return std::make_pair((int64_t)run_timer.Seconds(), max_seconds);
   }
 
-  std::optional<Polyhedron> Next() override {
+  std::unique_ptr<LeasedPoly> Next() override {
     MutexLock ml(&m);
+    auto LP = [](Polyhedron p) {
+        return std::unique_ptr<LeasedPoly>(new RandomLeasedPoly(std::move(p)));
+      };
+
     if (run_timer.Seconds() > max_seconds)
-      return std::nullopt;
+      return {nullptr};
     // PERF: If we had multiple random streams, this could avoid
     // taking the lock.
     switch (method) {
     case SolutionDB::NOPERT_METHOD_RANDOM:
-      return {RandomPolyhedron(&rc, num_points)};
+      return LP(RandomPolyhedron(&rc, num_points));
     case SolutionDB::NOPERT_METHOD_CYCLIC:
-      return {RandomCyclicPolyhedron(&rc, num_points)};
+      return LP(RandomCyclicPolyhedron(&rc, num_points));
     case SolutionDB::NOPERT_METHOD_SYMMETRIC:
-      return {RandomSymmetricPolyhedron(&rc, num_points)};
+      return LP(RandomSymmetricPolyhedron(&rc, num_points));
     default:
       LOG(FATAL) << "Bad Nopert method";
-      return Cube();
+      return LP(Cube());
     }
   }
 
+  void AttemptFailed(int64_t num_poly, const AutoHisto &iter_histo) override {
+    SolutionDB db;
+    db.AddNopertAttempt(num_points, num_poly, iter_histo, method);
+  }
+
  private:
+
+  struct RandomLeasedPoly : public LeasedPoly {
+    RandomLeasedPoly(Polyhedron p) : poly(std::move(p)) {}
+
+    ~RandomLeasedPoly() override {
+      delete poly.faces;
+    }
+
+    const Polyhedron &Value() const override { return poly; }
+
+    Polyhedron poly;
+  };
+
   std::mutex m;
   ArcFour rc;
   const int num_points = 0;
@@ -648,49 +693,109 @@ struct RandomCandidateMaker : public CandidateMaker {
   Timer run_timer;
 };
 
+
+// All subsets of a polyhedron. Does not attempt to account for
+// symmetry at all, so for many of the regular polyhedra this
+// can be very redundant.
 struct ReduceCandidateMaker : public CandidateMaker {
-  ReduceCandidateMaker(// bitmasks
+  ReduceCandidateMaker(int method,
+                       // These are bitmasks.
+                       // Records the completed ranges.
+                       IntervalSet *done,
+                       // The region to do.
                        uint64_t start, uint64_t end,
                        const char *reference_name) :
+    save_per(60.0 * 10.0),
+    method(method), done(done), reference_name(reference_name),
     start(start), end(end) {
     name = StringPrintf("reduce_%s", reference_name);
     reference = PolyhedronByName(reference_name);
     next = start;
   }
 
+  int Method() const override { return method; }
+
   std::pair<int64_t, int64_t> Frac() override {
     MutexLock ml(&m);
-    return std::make_pair(next, end);
+    return std::make_pair(next - start, end - start);
   }
 
-  std::optional<Polyhedron> Next() override {
+  std::string Info() override {
     MutexLock ml(&m);
-    for (; next < end; next++) {
+    IntervalSet::Span sp = done->GetPoint(next);
+    return StringPrintf(
+        APURPLE("%llu") AGREY("-") APURPLE("%llu"),
+        sp.start, sp.end);
+  }
 
-      int pop = std::popcount<uint64_t>(next);
+  std::unique_ptr<LeasedPoly> Next() override {
+    auto LP = [this](uint64_t idx, Polyhedron p) {
+        return std::unique_ptr<LeasedPoly>(
+            new ReduceLeasedPoly(this, idx, std::move(p)));
+      };
+
+    MutexLock ml(&m);
+
+    if (save_per.ShouldRun()) {
+      Save();
+    }
+
+    for (; next < end; next++) {
+      const uint64_t idx = next;
+      int pop = std::popcount<uint64_t>(idx);
       // Skip degenerate ones.
-      if (pop < 4 || pop == reference.vertices.size())
+      if (pop < 4 || pop == reference.vertices.size()) {
+        done->SetPoint(idx, true);
         continue;
+      }
+
+      // Also: Skip completed ranges.
+      IntervalSet::Span sp = done->GetPoint(next);
+      if (sp.data == true) {
+        // Done until infinity.
+        if (IntervalSet::IsAfterLast(sp.end))
+          break;
+
+        // We want to try sp.end (which is the start of the next
+        // interval) next. But next gets incremented when we
+        // continue, so place it one before.
+        CHECK(next < sp.end);
+        skipped += (sp.end - 1 - next);
+        next = sp.end - 1;
+        continue;
+      }
+
 
       std::vector<vec3> vertices;
       vertices.reserve(pop);
       for (int i = 0; i < reference.vertices.size(); i++) {
-        if (next & (int64_t{1} << i)) {
+        if (idx & (int64_t{1} << i)) {
           vertices.push_back(reference.vertices[i]);
         }
       }
 
+      // PERF: We could reduce lock contention by doing this
+      // without holding the lock, but poly generation is
+      // only a tiny fraction of the overall time.
       std::optional<Polyhedron> poly =
         ConvexPolyhedronFromVertices(std::move(vertices), "reduced");
       if (poly.has_value()) {
         next++;
         CHECK(!poly.value().vertices.empty());
-        return {std::move(poly.value())};
+        return LP(idx, std::move(poly.value()));
       } else {
+        done->SetPoint(idx, true);
         degenerate++;
       }
     }
-    return std::nullopt;
+
+    // Save when we exhaust the range, but only once.
+    if (!saved_final) {
+      Save();
+      saved_final = true;
+    }
+
+    return {nullptr};
   }
 
   std::string Name() const override {
@@ -701,46 +806,73 @@ struct ReduceCandidateMaker : public CandidateMaker {
     delete reference.faces;
   }
 
+  void AttemptFailed(int64_t num_poly, const AutoHisto &iter_histo) override {
+    MutexLock ml(&m);
+    // Should insert or something?
+    Save();
+  }
+
+  // Must hold lock!
+  void Save() {
+    std::string filename = Filename(method, reference_name);
+    // XXX To allow parallel work, we could merge with the file here.
+    // There's still a race condition without some kind of filesystem
+    // locking, though.
+    Util::WriteFile(filename, IntervalCoverUtil::ToString(*done));
+    status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+  }
+
+  static std::string Filename(int method, const char *reference_name) {
+    return StringPrintf("noperts-reduce-%d-%s.txt", method, reference_name);
+  }
+
+
  private:
+  friend struct ReduceLeasedPoly;
+
+  void MarkDone(uint64_t idx) {
+    MutexLock ml(&m);
+    done->SetPoint(idx, true);
+  }
+
+  struct ReduceLeasedPoly : public LeasedPoly {
+    ReduceLeasedPoly(ReduceCandidateMaker *parent,
+                     uint64_t idx,
+                     Polyhedron p) : parent(parent),
+                                     idx(idx),
+                                     poly(std::move(p)) {}
+
+    ~ReduceLeasedPoly() override {
+      parent->MarkDone(idx);
+      delete poly.faces;
+    }
+
+    const Polyhedron &Value() const override { return poly; }
+
+    ReduceCandidateMaker *parent = nullptr;
+    uint64_t idx = 0;
+    Polyhedron poly;
+  };
+
+  Periodically save_per;
+
   std::mutex m;
+  bool saved_final = false;
+  const int method = 0;
+  IntervalSet *done = nullptr;
+  const char *reference_name = nullptr;
   Polyhedron reference;
   uint64_t next = 0;
-  const uint64_t start = 0, end = 0;
+  [[maybe_unused]] const uint64_t start = 0, end = 0;
   std::string name;
 };
 
-static bool Nopert(uint64_t parameter) {
+static bool Nopert(CandidateMaker *candidates) {
   polyhedra.Reset();
   attempts.Reset();
   degenerate.Reset();
 
   static constexpr int NUM_THREADS = 8;
-  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
-  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
-  static constexpr int64_t MAX_SECONDS = 60 * 60;
-
-  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_REDUCE_SC;
-  const uint64_t reduce_start = parameter;
-  const uint64_t reduce_end = (1 << 25) - 1;
-
-  std::unique_ptr<CandidateMaker> candidates;
-
-  switch (METHOD) {
-  case SolutionDB::NOPERT_METHOD_RANDOM:
-  case SolutionDB::NOPERT_METHOD_CYCLIC:
-  case SolutionDB::NOPERT_METHOD_SYMMETRIC:
-    candidates.reset(new RandomCandidateMaker(
-                         parameter, METHOD, MAX_SECONDS));
-    break;
-  case SolutionDB::NOPERT_METHOD_REDUCE_SC:
-    candidates.reset(new ReduceCandidateMaker(
-                         reduce_start, reduce_end,
-                         "snubcube"));
-    break;
-  default:
-    LOG(FATAL) << "Bad nopert method";
-  }
-
 
   std::string name = candidates->Name();
 
@@ -766,24 +898,21 @@ static bool Nopert(uint64_t parameter) {
           }
 
           Timer gen_timer;
-          std::optional<Polyhedron> opoly =
-            candidates->Next();
+          std::unique_ptr<LeasedPoly> lease = candidates->Next();
           const double gen_sec = gen_timer.Seconds();
 
-          if (!opoly.has_value()) {
+          if (lease.get() == nullptr) {
             MutexLock ml(&m);
             if (should_die) return;
 
             should_die = true;
             status->Printf("No more polyhedra after %s\n",
                            ANSI::Time(timer.Seconds()).c_str());
-            SolutionDB db;
-            db.AddNopertAttempt(parameter, polyhedra.Read(), histo,
-                                METHOD);
+            candidates->AttemptFailed(polyhedra.Read(), histo);
             return;
           }
 
-          Polyhedron poly = std::move(opoly.value());
+          const Polyhedron &poly = lease->Value();
           polyhedra++;
 
           if constexpr (SAVE_EVERY_IMAGE) {
@@ -811,8 +940,9 @@ static bool Nopert(uint64_t parameter) {
             if (iters.has_value()) {
               histo.Observe(iters.value());
             } else {
+
               SolutionDB db;
-              db.AddNopert(poly, METHOD);
+              db.AddNopert(poly, candidates->Method());
 
               status->Printf(
                   "\n\n" ABGCOLOR(200, 0, 200,
@@ -840,10 +970,12 @@ static bool Nopert(uint64_t parameter) {
             const int64_t polys = polyhedra.Read();
             double tps = polys / total_time;
 
+            std::string info = candidates->Info();
             const auto &[numer, denom] = candidates->Frac();
 
             ANSI::ProgressBarOptions options;
-            options.include_percent = false;
+            options.include_frac = false;
+            options.include_percent = true;
 
             std::string timing =
               StringPrintf(
@@ -855,18 +987,17 @@ static bool Nopert(uint64_t parameter) {
 
             std::string msg =
               StringPrintf(
-                  APURPLE("%llu") AWHITE("⋮") " "
-                  ACYAN("%s") " " AGREY("|") " "
+                  ACYAN("%s") " %s%s" AGREY("|") " "
                   ARED("%s") ABLOOD("×") " "
                   ABLUE("%s") AWHITE("∎"),
-                  parameter,
                   name.c_str(),
+                  info.c_str(), info.empty() ? "" : " ",
                   FormatNum(degenerate.Read()).c_str(),
                   FormatNum(polys).c_str());
 
             std::string bar =
               ANSI::ProgressBar(numer, denom,
-                                msg, total_time);
+                                msg, total_time, options);
 
             status->Statusf(
                 "%s\n"
@@ -876,11 +1007,89 @@ static bool Nopert(uint64_t parameter) {
                 timing.c_str(),
                 bar.c_str());
           }
-          delete poly.faces;
         }
       });
 
   return success;
+}
+
+// Prep
+static void Run(uint64_t parameter) {
+
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
+  static constexpr int64_t MAX_SECONDS = 60 * 60;
+
+  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_REDUCE_SC;
+
+  switch (METHOD) {
+  case SolutionDB::NOPERT_METHOD_RANDOM:
+  case SolutionDB::NOPERT_METHOD_CYCLIC:
+  case SolutionDB::NOPERT_METHOD_SYMMETRIC: {
+
+    CHECK(parameter >= 4) << "Must have at least four vertices.";
+    for (;;) {
+
+      std::unique_ptr<CandidateMaker> candidates(
+          new RandomCandidateMaker(
+              parameter, METHOD, MAX_SECONDS));
+
+      Nopert(candidates.get());
+      parameter++;
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
+    break;
+  }
+
+  case SolutionDB::NOPERT_METHOD_REDUCE_SC: {
+    constexpr int num_vertices = 24;
+    // We do not need to try all bitmasks due to symmetry. Alas, the
+    // vertices are just in some arbitrary order, so it's not easy to
+    // figure out which masks are equivalent. However, for vertex-
+    // transitive shapes, we can say without loss of generality that
+    // one of the vertices (the msb) is always deleted. So we only
+    // need n - 1 bits.
+    constexpr int num_bits = num_vertices - 1;
+    constexpr uint64_t reduce_end = 1 << num_bits;
+    const char *reference_name = "snubcube";
+
+    // XXX load from file!
+    IntervalSet done(false);
+
+    const std::string filename =
+      ReduceCandidateMaker::Filename(METHOD, reference_name);
+    std::string old = Util::ReadFile(filename);
+    if (!old.empty()) {
+      done = IntervalCoverUtil::ParseBool(old);
+      status->Printf("Loaded " AYELLOW("%s") "\n", filename.c_str());
+    }
+
+    // "done" because there's nothing to do.
+    done.SplitRight(1 << num_vertices, true);
+    // Done on Startropics, 30 Dec 2024
+    done.SetSpan(0, 3989000, true);
+
+    uint64_t reduce_start = parameter;
+    while (reduce_start < reduce_end) {
+      IntervalSet::Span sp = done.GetPoint(reduce_start);
+      if (sp.data == false)
+        break;
+      reduce_start = sp.end;
+    }
+
+    std::unique_ptr<CandidateMaker> candidates(
+        new ReduceCandidateMaker(
+            METHOD, &done,
+            reduce_start, reduce_end,
+            reference_name));
+    Nopert(candidates.get());
+
+    break;
+  }
+  default:
+    LOG(FATAL) << "Bad nopert method";
+  }
 }
 
 int main(int argc, char **argv) {
@@ -889,19 +1098,13 @@ int main(int argc, char **argv) {
 
   status = new StatusBar(HISTO_LINES + 3);
 
-  int NUM_POINTS = 6;
+  int parameter = 6;
 
   if (argc == 2) {
-    NUM_POINTS = strtol(argv[1], nullptr, 10);
-    CHECK(NUM_POINTS >= 3);
+    parameter = strtol(argv[1], nullptr, 10);
   }
 
-  for (;;) {
-    // Could break if we find one, but might as well try to find
-    // more examples.
-    (void)Nopert(NUM_POINTS);
-    NUM_POINTS++;
-  }
+  Run(parameter);
 
   printf("OK\n");
   return 0;

@@ -1,5 +1,6 @@
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -1252,8 +1253,7 @@ static void GrindRandom() {
     int idx = RandTo(&rc, remaining.size());
     const auto &[poly, method] = remaining[idx];
     SolveWith(*poly, method, &status, 3600.0);
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(1s);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 }
 
@@ -1270,17 +1270,17 @@ int main(int argc, char **argv) {
   // Grind unsolved polyhedra for an hour at a time.
   if (true) {
     for (;;) {
-      using namespace std::chrono_literals;
+      constexpr auto sec = std::chrono::seconds(1);
       ReproduceEasySolutions(SolutionDB::METHOD_PARALLEL, true, 3600.0);
-      std::this_thread::sleep_for(1s);
+      std::this_thread::sleep_for(sec);
       ReproduceEasySolutions(SolutionDB::METHOD_HULL, true, 3600.0);
-      std::this_thread::sleep_for(1s);
+      std::this_thread::sleep_for(sec);
       ReproduceEasySolutions(SolutionDB::METHOD_SIMUL, true, 3600.0);
-      std::this_thread::sleep_for(1s);
+      std::this_thread::sleep_for(sec);
       ReproduceEasySolutions(SolutionDB::METHOD_MAX, true, 3600.0);
-      std::this_thread::sleep_for(1s);
+      std::this_thread::sleep_for(sec);
       ReproduceEasySolutions(SolutionDB::METHOD_SPECIAL, true, 3600.0);
-      std::this_thread::sleep_for(1s);
+      std::this_thread::sleep_for(sec);
     }
   }
 
