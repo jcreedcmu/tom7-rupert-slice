@@ -332,10 +332,9 @@ Mesh2D Shadow(const Polyhedron &p) {
   return mesh;
 }
 
-double DistanceToHull(
+static double SquaredDistanceToHull(
     const std::vector<vec2> &points, const std::vector<int> &hull,
     const vec2 &pt) {
-
   std::optional<double> best_sqdist;
   for (int i = 0; i < hull.size(); i++) {
     const vec2 &v0 = points[hull[i]];
@@ -347,20 +346,25 @@ double DistanceToHull(
     }
   }
   CHECK(best_sqdist.has_value());
-  return sqrt(best_sqdist.value());
+  return best_sqdist.value();
 }
 
-// PERF: Hoist out square root.
+double DistanceToHull(
+    const std::vector<vec2> &points, const std::vector<int> &hull,
+    const vec2 &pt) {
+  return sqrt(SquaredDistanceToHull(points, hull, pt));
+}
+
 double DistanceToMesh(const Mesh2D &mesh, const vec2 &pt) {
-  std::optional<double> best_dist;
+  std::optional<double> best_sqdist;
   for (const std::vector<int> &polygon : mesh.faces->v) {
-    double dist = DistanceToHull(mesh.vertices, polygon, pt);
-    if (!best_dist.has_value() || dist < best_dist.value()) {
-      best_dist = {dist};
+    double sqdist = SquaredDistanceToHull(mesh.vertices, polygon, pt);
+    if (!best_sqdist.has_value() || sqdist < best_sqdist.value()) {
+      best_sqdist = {sqdist};
     }
   }
-  CHECK(best_dist.has_value());
-  return best_dist.value();
+  CHECK(best_sqdist.has_value());
+  return sqrt(best_sqdist.value());
 }
 
 std::vector<int> GiftWrapConvexHull(const std::vector<vec2> &vertices) {

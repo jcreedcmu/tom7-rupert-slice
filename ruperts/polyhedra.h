@@ -2,6 +2,7 @@
 #ifndef _RUPERTS_POLYHEDRA_H
 #define _RUPERTS_POLYHEDRA_H
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -204,6 +205,30 @@ std::vector<int> QuickHull(const std::vector<vec2> &v);
 // The area of the convex hull; should also work for any simple
 // polygon.
 double AreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull);
+
+// In the inner loop, we compute a convex hull for a covex polyhedron
+// centered at the origin, and then test whether many points are
+// inside that hull. If the point's not close to the hull, this can
+// be done much faster by just testing whether it's a known distance
+// from the hull. This represents the inscribed circle of the hull,
+// centered at the origin.
+struct HullCircle {
+  HullCircle(const std::vector<vec2> &vertices,
+             const std::vector<int> &hull) {
+    CHECK(hull.size() != 0);
+    min_sqdist = yocto::length_squared(vertices[hull[0]]);
+    for (int idx = 1; idx < hull.size(); idx++) {
+      const vec2 &v = vertices[hull[idx]];
+      min_sqdist = std::min(min_sqdist, yocto::length_squared(v));
+    }
+  }
+
+  bool DefinitelyInside(const vec2 &pt) const {
+    return yocto::length_squared(pt) < min_sqdist;
+  }
+
+  double min_sqdist = 0.0;
+};
 
 // Faces of a polyhedron must be planar. This computes the
 // total error across all faces. If it is far from zero,

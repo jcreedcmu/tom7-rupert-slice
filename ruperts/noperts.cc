@@ -137,13 +137,22 @@ static std::optional<int> TrySolve(int thread_idx,
         Mesh2D souter = Shadow(Rotate(poly, outer_frame));
         Mesh2D sinner = Shadow(Rotate(poly, inner_frame));
 
+        // Although computing the convex hull is expensive, the tests
+        // below are O(n*m), so it is helpful to significantly reduce
+        // one of the factors.
+        const std::vector<int> outer_hull = GrahamScan(souter.vertices);
+        HullCircle circle(souter.vertices, outer_hull);
+
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
         int errors = 0;
         for (const vec2 &iv : sinner.vertices) {
-          if (!InMesh(souter, iv)) {
+          if (circle.DefinitelyInside(iv))
+            continue;
+
+          if (!InHull(souter, outer_hull, iv)) {
             // slow :(
-            error += DistanceToMesh(souter, iv);
+            error += DistanceToHull(souter.vertices, outer_hull, iv);
             errors++;
           }
         }
