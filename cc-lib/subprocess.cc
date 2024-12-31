@@ -13,7 +13,7 @@
 #include <deque>
 #include <memory>
 
-#include "../cc-lib/base/logging.h"
+#include "/base/logging.h"
 
 using namespace std;
 
@@ -26,7 +26,8 @@ struct SubprocessImpl : Subprocess {
     // Check done?
 
     DWORD written;
-    if (!WriteFile(g_hChildStd_IN_Wr, data.data(), data.size(), &written, nullptr))
+    if (!WriteFile(g_hChildStd_IN_Wr, data.data(), data.size(), &written,
+                   nullptr))
       return false;
     CHECK(written == data.size()) << "Expected writes to complete...";
 
@@ -254,7 +255,7 @@ Subprocess *Subprocess::Create(const string &filename) {
 
 #include <cstdio>
 
-#include "../cc-lib/base/logging.h"
+#include "base/logging.h"
 
 // Or better to just abort?
 Subprocess *Subprocess::Create(const std::string &command_line) {

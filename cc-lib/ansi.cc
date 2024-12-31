@@ -445,7 +445,7 @@ ANSI::Decompose(const std::string &text_with_codes,
 
             if (VERBOSE) {
               printf("Pidx: %d\n", pidx);
-              for (int i = 0; i < pleft.size(); i++) {
+              for (int i = 0; i < (int)pleft.size(); i++) {
                 printf("Pleft[%d] = %d\n", i, pleft[i]);
               }
             }

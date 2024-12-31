@@ -1075,7 +1075,7 @@ static void Run(uint64_t parameter) {
     }
 
     // "done" because there's nothing to do.
-    done.SplitRight(1 << num_vertices, true);
+    done.SplitRight(reduce_end, true);
     // Done on Startropics, 30 Dec 2024
     done.SetSpan(0, 3989000, true);
 
