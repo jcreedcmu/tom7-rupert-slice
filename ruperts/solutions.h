@@ -64,6 +64,7 @@ struct SolutionDB {
     frame3 outer_frame;
     frame3 inner_frame;
     int method = 0;
+    int source = 0;
     int64_t createdate = 0;
     // The ratio of the shadow's areas (note this is not the
     // same as the volume!)
@@ -73,6 +74,7 @@ struct SolutionDB {
   struct Attempt {
     std::string polyhedron;
     int method = 0;
+    int source = 0;
     int64_t createdate = 0;
     double best_error = 0.0;
     int64_t iters = 0;
@@ -87,10 +89,11 @@ struct SolutionDB {
   void AddSolution(const std::string &polyhedron,
                    const frame3 &outer_frame,
                    const frame3 &inner_frame,
-                   int method,
+                   int method, int source,
                    double ratio);
 
   void AddAttempt(const std::string &poly, int method,
+                  int source,
                   double best_error, int64_t iters,
                   int64_t evals);
 

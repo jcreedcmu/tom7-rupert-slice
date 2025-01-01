@@ -64,11 +64,14 @@ void SolutionDB::Init() {
                       "outerframe string not null, "
                       "innerframe string not null, "
                       "method integer not null, "
+                      // source entry for imperts strategy
+                      "source integer not null default 0, "
                       "createdate integer not null, "
                       // area of inner hull / outer hull
                       "ratio real not null"
                       ")");
 
+  // XXX unused... what was this for?
   db->ExecuteAndPrint("create table "
                       "if not exists "
                       "best ("
@@ -94,6 +97,8 @@ void SolutionDB::Init() {
                       // Number of times we tested a pair
                       // of polygons for a possible solution.
                       "evals integer not null, "
+                      // source entry for imperts strategy
+                      "source integer not null default 0, "
                       "createdate integer not null"
                       ")");
 
@@ -161,6 +166,7 @@ void SolutionDB::AddNopert(const Polyhedron &poly, int method) {
           vs.c_str(), time(nullptr), method));
 }
 
+// Expects a specific column order; see below.
 static std::vector<SolutionDB::Solution> GetSolutionsForQuery(
     std::unique_ptr<Database::Query> q) {
   std::vector<SolutionDB::Solution> ret;
@@ -175,6 +181,7 @@ static std::vector<SolutionDB::Solution> GetSolutionsForQuery(
     sol.inner_frame = io.value();
     sol.createdate = r->GetInt(4);
     sol.ratio = r->GetFloat(5);
+    sol.source = r->GetInt(6);
     ret.push_back(std::move(sol));
   }
   return ret;
@@ -185,9 +192,8 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
     db->ExecuteString(
         "select "
         "polyhedron, method, outerframe, innerframe, "
-        "createdate, ratio "
+        "createdate, ratio, source "
         "from solutions"));
-
 }
 
 std::vector<SolutionDB::Solution> SolutionDB::GetSolutionsFor(
@@ -197,7 +203,7 @@ std::vector<SolutionDB::Solution> SolutionDB::GetSolutionsFor(
         StringPrintf(
             "select "
             "polyhedron, method, outerframe, innerframe, "
-            "createdate, ratio "
+            "createdate, ratio, source "
             "from solutions "
             "where polyhedron = '%s'",
             name.c_str())));
@@ -207,7 +213,7 @@ std::vector<SolutionDB::Attempt> SolutionDB::GetAllAttempts() {
   std::unique_ptr<Query> q =
     db->ExecuteString(
         "select "
-        "polyhedron, method, createdate, best, iters, evals "
+        "polyhedron, method, createdate, best, iters, evals, source "
         "from attempts");
 
   std::vector<Attempt> ret;
@@ -219,33 +225,36 @@ std::vector<SolutionDB::Attempt> SolutionDB::GetAllAttempts() {
     att.best_error = r->GetFloat(3);
     att.iters = r->GetInt(4);
     att.evals = r->GetInt(5);
+    att.source = r->GetInt(6);
     ret.push_back(std::move(att));
   }
   return ret;
 }
 
-void SolutionDB::AddAttempt(const std::string &poly, int method,
+void SolutionDB::AddAttempt(const std::string &poly, int method, int source,
                             double best,
                             int64_t iters, int64_t evals) {
   db->ExecuteAndPrint(StringPrintf(
-      "insert into attempts (polyhedron, createdate, method, best, "
-      "iters, evals) "
-      "values ('%s', %lld, %d, %.17g, %lld, %lld)",
-      poly.c_str(), time(nullptr), method, best, iters, evals));
+      "insert into attempts (polyhedron, createdate, method, source, "
+      "best, iters, evals) "
+      "values ('%s', %lld, %d, %d, %.17g, %lld, %lld)",
+      poly.c_str(), time(nullptr), method, source, best, iters, evals));
 }
 
 void SolutionDB::AddSolution(const std::string &polyhedron,
                              const frame3 &outer_frame,
                              const frame3 &inner_frame,
-                             int method,
+                             int method, int source,
                              double ratio) {
   db->ExecuteAndPrint(
       StringPrintf(
           "insert into solutions "
-          "(polyhedron, method, outerframe, innerframe, createdate, ratio) "
-          "values ('%s', %d, '%s', '%s', %lld, %.17g)",
+          "(polyhedron, method, source, outerframe, innerframe, "
+          "createdate, ratio) "
+          "values ('%s', %d, %d, '%s', '%s', %lld, %.17g)",
           polyhedron.c_str(),
           method,
+          source,
           FrameString(outer_frame).c_str(),
           FrameString(inner_frame).c_str(),
           time(nullptr),

@@ -269,6 +269,11 @@ void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
 void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
                           std::string_view filename);
 
+// Unpack a rigid frame into a rotation (as a normalized quaternion)
+// and a translation vector. If the matrix is not actually a rigid
+// transform, then the result may not be meaningful.
+std::pair<quat4, vec3> UnpackFrame(const frame3 &f);
+
 // For normalized vectors a and b (interpreted as orientations on
 // the sphere), compute a rotation from a to b.
 quat4 RotationFromAToB(const vec3 &a, const vec3 &b);
@@ -280,6 +285,13 @@ std::pair<int, int> TwoNonParallelFaces(ArcFour *rc, const Polyhedron &poly);
 // Signed distance to the triangle from the point p. Vertex order
 // does not matter. Negative sign means the interior of the triangle.
 double TriangleSignedDistance(vec2 p0, vec2 p1, vec2 p2, vec2 p);
+
+// Standard loss function for solution procedure. This recomputes the
+// entire problem; if some of the parameters are fixed (e.g. the outer
+// transformation) then you should not use this!
+double LossFunction(const Polyhedron &poly,
+                    const frame3 &outer_frame,
+                    const frame3 &inner_frame);
 
 // Takes ownership of the vertices, which should be a convex hull.
 // Creates faces as all planes where all the other points are on one

@@ -29,6 +29,8 @@
 
 static CL *cl = nullptr;
 
+// TODO: Use database.
+
 struct RupertGPU {
   // Step size when estimating derivative numerically.
   static constexpr double PARAM_H = 1.0e-7;

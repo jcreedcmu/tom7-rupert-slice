@@ -976,6 +976,47 @@ std::pair<int, int> TwoNonParallelFaces(ArcFour *rc, const Polyhedron &poly) {
   }
 }
 
+// PERF: See polyehdra_benchmark for different approaches. This
+// was the winner for the snub cube, but the tradeoffs are likely
+// different for other shapes. (In particular, QuickHull may be
+// a better choice for large numbers of vertices, and computing
+// the hull/hullcircle is probably pointless for something like
+// the tetrahedron).
+double LossFunction(const Polyhedron &poly,
+                    const frame3 &outer_frame,
+                    const frame3 &inner_frame) {
+  Mesh2D souter = Shadow(Rotate(poly, outer_frame));
+  Mesh2D sinner = Shadow(Rotate(poly, inner_frame));
+
+  // Although computing the convex hull is expensive, the tests
+  // below are O(n*m), so it is helpful to significantly reduce
+  // one of the factors.
+  const std::vector<int> outer_hull = GrahamScan(souter.vertices);
+  HullCircle circle(souter.vertices, outer_hull);
+
+  // Does every vertex in inner fall inside the outer shadow?
+  double error = 0.0;
+  int errors = 0;
+  for (const vec2 &iv : sinner.vertices) {
+    if (circle.DefinitelyInside(iv))
+      continue;
+
+    if (!InHull(souter, outer_hull, iv)) {
+      // slow :(
+      error += DistanceToHull(souter.vertices, outer_hull, iv);
+      errors++;
+    }
+  }
+
+  if (error == 0.0 && errors > 0) [[unlikely]] {
+    // If they are not in the mesh, don't return an actual zero.
+    return std::numeric_limits<double>::min() * errors;
+  } else {
+    return error;
+  }
+}
+
+
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename) {
   const char *name = (poly.name != nullptr && poly.name[0] != '\0') ?
     poly.name : "polyhedron";
@@ -1260,6 +1301,23 @@ quat4 RotationFromAToB(const vec3 &a, const vec3 &b) {
 #endif
 }
 
+std::pair<quat4, vec3> UnpackFrame(const frame3 &f) {
+  using mat3 = yocto::mat<double, 3>;
+
+  const mat3 m = rotation(f);
+
+  double w = sqrt(std::max(0.0, 1.0 + m[0][0] + m[1][1] + m[2][2])) * 0.5;
+  double x = sqrt(std::max(0.0, 1.0 + m[0][0] - m[1][1] - m[2][2])) * 0.5;
+  double y = sqrt(std::max(0.0, 1.0 - m[0][0] + m[1][1] - m[2][2])) * 0.5;
+  double z = sqrt(std::max(0.0, 1.0 - m[0][0] - m[1][1] + m[2][2])) * 0.5;
+
+  if (m[2][1] - m[1][2] < 0.0) x = -x;
+  if (m[0][2] - m[2][0] < 0.0) y = -y;
+  if (m[1][0] - m[0][1] < 0.0) z = -z;
+
+  return std::make_pair(normalize(quat4(x, y, z, w)),
+                        yocto::translation(f));
+}
 
 // Take all planes where all of the other vertices
 // are on one side. (Basically, the 3D convex hull.)

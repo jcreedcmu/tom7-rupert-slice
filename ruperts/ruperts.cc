@@ -48,6 +48,9 @@ using mat4 = yocto::mat<double, 4>;
 using quat4 = yocto::quat<double, 4>;
 using frame3 = yocto::frame<double, 3>;
 
+// These are all de novo, so the source is always zero.
+static constexpr int SOURCE = 0;
+
 static void SaveSolution(const Polyhedron &poly,
                          const frame3 &outer_frame,
                          const frame3 &inner_frame,
@@ -73,7 +76,7 @@ static void SaveSolution(const Polyhedron &poly,
   rendering.RenderHull(sinner, inner_hull, 0x00FF00AA);
   rendering.Save(StringPrintf("hulls-%s.png", poly.name));
 
-  db.AddSolution(poly.name, outer_frame, inner_frame, method, ratio);
+  db.AddSolution(poly.name, outer_frame, inner_frame, method, SOURCE, ratio);
   printf("Added solution (" AYELLOW("%s") ") to database with "
          "ratio " APURPLE("%.17g") "\n",
          poly.name, ratio);
@@ -186,7 +189,7 @@ struct Solver {
                 run_timer.Seconds() > time_limit.value()) {
               should_die = true;
               SolutionDB db;
-              db.AddAttempt(polyhedron.name, METHOD,
+              db.AddAttempt(polyhedron.name, METHOD, SOURCE,
                             best_error, iters.Read(),
                             attempts.Read());
               iters.Reset();
@@ -278,6 +281,7 @@ struct HullSolver : public Solver<SolutionDB::METHOD_HULL> {
     Mesh2D souter = Shadow(outer);
 
     const std::vector<int> shadow_hull = QuickHull(souter.vertices);
+    // PERF: HullCircle would probably be helpful here.
 
     // Starting orientation/position.
     const quat4 inner_rot = RandomQuaternion(rc);
@@ -398,28 +402,7 @@ struct SimulSolver : public Solver<SolutionDB::METHOD_SIMUL> {
       [this, &OuterFrame, &InnerFrame](
           const std::array<double, D> &args) {
         attempts++;
-        frame3 outer_frame = OuterFrame(args);
-        frame3 inner_frame = InnerFrame(args);
-        Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-        Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
-
-        // Does every vertex in inner fall inside the outer shadow?
-        double error = 0.0;
-        int errors = 0;
-        for (const vec2 &iv : sinner.vertices) {
-          if (!InMesh(souter, iv)) {
-            // slow :(
-            error += DistanceToMesh(souter, iv);
-            errors++;
-          }
-        }
-
-        if (error == 0.0 && errors > 0) [[unlikely]] {
-          // If they are not in the mesh, don't return an actual zero.
-          return std::numeric_limits<double>::min() * errors;
-        } else {
-          return error;
-        }
+        return LossFunction(polyhedron, OuterFrame(args), InnerFrame(args));
       };
 
     constexpr double Q = 0.15;
@@ -711,6 +694,9 @@ struct ParallelSolver : public Solver<SolutionDB::METHOD_PARALLEL> {
         frame3 outer_frame = OuterFrame(args);
         Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
 
+        // PERF: Computing the outer hull may still be preferable,
+        // even though we have a reduced set of inner points?
+
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
         int errors = 0;
@@ -813,6 +799,9 @@ struct SpecialSolver : public Solver<SolutionDB::METHOD_SPECIAL> {
         frame3 outer_frame = OuterFrame(args);
         Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
 
+        // PERF: Computing the outer hull may still be preferable,
+        // even though we have a reduced set of inner points?
+
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
         int errors = 0;
@@ -894,28 +883,7 @@ struct OriginSolver : public Solver<SolutionDB::METHOD_ORIGIN> {
     std::function<double(const std::array<double, D> &)> Loss =
         [this, &OuterFrame, &InnerFrame](const std::array<double, D> &args) {
           attempts++;
-          frame3 outer_frame = OuterFrame(args);
-          Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-          frame3 inner_frame = InnerFrame(args);
-          Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
-
-          // Does every vertex in inner fall inside the outer shadow?
-          double error = 0.0;
-          int errors = 0;
-          for (const vec2 &iv : sinner.vertices) {
-            if (!InMesh(souter, iv)) {
-              // slow :(
-              error += DistanceToMesh(souter, iv);
-              errors++;
-            }
-          }
-
-          if (error == 0.0 && errors > 0) [[unlikely]] {
-            // If they are not in the mesh, don't return an actual zero.
-            return std::numeric_limits<double>::min() * errors;
-          } else {
-            return error;
-          }
+          return LossFunction(polyhedron, OuterFrame(args), InnerFrame(args));
         };
 
     constexpr double Q = 0.25;
@@ -989,28 +957,7 @@ struct AlmostIdSolver : public Solver<SolutionDB::METHOD_ALMOST_ID> {
       [this, &OuterFrame, &InnerFrame](
           const std::array<double, D> &args) {
         attempts++;
-        frame3 outer_frame = OuterFrame(args);
-        frame3 inner_frame = InnerFrame(args);
-        Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
-        Mesh2D sinner = Shadow(Rotate(polyhedron, inner_frame));
-
-        // Does every vertex in inner fall inside the outer shadow?
-        double error = 0.0;
-        int errors = 0;
-        for (const vec2 &iv : sinner.vertices) {
-          if (!InMesh(souter, iv)) {
-            // slow :(
-            error += DistanceToMesh(souter, iv);
-            errors++;
-          }
-        }
-
-        if (error == 0.0 && errors > 0) [[unlikely]] {
-          // If they are not in the mesh, don't return an actual zero.
-          return std::numeric_limits<double>::min() * errors;
-        } else {
-          return error;
-        }
+        return LossFunction(polyhedron, OuterFrame(args), InnerFrame(args));
       };
 
     constexpr double Q = 0.001;
