@@ -243,7 +243,9 @@ uint32_t Rendering::Color(int idx) {
   return COLORS[idx % COLORS.size()];
 }
 
-void Rendering::Save(const std::string &filename) {
+void Rendering::Save(const std::string &filename, bool verbose) {
   img.Save(filename);
-  printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+  if (verbose) {
+    printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+  }
 }

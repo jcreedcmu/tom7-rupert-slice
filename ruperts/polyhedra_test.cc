@@ -482,6 +482,43 @@ static void TestSignedDistance() {
   printf("Wrote " AGREEN("triangle.png") "\n");
 }
 
+static void TestCircle() {
+  ArcFour rc("circle");
+
+  for (int iters = 0; iters < 1000; iters++) {
+    std::vector<vec2> points;
+    for (int j = 0; j < 15; j++) {
+      points.emplace_back(RandDouble(&rc) * 4.0 - 2.0,
+                          RandDouble(&rc) * 4.0 - 2.0);
+    }
+
+    std::vector<int> hull = QuickHull(points);
+    if (!PointInPolygon(vec2{0.0, 0.0}, points, hull)) {
+      // This is a precondition, so try again.
+      iters--;
+      continue;
+    }
+
+    HullCircumscribedCircle circumscribed(points, hull);
+    HullInscribedCircle inscribed(points, hull);
+
+    // Test a bunch of points.
+    for (int j = 0; j < 100; j++) {
+      vec2 pt{
+        .x = RandDouble(&rc) * 4.0 - 2.0,
+        .y = RandDouble(&rc) * 4.0 - 2.0
+      };
+
+      if (circumscribed.DefinitelyOutside(pt)) {
+        CHECK(!PointInPolygon(pt, points, hull)) << VecString(pt);
+      }
+
+      if (inscribed.DefinitelyInside(pt)) {
+        CHECK(PointInPolygon(pt, points, hull)) << VecString(pt);
+      }
+    }
+  }
+}
 
 int main(int argc, char **argv) {
   ANSI::Init();
@@ -503,6 +540,8 @@ int main(int argc, char **argv) {
   TestHullRegression2("quick", QuickHull);
   TestHullRegression1("quick", QuickHull);
   TestHull("quick", QuickHull);
+
+  TestCircle();
 
   TestSignedDistance();
 

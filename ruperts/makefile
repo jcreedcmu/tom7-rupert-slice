@@ -1,4 +1,4 @@
-default : ruperts.exe tosvg.exe gpuperts.exe polyhedra_test.exe scoreboard.exe query.exe0;136;0c visualize.exe tostl.exe
+default : ruperts.exe tosvg.exe gpuperts.exe polyhedra_test.exe scoreboard.exe query.exe visualize.exe tostl.exe noperts.exe imperts.exe
 
 # This assumes OpenCL is installed as a system library, which
 # is now the case for msys2 clang64. If it's not, you could
@@ -78,6 +78,10 @@ query.exe : query.o $(OBJECTS)
 	@echo -n "!"
 
 noperts.exe : noperts.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+imperts.exe : imperts.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

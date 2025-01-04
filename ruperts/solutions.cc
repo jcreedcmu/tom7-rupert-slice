@@ -172,16 +172,17 @@ static std::vector<SolutionDB::Solution> GetSolutionsForQuery(
   std::vector<SolutionDB::Solution> ret;
   while (std::unique_ptr<Database::Row> r = q->NextRow()) {
     SolutionDB::Solution sol;
-    sol.polyhedron = r->GetString(0);
-    sol.method = r->GetInt(1);
-    auto oo = SolutionDB::StringFrame(r->GetString(2));
-    auto io = SolutionDB::StringFrame(r->GetString(3));
+    sol.id = r->GetInt(0);
+    sol.polyhedron = r->GetString(1);
+    sol.method = r->GetInt(2);
+    auto oo = SolutionDB::StringFrame(r->GetString(3));
+    auto io = SolutionDB::StringFrame(r->GetString(4));
     if (!oo.has_value() || !io.has_value()) continue;
     sol.outer_frame = oo.value();
     sol.inner_frame = io.value();
-    sol.createdate = r->GetInt(4);
-    sol.ratio = r->GetFloat(5);
-    sol.source = r->GetInt(6);
+    sol.createdate = r->GetInt(5);
+    sol.ratio = r->GetFloat(6);
+    sol.source = r->GetInt(7);
     ret.push_back(std::move(sol));
   }
   return ret;
@@ -191,7 +192,7 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
   return GetSolutionsForQuery(
     db->ExecuteString(
         "select "
-        "polyhedron, method, outerframe, innerframe, "
+        "id, polyhedron, method, outerframe, innerframe, "
         "createdate, ratio, source "
         "from solutions"));
 }
@@ -202,7 +203,7 @@ std::vector<SolutionDB::Solution> SolutionDB::GetSolutionsFor(
     db->ExecuteString(
         StringPrintf(
             "select "
-            "polyhedron, method, outerframe, innerframe, "
+            "id, polyhedron, method, outerframe, innerframe, "
             "createdate, ratio, source "
             "from solutions "
             "where polyhedron = '%s'",
@@ -213,19 +214,20 @@ std::vector<SolutionDB::Attempt> SolutionDB::GetAllAttempts() {
   std::unique_ptr<Query> q =
     db->ExecuteString(
         "select "
-        "polyhedron, method, createdate, best, iters, evals, source "
+        "id, polyhedron, method, createdate, best, iters, evals, source "
         "from attempts");
 
   std::vector<Attempt> ret;
   while (std::unique_ptr<Row> r = q->NextRow()) {
     Attempt att;
-    att.polyhedron = r->GetString(0);
-    att.method = r->GetInt(1);
-    att.createdate = r->GetInt(2);
-    att.best_error = r->GetFloat(3);
-    att.iters = r->GetInt(4);
-    att.evals = r->GetInt(5);
-    att.source = r->GetInt(6);
+    att.id = r->GetInt(0);
+    att.polyhedron = r->GetString(1);
+    att.method = r->GetInt(2);
+    att.createdate = r->GetInt(3);
+    att.best_error = r->GetFloat(4);
+    att.iters = r->GetInt(5);
+    att.evals = r->GetInt(6);
+    att.source = r->GetInt(7);
     ret.push_back(std::move(att));
   }
   return ret;

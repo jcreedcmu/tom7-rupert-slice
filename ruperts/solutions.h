@@ -29,6 +29,7 @@ struct SolutionDB {
   static constexpr int METHOD_SPECIAL = 6;
   static constexpr int METHOD_ORIGIN = 7;
   static constexpr int METHOD_ALMOST_ID = 8;
+  static constexpr int METHOD_IMPROVE = 9;
 
   static const char *MethodName(int m) {
     switch (m) {
@@ -40,6 +41,7 @@ struct SolutionDB {
     case METHOD_SPECIAL: return "METHOD_SPECIAL";
     case METHOD_ORIGIN: return "METHOD_ORIGIN";
     case METHOD_ALMOST_ID: return "METHOD_ALMOST_ID";
+    case METHOD_IMPROVE: return "METHOD_IMPROVE";
     default: return "UNKNOWN";
     }
   }
@@ -60,6 +62,7 @@ struct SolutionDB {
   void Init();
 
   struct Solution {
+    int id = 0;
     std::string polyhedron;
     frame3 outer_frame;
     frame3 inner_frame;
@@ -72,6 +75,7 @@ struct SolutionDB {
   };
 
   struct Attempt {
+    int id = 0;
     std::string polyhedron;
     int method = 0;
     int source = 0;

@@ -992,7 +992,7 @@ double LossFunction(const Polyhedron &poly,
   // below are O(n*m), so it is helpful to significantly reduce
   // one of the factors.
   const std::vector<int> outer_hull = GrahamScan(souter.vertices);
-  HullCircle circle(souter.vertices, outer_hull);
+  HullInscribedCircle circle(souter.vertices, outer_hull);
 
   // Does every vertex in inner fall inside the outer shadow?
   double error = 0.0;
@@ -1016,6 +1016,30 @@ double LossFunction(const Polyhedron &poly,
   }
 }
 
+std::optional<double> GetRatio(const Polyhedron &poly,
+                               const frame3 &outer_frame,
+                               const frame3 &inner_frame) {
+  // Compute new error ratio.
+  Polyhedron outer = Rotate(poly, outer_frame);
+  Polyhedron inner = Rotate(poly, inner_frame);
+  Mesh2D souter = Shadow(outer);
+  Mesh2D sinner = Shadow(inner);
+
+  std::vector<int> outer_hull = QuickHull(souter.vertices);
+  std::vector<int> inner_hull = QuickHull(sinner.vertices);
+
+  for (const vec2 &iv : sinner.vertices) {
+    if (!InHull(souter, outer_hull, iv)) {
+      return std::nullopt;
+    }
+  }
+
+  double outer_area = AreaOfHull(souter, outer_hull);
+  double inner_area = AreaOfHull(sinner, inner_hull);
+
+  double ratio = inner_area / outer_area;
+  return {ratio};
+}
 
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename) {
   const char *name = (poly.name != nullptr && poly.name[0] != '\0') ?
@@ -1119,6 +1143,43 @@ Polyhedron PolyhedronByName(std::string_view name) {
   if (name == "pentagonalhexecontahedron") return PentagonalHexecontahedron();
   LOG(FATAL) << "Unknown polyhedron " << name;
 }
+
+std::string PolyhedronShortName(std::string_view name) {
+  if (name == "tetrahedron") return "tetra";
+  if (name == "cube") return "cube";
+  if (name == "dodecahedron") return "dode";
+  if (name == "icosahedron") return "icos";
+  if (name == "octahedron") return "octa";
+  if (name == "truncatedtetrahedron") return "ttetra";
+  if (name == "cuboctahedron") return "cocta";
+  if (name == "truncatedcube") return "tcube";
+  if (name == "truncatedoctahedron") return "tocta";
+  if (name == "rhombicuboctahedron") return "rcocta";
+  if (name == "truncatedcuboctahedron") return "tcocta";
+  if (name == "snubcube") return "scube";
+  if (name == "icosidodecahedron") return "idode";
+  if (name == "truncateddodecahedron") return "tdode";
+  if (name == "truncatedicosahedron") return "ticos";
+  if (name == "rhombicosidodecahedron") return "ridode";
+  if (name == "truncatedicosidodecahedron") return "tidode";
+  if (name == "snubdodecahedron") return "sdode";
+  if (name == "triakistetrahedron") return "ktetra";
+  if (name == "rhombicdodecahedron") return "rdode";
+  if (name == "triakisoctahedron") return "kocta";
+  if (name == "tetrakishexahedron") return "thexa";
+  if (name == "deltoidalicositetrahedron") return "ditet";
+  if (name == "disdyakisdodecahedron") return "ddode";
+  if (name == "deltoidalhexecontahedron") return "dhexe";
+  if (name == "pentagonalicositetrahedron") return "pitet";
+  if (name == "rhombictriacontahedron") return "rtriac";
+  if (name == "triakisicosahedron") return "kicos";
+  if (name == "pentakisdodecahedron") return "pdode";
+  if (name == "disdyakistriacontahedron") return "dtriac";
+  if (name == "pentagonalhexecontahedron") return "phexe";
+
+  return std::string(name);
+}
+
 
 Polyhedron Dodecahedron() {
   constexpr bool VERBOSE = false;

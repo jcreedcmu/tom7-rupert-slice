@@ -9,10 +9,10 @@
 #include "arcfour.h"
 #include "base/do-not-optimize.h"
 #include "base/logging.h"
-#include "randutil.h"
 #include "timer.h"
 #include "yocto_matht.h"
 
+[[maybe_unused]]
 static double Sample(const Polyhedron &poly, ArcFour *rc) {
   const frame3 outer_frame = yocto::rotation_frame(RandomQuaternion(rc));
 
@@ -54,7 +54,7 @@ static double SampleWithHull(const Polyhedron &poly, ArcFour *rc) {
 
   // For snub cube, Graham Scan seems to be fastest.
   const std::vector<int> outer_hull = GrahamScan(souter.vertices);
-  HullCircle circle(souter.vertices, outer_hull);
+  HullInscribedCircle circle(souter.vertices, outer_hull);
 
   // Does every vertex in inner fall inside the outer shadow?
   double error = 0.0;

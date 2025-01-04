@@ -27,7 +27,7 @@ struct Rendering {
 
   void DarkenBG();
 
-  void Save(const std::string &filename);
+  void Save(const std::string &filename, bool verbose = true);
 
   static uint32_t Color(int idx);
 

@@ -172,6 +172,7 @@ Polyhedron NormalizeRadius(const Polyhedron &p);
 // The mesh's faces object aliases the input polyhedron's.
 Mesh2D Shadow(const Polyhedron &p);
 
+// Non-negative distance to hull.
 double DistanceToHull(
     const std::vector<vec2> &points, const std::vector<int> &hull,
     const vec2 &pt);
@@ -210,16 +211,46 @@ double AreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull);
 // centered at the origin, and then test whether many points are
 // inside that hull. If the point's not close to the hull, this can
 // be done much faster by just testing whether it's a known distance
-// from the hull. This represents the inscribed circle of the hull,
+// from the hull. This represents the circumscribed circle of the hull,
 // centered at the origin.
-struct HullCircle {
-  HullCircle(const std::vector<vec2> &vertices,
-             const std::vector<int> &hull) {
+struct HullCircumscribedCircle {
+  HullCircumscribedCircle(const std::vector<vec2> &vertices,
+                          const std::vector<int> &hull) {
     CHECK(hull.size() != 0);
-    min_sqdist = yocto::length_squared(vertices[hull[0]]);
+    max_sqdist = yocto::length_squared(vertices[hull[0]]);
     for (int idx = 1; idx < hull.size(); idx++) {
       const vec2 &v = vertices[hull[idx]];
-      min_sqdist = std::min(min_sqdist, yocto::length_squared(v));
+      max_sqdist = std::max(max_sqdist, yocto::length_squared(v));
+    }
+  }
+
+  // The
+  bool DefinitelyOutside(const vec2 &pt) const {
+    return yocto::length_squared(pt) > max_sqdist;
+  }
+
+  double max_sqdist = 0.0;
+};
+
+// Same idea, but with an inscribed circle. This touches edges, not
+// vertices.
+struct HullInscribedCircle {
+  HullInscribedCircle(const std::vector<vec2> &vertices,
+                      const std::vector<int> &hull) {
+    CHECK(hull.size() >= 3);
+
+    for (int i = 0; i < hull.size(); ++i) {
+      const vec2 &v0 = vertices[hull[i]];
+      const vec2 &v1 = vertices[hull[(i + 1) % hull.size()]];
+
+      // Express as v0 + t * edge.
+      vec2 edge = v1 - v0;
+      // The vector to the closest point will be orthogonal to the edge.
+      double t = -yocto::dot(v0, edge) / yocto::length_squared(edge);
+      t = std::clamp(t, 0.0, 1.0);
+      vec2 closest_point = v0 + t * edge;
+
+      min_sqdist = std::min(min_sqdist, yocto::length_squared(closest_point));
     }
   }
 
@@ -227,7 +258,7 @@ struct HullCircle {
     return yocto::length_squared(pt) < min_sqdist;
   }
 
-  double min_sqdist = 0.0;
+  double min_sqdist = std::numeric_limits<double>::max();
 };
 
 // Faces of a polyhedron must be planar. This computes the
@@ -293,6 +324,13 @@ double LossFunction(const Polyhedron &poly,
                     const frame3 &outer_frame,
                     const frame3 &inner_frame);
 
+// Get the ratio inner_area / outer_area, which is a reasonable metric
+// for how good the solution is. Will be in [0, 1). Returns nullopt
+// if the solution is not valid.
+std::optional<double> GetRatio(const Polyhedron &poly,
+                               const frame3 &outer_frame,
+                               const frame3 &inner_frame);
+
 // Takes ownership of the vertices, which should be a convex hull.
 // Creates faces as all planes where all the other points are on one
 // side. This is not fast; it's intended for a small number of
@@ -305,6 +343,8 @@ std::optional<Polyhedron> ConvexPolyhedronFromVertices(
 // Return a newly constructed polyhedron (from below) by its name,
 // or abort.
 Polyhedron PolyhedronByName(std::string_view name);
+// For abbreviated display. Not canonical; may change.
+std::string PolyhedronShortName(std::string_view name);
 
 // Generate some polyhedra. Note that each call new-ly allocates a
 // Faces object, which is then owned by the caller. Many of these are

@@ -55,26 +55,34 @@ static void SaveSolution(const Polyhedron &poly,
                          const frame3 &outer_frame,
                          const frame3 &inner_frame,
                          int method) {
+
+  {
+    Polyhedron outer = Rotate(poly, outer_frame);
+    Polyhedron inner = Rotate(poly, inner_frame);
+    Mesh2D souter = Shadow(outer);
+    Mesh2D sinner = Shadow(inner);
+    std::vector<int> outer_hull = QuickHull(souter.vertices);
+    std::vector<int> inner_hull = QuickHull(sinner.vertices);
+
+    Rendering rendering(poly, 3840, 2160);
+    rendering.RenderHull(souter, outer_hull, 0xAA0000FF);
+    rendering.RenderHull(sinner, inner_hull, 0x00FF00AA);
+    rendering.Save(StringPrintf("hulls-%s.png", poly.name));
+  }
+
+  std::optional<double> new_ratio = GetRatio(poly, outer_frame, inner_frame);
+
+  if (!new_ratio.has_value()) {
+    printf(ARED("SOLUTION IS INVALID!?") "\n");
+    return;
+  }
+
+  const double ratio = new_ratio.value();
+
   SolutionDB db;
+  db.AddSolution(poly.name, outer_frame, inner_frame,
+                 method, SOURCE, ratio);
 
-  // Compute error ratio.
-  Polyhedron outer = Rotate(poly, outer_frame);
-  Polyhedron inner = Rotate(poly, inner_frame);
-  Mesh2D souter = Shadow(outer);
-  Mesh2D sinner = Shadow(inner);
-
-  std::vector<int> outer_hull = QuickHull(souter.vertices);
-  std::vector<int> inner_hull = QuickHull(sinner.vertices);
-
-  double outer_area = AreaOfHull(souter, outer_hull);
-  double inner_area = AreaOfHull(sinner, inner_hull);
-
-  double ratio = inner_area / outer_area;
-
-  Rendering rendering(poly, 3840, 2160);
-  rendering.RenderHull(souter, outer_hull, 0xAA0000FF);
-  rendering.RenderHull(sinner, inner_hull, 0x00FF00AA);
-  rendering.Save(StringPrintf("hulls-%s.png", poly.name));
 
   db.AddSolution(poly.name, outer_frame, inner_frame, method, SOURCE, ratio);
   printf("Added solution (" AYELLOW("%s") ") to database with "
