@@ -70,6 +70,13 @@ void StatusBar::EmitStatus(const std::string &s) {
   EmitStatusLinesWithLock(lines);
 }
 
+void StatusBar::EmitStatus(const std::vector<std::string> &lines) {
+  std::unique_lock<std::mutex> ml(m);
+  prev_status_lines = lines;
+  MoveUp();
+  EmitStatusLinesWithLock(lines);
+}
+
 // The idea is that we keep the screen in a state where there are
 // num_lines of status at the bottom, right before the cursor. This
 // is always throw-away space. When we print something other than

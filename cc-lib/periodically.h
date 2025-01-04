@@ -6,6 +6,7 @@
 #define _CC_LIB_PERIODICALLY_H
 
 #include <atomic>
+#include <cassert>
 #include <cstdint>
 #include <chrono>
 #include <mutex>
@@ -117,7 +118,14 @@ struct Periodically {
     return times_run;
   }
 
-private:
+ private:
+  // This just exists to allow initialization of members like
+  //   Periodically status_per = Periodically(1.0);
+  // It is never actually called because of guaranteed copy elision.
+  Periodically(const Periodically& other) {
+    assert(!"attempt to copy Periodically");
+  }
+
   using dur = std::chrono::steady_clock::duration;
   using tpoint = std::chrono::time_point<std::chrono::steady_clock>;
   std::mutex m;

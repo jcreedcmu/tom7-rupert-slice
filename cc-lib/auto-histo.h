@@ -268,6 +268,18 @@ struct AutoHisto {
     return ret;
   }
 
+  // Single line, unlabeled, uncolored. Always returns a string of
+  // length "buckets" (codepoints).
+  std::string UnlabeledHoriz(int buckets) const {
+    const Histo histo = GetHisto(buckets);
+    // Column data.
+    std::string ret;
+    for (int bidx = 0; bidx < (int)histo.buckets.size(); bidx++) {
+      ret += FilledColumnChar(histo.buckets[bidx] / histo.max_value);
+    }
+    return ret;
+  }
+
   bool Empty() const { return total_samples == 0; }
 
   int64_t NumSamples() const { return total_samples; }

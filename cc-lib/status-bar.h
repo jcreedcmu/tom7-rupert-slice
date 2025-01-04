@@ -36,6 +36,7 @@ struct StatusBar {
   // Update the status bar with a string, which should contain num_lines
   // lines.
   void EmitStatus(const std::string &s);
+  void EmitStatus(const std::vector<std::string> &lines);
 
   // Output an ANSI progress indicator in the last line of the status.
   // This is a convenience method since it is a very common use.
