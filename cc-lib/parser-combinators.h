@@ -28,6 +28,8 @@ struct TokenSpan {
   // The full span.
   TokenSpan(const T *data, size_t length) : root(data), full_length(length),
                                             offset(0), length(length) { }
+  TokenSpan(const std::vector<T> &v) : TokenSpan(v.data(), v.size()) { }
+
   // An empty span referring to nothing.
   TokenSpan() {}
 
