@@ -86,6 +86,30 @@ static void TestBinaryOps() {
 
 }
 
+static void TestCompareRat() {
+  BigRat a(1, 5);
+  BigRat b(10, 3);
+  BigRat c(-3, 777);
+
+  CHECK(a < b);
+  CHECK(a <= b);
+  CHECK(!(a == b));
+  CHECK(!(a > b));
+  CHECK(!(a >= b));
+
+  CHECK(a == a);
+  CHECK(a <= a);
+  CHECK(a >= a);
+  CHECK(!(a != a));
+
+  CHECK(c < b);
+  CHECK(c <= b);
+  CHECK(b > c);
+  CHECK(b >= c);
+  CHECK(!(b == c));
+  CHECK(b != c);
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
   printf("Start.\n");
@@ -97,5 +121,8 @@ int main(int argc, char **argv) {
   TestAssigningOps();
   TestBinaryOps();
 
+  TestCompareRat();
+
   printf("OK\n");
+  return 0;
 }

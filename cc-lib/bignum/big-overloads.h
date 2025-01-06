@@ -244,4 +244,44 @@ struct std::hash<BigInt> {
   }
 };
 
+
+// Big rational overloads.
+
+inline std::strong_ordering operator<=>(const BigRat &a, const BigRat &b) {
+  int c = BigRat::Compare(a, b);
+  if (c < 0) return std::strong_ordering::less;
+  else if (c == 0) return std::strong_ordering::equal;
+  return std::strong_ordering::greater;
+}
+
+inline bool operator==(const BigRat &a, const BigRat &b) {
+  return (a <=> b) == std::strong_ordering::equal;
+}
+
+inline BigRat operator+(const BigRat &a, const BigRat &b) {
+  return BigRat::Plus(a, b);
+}
+
+inline BigRat operator-(const BigRat &a, const BigRat &b) {
+  return BigRat::Minus(a, b);
+}
+
+inline BigRat operator*(const BigRat &a, const BigRat &b) {
+  return BigRat::Times(a, b);
+}
+
+inline BigRat operator/(const BigRat &a, const BigRat &b) {
+  return BigRat::Div(a, b);
+}
+
+inline BigRat operator-(BigRat &&a) {
+  return BigRat::Negate(a);
+}
+
+inline BigRat operator-(const BigRat &a) {
+  return BigRat::Negate(a);
+}
+
+// TODO: Combinations that take integers or bigints.
+
 #endif

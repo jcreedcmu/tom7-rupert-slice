@@ -827,6 +827,22 @@ static void TestCompare() {
   }
 }
 
+static void TestRatCompare() {
+
+  CHECK(BigRat::Compare(BigRat(1, 5), BigRat(2, 5)) == -1);
+  CHECK(BigRat::Compare(BigRat(1, 5), BigRat(-2, 5)) == 1);
+  CHECK(BigRat::Compare(BigRat(5, 10), BigRat(1, 2)) == 0);
+
+  CHECK(BigRat::Eq(BigRat(1, 2),
+                   BigRat::Max(BigRat(5, 10), BigRat(1, 2))));
+  CHECK(BigRat::Eq(BigRat(1, 2),
+                   BigRat::Max(BigRat(1, 10), BigRat(1, 2))));
+
+  CHECK(BigRat::Eq(BigRat(1, 2),
+                   BigRat::Max(BigRat(5, 10), BigRat(-1, 3))));
+}
+
+
 int main(int argc, char **argv) {
   printf("Start.\n");
   fflush(stdout);
@@ -837,6 +853,7 @@ int main(int argc, char **argv) {
   TestToU64();
 
   TestCompare();
+  TestRatCompare();
 
   TestDiv();
   TestCMod();

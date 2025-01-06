@@ -277,6 +277,8 @@ struct BigRat {
   inline static BigRat Plus(const BigRat &a, const BigRat &b);
   inline static BigRat Minus(const BigRat &a, const BigRat &b);
   inline static BigRat Pow(const BigRat &a, uint64_t exponent);
+  inline static BigRat Min(const BigRat &a, const BigRat &b);
+  inline static BigRat Max(const BigRat &a, const BigRat &b);
 
   inline static BigRat ApproxDouble(double num, int64_t max_denom);
 
@@ -992,7 +994,7 @@ BigRat BigRat::Minus(const BigRat &a, const BigRat &b) {
 std::string BigRat::ToString() const {
   const auto &[numer, denom] = Parts();
   std::string ns = numer.ToString();
-  if (mpz_cmp_ui(denom.rep, 1)) {
+  if (mpz_cmp_ui(denom.rep, 1) == 0) {
     // for n/1
     return ns;
   } else {
@@ -1494,5 +1496,14 @@ BigRat BigRat::Pow(const BigRat &a, uint64_t exponent) {
   return BigRat(nn, dd);
 }
 
+BigRat BigRat::Min(const BigRat &a, const BigRat &b) {
+  int cmp = BigRat::Compare(a, b);
+  return cmp == 1 ? b : a;
+}
+
+BigRat BigRat::Max(const BigRat &a, const BigRat &b) {
+  int cmp = BigRat::Compare(a, b);
+  return cmp == -1 ? b : a;
+}
 
 #endif
