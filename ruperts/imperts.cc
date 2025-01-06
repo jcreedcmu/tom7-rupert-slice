@@ -288,10 +288,12 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
         return InnerDistanceLoss(poly, OuterFrame(args), InnerFrame(args));
       };
 
+    constexpr double Q = 1;
+    constexpr double T = 0.5;
     // constexpr double Q = 0.15;
     // constexpr double T = 0.25;
-    constexpr double Q = 0.0001;
-    constexpr double T = 0.0002;
+    // constexpr double Q = 0.000001;
+    // constexpr double T = 0.000001;
 
     const std::array<double, D> lb =
       {-Q, -Q, -Q, -Q,
@@ -396,10 +398,12 @@ struct Imperts {
 
       constexpr bool SEQUENTIAL_IMPROVEMENT = false;
 
+      #define APINK(s) AFGCOLOR(230, 168, 225, s)
       for (const auto &[name, best] : best_ratio) {
-        status->Printf(AWHITE("%s") " has " AGREEN("%d")
+        status->Printf(AWHITE("%s") " (%s) has " AGREEN("%d")
                        " sols, best ratio "
-                       APURPLE("%.17g") "\n",
+                       APINK("%.17g") "\n",
+                       PolyhedronShortName(name).c_str(),
                        name.c_str(),
                        num_solutions[name],
                        best);

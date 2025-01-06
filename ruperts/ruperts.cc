@@ -9,13 +9,14 @@
 #include <functional>
 #include <limits>
 #include <mutex>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <thread>
 #include <tuple>
+#include <unordered_set>
 #include <utility>
 #include <vector>
-#include <numbers>
 
 #include "ansi.h"
 #include "arcfour.h"
@@ -702,16 +703,22 @@ struct ParallelSolver : public Solver<SolutionDB::METHOD_PARALLEL> {
         frame3 outer_frame = OuterFrame(args);
         Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
 
-        // PERF: Computing the outer hull may still be preferable,
-        // even though we have a reduced set of inner points?
+        // Computing the outer hull is still much faster (at least for
+        // snub cube) even though we have a reduced set of inner
+        // points.
+        const std::vector<int> outer_hull = GrahamScan(souter.vertices);
+        HullInscribedCircle circle(souter.vertices, outer_hull);
 
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
         int errors = 0;
         for (const vec2 &iv : inner_hull_pts) {
-          if (!InMesh(souter, iv)) {
+          if (circle.DefinitelyInside(iv))
+            continue;
+
+          if (!InHull(souter, outer_hull, iv)) {
             // slow :(
-            error += DistanceToMesh(souter, iv);
+            error += DistanceToHull(souter.vertices, outer_hull, iv);
             errors++;
           }
         }
@@ -807,16 +814,22 @@ struct SpecialSolver : public Solver<SolutionDB::METHOD_SPECIAL> {
         frame3 outer_frame = OuterFrame(args);
         Mesh2D souter = Shadow(Rotate(polyhedron, outer_frame));
 
-        // PERF: Computing the outer hull may still be preferable,
-        // even though we have a reduced set of inner points?
+        // Computing the outer hull is still much faster (at least for
+        // snub cube) even though we have a reduced set of inner
+        // points.
+        const std::vector<int> outer_hull = GrahamScan(souter.vertices);
+        HullInscribedCircle circle(souter.vertices, outer_hull);
 
         // Does every vertex in inner fall inside the outer shadow?
         double error = 0.0;
         int errors = 0;
         for (const vec2 &iv : inner_hull_pts) {
-          if (!InMesh(souter, iv)) {
+          if (circle.DefinitelyInside(iv))
+            continue;
+
+          if (!InHull(souter, outer_hull, iv)) {
             // slow :(
-            error += DistanceToMesh(souter, iv);
+            error += DistanceToHull(souter.vertices, outer_hull, iv);
             errors++;
           }
         }
@@ -1113,7 +1126,7 @@ static void ReproduceEasySolutions(
   }
 }
 
-static void GrindRandom() {
+static void GrindRandom(const std::unordered_set<std::string> &poly_filter) {
   std::vector<Polyhedron> all = {
     Tetrahedron(),
     Cube(),
@@ -1152,7 +1165,7 @@ static void GrindRandom() {
     PentagonalHexecontahedron(),
   };
 
-  auto GetRemaining = [&all]() {
+  auto GetRemaining = [&all, &poly_filter]() {
       std::vector<SolutionDB::Solution> sols = []() {
           SolutionDB db;
           return db.GetAllSolutions();
@@ -1181,7 +1194,7 @@ static void GrindRandom() {
             std::string name = Util::lcase(SolutionDB::MethodName(method));
             (void)Util::TryStripPrefix("method_", &name);
             printf(" " ACYAN("%s"), name.c_str());
-          } else {
+          } else if (poly_filter.empty() || poly_filter.contains(poly.name)) {
             remaining.emplace_back(&poly, method);
           }
         }
@@ -1218,7 +1231,11 @@ int main(int argc, char **argv) {
 
   // Grind every unsolved cell.
   if (true) {
-    GrindRandom();
+    std::unordered_set<std::string> poly_filter;
+    for (int i = 1; i < argc; i++) {
+      poly_filter.insert(argv[i]);
+    }
+    GrindRandom(poly_filter);
     return 0;
   }
 

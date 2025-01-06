@@ -7,19 +7,24 @@ default : ruperts.exe tosvg.exe gpuperts.exe polyhedra_test.exe scoreboard.exe q
 
 CL_LFLAGS=-lOpenCL
 
+# This is optional; if you want to use plain C++ code, just
+# comment it out. But GMP is much faster.
+GMP_LFLAGS=-lgmp
+GMP_CFLAGS=-DBIG_USE_GMP
+
 CC_LIB=../cc-lib
 CODEC=../codec
 SQLITE=../sqlite
 
-OPT=-O3
+OPT=-O3 -flto=thin
 
 # ASAN=-g -fsanitize=address
 # OPT=-O
 
-CXXFLAGS=$(ASAN) $(OPT) -march=native -Wall -Wno-psabi -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -I. -I$(CC_LIB) -I$(CODEC) -I$(SQLITE) --std=c++20
-LFLAGS=$(ASAN) -lz
+CXXFLAGS=$(ASAN) $(OPT) $(GMP_CFLAGS) -march=native -Wall -Wno-psabi -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -I. -I$(CC_LIB) -I$(CODEC) -I$(SQLITE) --std=c++20
+LFLAGS=$(ASAN) $(GMP_LFLAGS) -flto -lz
 
-CC_LIB_OBJECTS=$(CC_LIB)/util.o $(CC_LIB)/arcfour.o $(CC_LIB)/base/stringprintf.o $(CC_LIB)/base/logging.o $(CC_LIB)/stb_image.o $(CC_LIB)/stb_image_write.o $(CC_LIB)/stb_truetype.o $(CC_LIB)/color-util.o $(CC_LIB)/image.o $(CC_LIB)/ansi.o  $(CC_LIB)/atomic-util.o $(CC_LIB)/status-bar.o $(CC_LIB)/zip.o $(CC_LIB)/miniz.o $(CC_LIB)/ansi-image.o $(CC_LIB)/image-resize.o $(CC_LIB)/opt/opt.o $(CC_LIB)/bounds.o $(CC_LIB)/interval-cover.o $(CC_LIB)/interval-cover-util.o
+CC_LIB_OBJECTS=$(CC_LIB)/util.o $(CC_LIB)/arcfour.o $(CC_LIB)/base/stringprintf.o $(CC_LIB)/base/logging.o $(CC_LIB)/stb_image.o $(CC_LIB)/stb_image_write.o $(CC_LIB)/stb_truetype.o $(CC_LIB)/color-util.o $(CC_LIB)/image.o $(CC_LIB)/ansi.o  $(CC_LIB)/atomic-util.o $(CC_LIB)/status-bar.o $(CC_LIB)/zip.o $(CC_LIB)/miniz.o $(CC_LIB)/ansi-image.o $(CC_LIB)/image-resize.o $(CC_LIB)/opt/opt.o $(CC_LIB)/bounds.o $(CC_LIB)/interval-cover.o $(CC_LIB)/interval-cover-util.o $(CC_LIB)/bignum/big.o $(CC_LIB)/bignum/bigz.o $(CC_LIB)/bignum/bign.o $(CC_LIB)/bignum/bigq.o
 
 # This is only for generating animations of polyhedra; it should be pretty
 # easy to excise the code if you're having trouble with it.
@@ -86,6 +91,10 @@ imperts.exe : imperts.o $(OBJECTS)
 	@echo -n "!"
 
 hull_test.exe : hull_test.o hull.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+validate.exe : validate.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

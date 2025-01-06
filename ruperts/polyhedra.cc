@@ -1982,8 +1982,7 @@ Polyhedron TruncatedTetrahedron() {
   }
 
   CHECK(vertices.size() == 12);
-  return MakeConvexOrDie(std::move(vertices),
-                                      "truncatedtetrahedron");
+  return MakeConvexOrDie(std::move(vertices), "truncatedtetrahedron");
 }
 
 Polyhedron TruncatedCube() {
@@ -2001,8 +2000,7 @@ Polyhedron TruncatedCube() {
   }
 
   CHECK(vertices.size() == 24);
-  return MakeConvexOrDie(std::move(vertices),
-                                      "truncatedcube");
+  return MakeConvexOrDie(std::move(vertices), "truncatedcube");
 }
 
 Polyhedron TruncatedOctahedron() {
