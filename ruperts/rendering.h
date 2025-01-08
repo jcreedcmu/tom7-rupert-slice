@@ -24,6 +24,12 @@ struct Rendering {
                   uint32_t color = 0x00FF00AA);
   void RenderHullDistance(const Mesh2D &mesh, const std::vector<int> &hull);
   void RenderTriangulation(const Mesh2D &mesh, uint32_t color = 0x4444FFAA);
+  void MarkPoints(const Mesh2D &mesh, const std::vector<int> &points,
+                  float r = 20.0f,
+                  uint32_t color = 0xFFFF00AA);
+
+  void RenderTriangle(const Mesh2D &mesh, int ai, int bi, int ci,
+                      uint32_t color);
 
   void DarkenBG();
 
@@ -43,7 +49,6 @@ struct Rendering {
     double cy = pt.y * polyscale;
     return std::make_pair(cx + width / 2.0, cy + height / 2.0);
   }
-
 
   int width = 0, height = 0;
   // Scale of the polyhedron to fit it comfortably in the image

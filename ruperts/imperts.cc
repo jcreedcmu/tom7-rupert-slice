@@ -554,8 +554,10 @@ struct Imperts {
             } else {
               num_attempted[solution.id]++;
               notimproved++;
-              db.AddAttempt(poly.name, SolutionDB::METHOD_IMPROVE,
-                            solution.id, best_error, iters, evals);
+              if (iters > 0) {
+                db.AddAttempt(poly.name, SolutionDB::METHOD_IMPROVE,
+                              solution.id, best_error, iters, evals);
+              }
             }
           }
           delete poly.faces;

@@ -169,19 +169,33 @@ void Rendering::RenderBadPoints(const Mesh2D &sinner, const Mesh2D &souter) {
   for (const vec2 &v : sinner.vertices) {
     if (!InMesh(souter, v)) {
       const auto &[sx, sy] = ToScreen(v);
-      img.BlendThickCircle32(sx, sy, 20, 4, 0xFF0000AA);
+      img.BlendThickCircle32(sx, sy, 20.0f, 4.0f, 0xFF0000AA);
     }
   }
 }
 
+void Rendering::MarkPoints(const Mesh2D &mesh, const std::vector<int> &points,
+                           float r,
+                           uint32_t color) {
+  for (int i : points) {
+    const auto &[sx, sy] = ToScreen(mesh.vertices[i]);
+    img.BlendThickCircle32(sx, sy, r, 4.0f, color);
+  }
+}
+
+void Rendering::RenderTriangle(const Mesh2D &mesh, int a, int b, int c,
+                               uint32_t color) {
+  const auto &[x0, y0] = ToScreen(mesh.vertices[a]);
+  const auto &[x1, y1] = ToScreen(mesh.vertices[b]);
+  const auto &[x2, y2] = ToScreen(mesh.vertices[c]);
+  img.BlendThickLine32(x0, y0, x1, y1, 3.0, color);
+  img.BlendThickLine32(x1, y1, x2, y2, 3.0, color);
+  img.BlendThickLine32(x2, y2, x0, y0, 3.0, color);
+}
+
 void Rendering::RenderTriangulation(const Mesh2D &mesh, uint32_t color) {
   for (const auto &[a, b, c] : mesh.faces->triangulation) {
-    const auto &[x0, y0] = ToScreen(mesh.vertices[a]);
-    const auto &[x1, y1] = ToScreen(mesh.vertices[b]);
-    const auto &[x2, y2] = ToScreen(mesh.vertices[c]);
-    img.BlendThickLine32(x0, y0, x1, y1, 3.0, color);
-    img.BlendThickLine32(x1, y1, x2, y2, 3.0, color);
-    img.BlendThickLine32(x2, y2, x0, y0, 3.0, color);
+    RenderTriangle(mesh, a, b, c, color);
   }
 }
 

@@ -197,6 +197,19 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
         "from solutions"));
 }
 
+SolutionDB::Solution SolutionDB::GetSolution(int id) {
+  std::vector<Solution> sols = GetSolutionsForQuery(
+    db->ExecuteString(
+        StringPrintf(
+            "select "
+            "id, polyhedron, method, outerframe, innerframe, "
+            "createdate, ratio, source "
+            "from solutions "
+            "where id = %d", id)));
+  CHECK(sols.size() == 1) << "Solution " << id << " not found";
+  return sols[0];
+}
+
 std::vector<SolutionDB::Solution> SolutionDB::GetSolutionsFor(
     const std::string &name) {
   return GetSolutionsForQuery(

@@ -424,7 +424,7 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
         const SymmetryGroups::Group &group, int chance) -> bool {
         if (target_points >= group.points &&
             RandTo(rc, chance) == 0) {
-          PointSet pointset;
+          PointMap3<char> pointset;
 
           if (VERBOSE > 0) {
             status->Printf(

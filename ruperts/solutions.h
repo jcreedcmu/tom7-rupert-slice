@@ -87,6 +87,8 @@ struct SolutionDB {
 
   std::vector<Solution> GetAllSolutions();
   std::vector<Attempt> GetAllAttempts();
+  // Or abort.
+  Solution GetSolution(int id);
 
   std::vector<Solution> GetSolutionsFor(const std::string &name);
 
