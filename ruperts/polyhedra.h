@@ -224,7 +224,6 @@ struct HullCircumscribedCircle {
     }
   }
 
-  // The
   bool DefinitelyOutside(const vec2 &pt) const {
     return yocto::length_squared(pt) > max_sqdist;
   }

@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <numbers>
 #include <string>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -15,15 +16,34 @@
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "bounds.h"
+#include "color-util.h"
+#include "dirty.h"
 #include "image.h"
 #include "randutil.h"
 #include "rendering.h"
 #include "yocto_matht.h"
-#include "color-util.h"
 
 using vec2 = yocto::vec<double, 2>;
 
 static constexpr bool VERBOSE = false;
+
+double IsNear(double a, double b) {
+  return std::abs(a - b) < 0.0000001;
+}
+
+#define CHECK_NEAR(f, g) do {                                           \
+  const double fv = (f);                                                \
+  const double gv = (g);                                                \
+  const double e = std::abs(fv - gv);                                   \
+  CHECK(e < 0.0000001) << "Expected " << #f << " and " << #g <<         \
+    " to be close, but got: " <<                                        \
+    StringPrintf("%.17g and %.17g, with err %.17g", fv, gv, e);         \
+  } while (0)
+
+template<typename T>
+inline int sgn(T val) {
+  return (T(0) < val) - (val < T(0));
+}
 
 // Red for negative, black for 0, green for positive.
 // nominal range [-1, 1].
@@ -37,59 +57,6 @@ static constexpr ColorUtil::Gradient DISTANCE{
   GradRGB(+2.0f, 0x88FFFF),
 };
 
-// XXX To cc-lib?
-struct Dirty {
-  Dirty(int width, int height) : used(width, height) {
-    used.Clear(false);
-  }
-
-  void MarkUsed(int x, int y, int w, int h) {
-    used.SetRect(x, y, w, h, true);
-  }
-
-  bool IsUsed(int x, int y, int w, int h) const {
-    for (int yy = 0; yy < h; yy++) {
-      for (int xx = 0; xx < w; xx++) {
-        if (used.GetPixel(x + xx, y + yy)) return true;
-      }
-    }
-    return false;
-  }
-
-  // Find a place near (x, y) to place a rectangle of size w x h.
-  // If we can't find one, just return (x, y). Does not claim the space.
-  std::pair<int, int> PlaceNearby(int x, int y, int w, int h,
-                                  int max_dist) const {
-    if (!IsUsed(x, y, w, h)) {
-      // printf("Initial spot is free\n");
-      return std::make_pair(x, y);
-    }
-
-    // The smallest circle that fits in the thing.
-    const float dia = std::min(w, h);
-
-    // XXX improve this!
-    for (int r = 1; r < max_dist; r += std::min(1, (int)dia)) {
-      // Number of circles we could place at this distance without overlapping.
-      // 2π / (2πr / dia) =
-      // 1 / (r / dia) =
-      // dia / r
-      float span = dia / r;
-      for (float theta = 0.0f; theta < 2.0 * std::numbers::pi; theta += span) {
-        int xpos = std::round(x + std::cosf(theta) * r);
-        int ypos = std::round(y + std::sinf(theta) * r);
-        if (!IsUsed(xpos, ypos, w, h)) {
-          return std::make_pair(xpos, ypos);
-        }
-      }
-    }
-
-    // printf("Couldn't find anywhere.\n");
-    return std::make_pair(x, y);
-  }
-
-  Image1 used;
-};
 
 static void DrawPoints(const std::vector<vec2> &pts,
                        // Can be empty
@@ -520,6 +487,70 @@ static void TestCircle() {
   }
 }
 
+static void TestUnpackRot() {
+  ArcFour rc("unpack");
+  for (int i = 0; i < 1000; i++) {
+    const quat4 qi = RandomQuaternion(&rc);
+    const frame3 frame = yocto::rotation_frame(qi);
+    quat4 qo;
+    vec3 trans;
+    std::tie(qo, trans) = UnpackFrame(frame);
+    CHECK_NEAR(trans.x, 0.0);
+    CHECK_NEAR(trans.y, 0.0);
+    CHECK_NEAR(trans.z, 0.0);
+
+    printf("%s\n ** to **\n %s\n",
+           QuatString(qi).c_str(),
+           QuatString(qo).c_str());
+
+    // the quaternion could either be qi or -qi.
+    if (IsNear(qi.x, -qo.x) &&
+        IsNear(qi.y, -qo.y) &&
+        IsNear(qi.z, -qo.z) &&
+        IsNear(qi.w, -qo.w)) {
+      qo = quat4{.x = -qo.x, .y = -qo.y, .z = -qo.z, .w = -qo.w};
+    }
+
+    CHECK_NEAR(qi.x, qo.x);
+    CHECK_NEAR(qi.y, qo.y);
+    CHECK_NEAR(qi.z, qo.z);
+    CHECK_NEAR(qi.w, qo.w);
+  }
+}
+
+static void TestUnpackFull() {
+  ArcFour rc("unpack");
+  for (int i = 0; i < 1000; i++) {
+    const quat4 qi = RandomQuaternion(&rc);
+
+    const vec3 ti = vec3(RandDouble(&rc) * 2.0 - 1.0,
+                         RandDouble(&rc) * 2.0 - 1.0,
+                         RandDouble(&rc) * 2.0 - 1.0);
+
+    const frame3 frame = yocto::translation_frame(ti) *
+      yocto::rotation_frame(qi);
+    quat4 qo;
+    vec3 trans;
+    std::tie(qo, trans) = UnpackFrame(frame);
+    CHECK_NEAR(trans.x, ti.x);
+    CHECK_NEAR(trans.y, ti.y);
+    CHECK_NEAR(trans.z, ti.z);
+
+    // the quaternion could either be qi or -qi.
+    if (IsNear(qi.x, -qo.x) &&
+        IsNear(qi.y, -qo.y) &&
+        IsNear(qi.z, -qo.z) &&
+        IsNear(qi.w, -qo.w)) {
+      qo = quat4{.x = -qo.x, .y = -qo.y, .z = -qo.z, .w = -qo.w};
+    }
+
+    CHECK_NEAR(qi.x, qo.x);
+    CHECK_NEAR(qi.y, qo.y);
+    CHECK_NEAR(qi.z, qo.z);
+    CHECK_NEAR(qi.w, qo.w);
+  }
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
@@ -544,6 +575,8 @@ int main(int argc, char **argv) {
   TestCircle();
 
   TestSignedDistance();
+  TestUnpackRot();
+  TestUnpackFull();
 
   printf("OK\n");
   return 0;

@@ -1372,9 +1372,9 @@ std::pair<quat4, vec3> UnpackFrame(const frame3 &f) {
   double y = sqrt(std::max(0.0, 1.0 - m[0][0] + m[1][1] - m[2][2])) * 0.5;
   double z = sqrt(std::max(0.0, 1.0 - m[0][0] - m[1][1] + m[2][2])) * 0.5;
 
-  if (m[2][1] - m[1][2] < 0.0) x = -x;
-  if (m[0][2] - m[2][0] < 0.0) y = -y;
-  if (m[1][0] - m[0][1] < 0.0) z = -z;
+  if (m[1][2] - m[2][1] < 0.0) x = -x;
+  if (m[2][0] - m[0][2] < 0.0) y = -y;
+  if (m[0][1] - m[1][0] < 0.0) z = -z;
 
   return std::make_pair(normalize(quat4(x, y, z, w)),
                         yocto::translation(f));
