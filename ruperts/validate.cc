@@ -19,12 +19,26 @@
 #include "polyhedra.h"
 #include "solutions.h"
 #include "rendering.h"
+#include "yocto_matht.h"
 
 // TODO: To cc-lib bignum
 
 // We use rational numbers with at least this many digits of
 // precision.
-static constexpr int DIGITS = 100;
+static constexpr int DIGITS = 1000;
+
+double IsNear(double a, double b) {
+  return std::abs(a - b) < 0.0000001;
+}
+
+#define CHECK_NEAR(f, g) do {                                           \
+  const double fv = (f);                                                \
+  const double gv = (g);                                                \
+  const double e = std::abs(fv - gv);                                   \
+  CHECK(e < 0.0000001) << "Expected " << #f << " and " << #g <<         \
+    " to be close, but got: " <<                                        \
+    StringPrintf("%.17g and %.17g, with err %.17g", fv, gv, e);         \
+  } while (0)
 
 struct BigVec3 {
   BigVec3(BigRat x, BigRat y, BigRat z) :
@@ -62,7 +76,6 @@ inline bool operator ==(const BigVec2 &a, const BigVec2 &b) {
 inline BigRat cross(const BigVec2 &a, const BigVec2 &b) {
   return a.x * b.y - a.y * b.x;
 }
-
 
 // Represents the tail of the Taylor series expansion of
 // arctan(1/x).
@@ -206,17 +219,20 @@ struct BigQuat {
   BigRat x = BigRat(0), y = BigRat(0), z = BigRat(0), w = BigRat(1);
 };
 
+static quat4 SmallQuat(const BigQuat &q) {
+  return quat4{q.x.ToDouble(), q.y.ToDouble(), q.z.ToDouble(), q.w.ToDouble()};
+}
 
 std::string QuatString(const BigQuat &q) {
   return StringPrintf(
-      "x: " ARED("%s") "\n"
-      "y: " AGREEN("%s") "\n"
-      "z: " ABLUE("%s") "\n"
-      "w: " AYELLOW("%s") "\n",
-      q.x.ToString().c_str(),
-      q.y.ToString().c_str(),
-      q.z.ToString().c_str(),
-      q.w.ToString().c_str());
+      "x: " ARED("%s") " ≅ %.17g\n"
+      "y: " AGREEN("%s") " ≅ %.17g\n"
+      "z: " ABLUE("%s") " ≅ %.17g\n"
+      "w: " AYELLOW("%s") " ≅ %.17g\n",
+      q.x.ToString().c_str(), q.x.ToDouble(),
+      q.y.ToString().c_str(), q.y.ToDouble(),
+      q.z.ToString().c_str(), q.z.ToDouble(),
+      q.w.ToString().c_str(), q.w.ToDouble());
 }
 
 BigQuat Normalize(const BigQuat &q, int digits) {
@@ -243,7 +259,87 @@ inline BigQuat operator*(const BigQuat &a, const BigQuat &b) {
   };
 }
 
+static vec3 SmallVec(const BigVec3 &v) {
+  return vec3(v.x.ToDouble(), v.y.ToDouble(), v.z.ToDouble());
+}
+
+inline quat4 quat_conjugate(const quat4 &q) {
+  return {-q.x, -q.y, -q.z, q.w};
+}
+
+
+// Rigid frames stored as a column-major affine transform matrix.
+struct BigFrame {
+  BigVec3 x = {BigRat(1), BigRat(0), BigRat(0)};
+  BigVec3 y = {BigRat(0), BigRat(1), BigRat(0)};
+  BigVec3 z = {BigRat(0), BigRat(0), BigRat(1)};
+  BigVec3 o = {BigRat(0), BigRat(0), BigRat(0)};
+
+  BigVec3& operator[](int i) {
+    switch (i) {
+    case 0: return x;
+    case 1: return y;
+    case 2: return z;
+    case 3: return o;
+    default:
+      LOG(FATAL) << "Bad";
+      return x;
+    }
+  }
+
+  const BigVec3 &operator[](int i) const {
+    switch (i) {
+    case 0: return x;
+    case 1: return y;
+    case 2: return z;
+    case 3: return o;
+    default:
+      LOG(FATAL) << "Bad";
+      return x;
+    }
+  }
+};
+
+inline BigFrame RotationFrame(const BigQuat &v) {
+  BigRat two(2);
+  return {
+    {
+      v.w * v.w + v.x * v.x - v.y * v.y - v.z * v.z,
+      (v.x * v.y + v.z * v.w) * two,
+      (v.z * v.x - v.y * v.w) * two
+    },
+    {
+      (v.x * v.y - v.z * v.w) * two,
+      v.w * v.w - v.x * v.x + v.y * v.y - v.z * v.z,
+      (v.y * v.z + v.x * v.w) * two
+    },
+    {
+      (v.z * v.x + v.y * v.w) * two,
+      (v.y * v.z - v.x * v.w) * two,
+      v.w * v.w - v.x * v.x - v.y * v.y + v.z * v.z
+    },
+    {BigRat(0), BigRat(0), BigRat(0)}
+  };
+}
+
+BigVec3 operator*(const BigVec3& a, BigRat b) {
+  return BigVec3(a.x * b, a.y * b, a.z * b);
+}
+
+inline BigVec3 RotatePoint(const BigFrame &f, const BigVec3 &v) {
+  return f.x * v.x + f.y * v.y + f.z * v.z + f.o;
+}
+
+#if 0
 inline BigVec3 RotatePoint(const BigQuat &q, const BigVec3 &v) {
+  vec3 dv = SmallVec(v);
+  quat4 dp{.x = dv.x, .y = dv.y, .z = dv.z, .w = 0.0};
+
+  quat4 dq = SmallQuat(q);
+  quat4 dqi = quat_conjugate(dq);
+  quat4 dpqi = dp * dqi;
+  quat4 r = dq * dpqi;
+
   // PERF: This can be simplified.
   //  - w coefficient for pure quaternion is zero.
   //  - q^-1 * p * q will be a pure quaternion for
@@ -255,9 +351,23 @@ inline BigVec3 RotatePoint(const BigQuat &q, const BigVec3 &v) {
   //  - We actually want RotateAndProjectTo2D, since we're
   //    not even using the z coordinate.
   BigQuat p(v.x, v.y, v.z, BigRat(0));
-  BigQuat pp = q * p * UnitInverse(q);
-  return BigVec3(std::move(pp.x), std::move(pp.y), std::move(pp.z));
+  BigQuat pqi = p * UnitInverse(q);
+
+  CHECK_NEAR(dpqi.x, pqi.x.ToDouble());
+  CHECK_NEAR(dpqi.y, pqi.y.ToDouble());
+  CHECK_NEAR(dpqi.z, pqi.z.ToDouble());
+  CHECK_NEAR(dpqi.w, pqi.w.ToDouble());
+
+  BigQuat pp = q * pqi;
+  BigVec3 ret(std::move(pp.x), std::move(pp.y), std::move(pp.z));
+
+  CHECK_NEAR(r.x, ret.x.ToDouble());
+  CHECK_NEAR(r.y, ret.y.ToDouble());
+  CHECK_NEAR(r.z, ret.z.ToDouble());
+
+  return ret;
 }
+#endif
 
 struct BigPoly {
   std::vector<BigVec3> vertices;
@@ -269,11 +379,22 @@ struct BigMesh2D {
   const Faces *faces = nullptr;
 };
 
+#if 0
 static BigPoly Rotate(const BigQuat &q, const BigPoly &poly) {
   std::vector<BigVec3> vertices;
   vertices.reserve(poly.vertices.size());
   for (const BigVec3 &v : poly.vertices) {
     vertices.push_back(RotatePoint(q, v));
+  }
+  return BigPoly{.vertices = std::move(vertices), .faces = poly.faces};
+}
+#endif
+
+static BigPoly Rotate(const BigFrame &f, const BigPoly &poly) {
+  std::vector<BigVec3> vertices;
+  vertices.reserve(poly.vertices.size());
+  for (const BigVec3 &v : poly.vertices) {
+    vertices.push_back(RotatePoint(f, v));
   }
   return BigPoly{.vertices = std::move(vertices), .faces = poly.faces};
 }
@@ -515,7 +636,6 @@ InMeshExhaustive(const BigMesh2D &mesh, const BigVec2 &pt) {
   return std::nullopt;
 }
 
-
 static void Validate() {
   // BigRat pi = MakePi(DIGITS);
   // printf("pi: %s\n", pi.ToString().c_str());
@@ -548,13 +668,13 @@ static void Validate() {
         dotrans.z == 0.0) << "This can be handled, but we expect "
     "exact zero translation for the outer frame.";
 
+  // z component does not matter, because we project along z.
   BigVec2 itrans(BigRat::FromDouble(ditrans.x),
                  BigRat::FromDouble(ditrans.y));
 
-  printf("Made itrans\n");
 
-  printf("Outer: %s\n", QuatString(douter_rot).c_str());
-  printf("Inner: %s\n", QuatString(dinner_rot).c_str());
+  printf("Outer (dbl):\n%s\n", QuatString(douter_rot).c_str());
+  printf("Inner (dbl):\n%s\n", QuatString(dinner_rot).c_str());
 
   BigQuat oq(BigRat::FromDouble(douter_rot.x),
              BigRat::FromDouble(douter_rot.y),
@@ -566,20 +686,63 @@ static void Validate() {
              BigRat::FromDouble(dinner_rot.z),
              BigRat::FromDouble(dinner_rot.w));
 
-  printf("Outer: %s\n", QuatString(oq).c_str());
+  printf("Outer (r):\n%s\n", QuatString(oq).c_str());
+  printf("Inner (r):\n%s\n", QuatString(iq).c_str());
 
   // Represent the double quaternions as rational with a lot of
   // digits of precision.
-  printf("Outer:\n");
+  printf("Normalize Outer:\n");
   BigQuat outer_rot = Normalize(oq, DIGITS);
 
-  printf("Inner:\n");
+  printf("Normalize Inner:\n");
   BigQuat inner_rot = Normalize(iq, DIGITS);
+
+  printf("Norm Outer (r):\n%s\n", QuatString(outer_rot).c_str());
+  printf("Norm Inner (r):\n%s\n", QuatString(inner_rot).c_str());
+
+  {
+    // Convert back and render.
+    Polyhedron poly = SmallPoly(ridode);
+
+    const frame3 outer_frame =
+      yocto::rotation_frame(normalize(SmallQuat(outer_rot)));
+    // Note: ignoring translation
+    const frame3 inner_frame =
+      yocto::rotation_frame(normalize(SmallQuat(inner_rot)));
+
+    Polyhedron outer = Rotate(poly, outer_frame);
+    Polyhedron inner = Rotate(poly, inner_frame);
+    Mesh2D souter = Shadow(outer);
+    Mesh2D sinner = Shadow(inner);
+    // std::vector<int> outer_hull = QuickHull(souter.vertices);
+    // std::vector<int> inner_hull = QuickHull(sinner.vertices);
+
+    Rendering rendering(poly, 3840, 2160);
+    rendering.RenderTriangulation(souter, 0xAA0000FF);
+    rendering.RenderTriangulation(sinner, 0x00FF00AA);
+    // This looks correct.
+    rendering.Save(StringPrintf("validate-recreate-%s.png", poly.name));
+  }
 
   printf("Made BigQuats\n");
 
-  BigPoly outer = Rotate(outer_rot, ridode);
-  BigPoly inner = Rotate(inner_rot, ridode);
+  BigFrame big_outer_frame = RotationFrame(outer_rot);
+  BigFrame big_inner_frame = RotationFrame(inner_rot);
+
+  // BigPoly outer = Rotate(outer_rot, ridode);
+  // BigPoly inner = Rotate(inner_rot, ridode);
+
+  BigPoly outer = Rotate(big_outer_frame, ridode);
+  BigPoly inner = Rotate(big_inner_frame, ridode);
+
+  {
+    Polyhedron poly = SmallPoly(inner);
+    Mesh2D souter = Shadow(poly);
+    Rendering rendering(poly, 1920, 1080);
+    rendering.RenderTriangulation(souter, 0xAA0000FF);
+    // This looks correct.
+    rendering.Save(StringPrintf("validate-rotated-%s.png", poly.name));
+  }
 
   printf("Rotated\n");
 
@@ -595,7 +758,7 @@ static void Validate() {
   Mesh2D small_souter = SmallMesh(souter);
   Mesh2D small_sinner = SmallMesh(sinner);
   auto RenderInside = [&](
-      std::optional<std::tuple<int, int, int>> triangle,
+      const std::optional<std::tuple<int, int, int>> &triangle,
       int ptidx) {
 
       Rendering rendering(renderpoly, 1920, 1080);
@@ -610,7 +773,7 @@ static void Validate() {
 
       if (triangle.has_value()) {
         const auto &[a, b, c] = triangle.value();
-        rendering.RenderTriangle(small_sinner, a, b, c, 0x3333AAAA);
+        rendering.RenderTriangle(small_souter, a, b, c, 0x3333AAAA);
         rendering.MarkPoints(small_sinner, {ptidx}, 20.0f, 0x00FF00AA);
       } else {
         rendering.MarkPoints(small_sinner, {ptidx}, 20.0f, 0xFF0000AA);
@@ -641,8 +804,8 @@ static void Validate() {
   {
     Rendering rendering(renderpoly, 1920, 1080);
 
-    rendering.RenderTriangulation(small_souter, 0x00FF0044);
-    rendering.RenderTriangulation(small_sinner, 0xFF000044);
+    rendering.RenderTriangulation(small_souter, 0xFF000044);
+    rendering.RenderTriangulation(small_sinner, 0x00FF0044);
 
     rendering.MarkPoints(small_sinner, ins, 10.0f, 0x22FF22AA);
     rendering.MarkPoints(small_sinner, outs, 20.0f, 0xFF2211AA);
