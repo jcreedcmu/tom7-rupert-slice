@@ -274,9 +274,11 @@ inline BigRat operator/(const BigRat &a, const BigRat &b) {
   return BigRat::Div(a, b);
 }
 
+/*
 inline BigRat operator-(BigRat &&a) {
   return BigRat::Negate(a);
 }
+*/
 
 inline BigRat operator-(const BigRat &a) {
   return BigRat::Negate(a);

@@ -1,5 +1,5 @@
 
-default : big_test.exe big-overloads_test.exe big-nogmp_test.exe big-overloads-nogmp_test.exe
+default : big_test.exe big-overloads_test.exe big-nogmp_test.exe big-overloads-nogmp_test.exe big-numbers_test.exe big-numbers-nogmp_test.exe
 
 UNAME := $(shell uname -o)
 ifeq ($(UNAME),Cygwin)
@@ -13,7 +13,7 @@ ifeq ($(UNAME),Cygwin)
   CC=x86_64-w64-mingw32-g++
   LFLAGS=-flto=auto -static
 else
-  # Linux
+  # Linux, msys2
   CXX=g++
   CC=gcc
   GMP_LFLAGS=-lgmp
@@ -25,7 +25,7 @@ endif
 CXXFLAGS= $(PLATFORM_CXXFLAGS) -march=native -Wall -I.. --std=c++20 -g -O3
 
 # Just used for testing; bignum itself should not depend on cc-lib.
-# this assumes that cc-lib doesn't depend on GMP flags
+# This assumes that cc-lib doesn't depend on GMP flags.
 CCLIB_OBJECTS=../base/logging.o ../base/stringprintf.o ../util.o ../ansi.o
 
 %.o : %.cc *.h makefile
@@ -39,15 +39,25 @@ big_test.exe : big.o big_test.o $(CCLIB_OBJECTS)
 big-overloads_test.exe : big.o big-overloads_test.o $(CCLIB_OBJECTS)
 	$(CXX) $(GMP_CFLAGS) $(CXXFLAGS) $^ -o $@ $(GMP_LFLAGS) $(LFLAGS)
 
+big-numbers_test.exe : big-numbers_test.o big.o big-numbers.o $(CCLIB_OBJECTS)
+	$(CXX) $(GMP_CFLAGS) $(CXXFLAGS) $^ -o $@ $(GMP_LFLAGS) $(LFLAGS)
+
+
 # Without GMP
+
+# support objects
+BIG_NOGMP_OBJECTS=bigz-nogmp.o bign-nogmp.o bigq-nogmp.o
 
 %-nogmp.o : %.cc *.h makefile
 	$(CXX) $(CXXFLAGS) $< -o $@ -c
 
-big-nogmp_test.exe : bigz-nogmp.o bign-nogmp.o bigq-nogmp.o big-nogmp.o big_test-nogmp.o $(CCLIB_OBJECTS)
+big-nogmp_test.exe : big-nogmp.o big_test-nogmp.o $(CCLIB_OBJECTS) $(BIG_NOGMP_OBJECTS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LFLAGS)
 
-big-overloads-nogmp_test.exe : bigz-nogmp.o bign-nogmp.o bigq-nogmp.o big-nogmp.o big-overloads_test-nogmp.o $(CCLIB_OBJECTS)
+big-overloads-nogmp_test.exe : big-nogmp.o big-overloads_test-nogmp.o $(CCLIB_OBJECTS) $(BIG_NOGMP_OBJECTS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LFLAGS)
+
+big-numbers-nogmp_test.exe : big-numbers_test-nogmp.o big-nogmp.o big-numbers-nogmp.o $(CCLIB_OBJECTS) $(BIG_NOGMP_OBJECTS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LFLAGS)
 
 clean :

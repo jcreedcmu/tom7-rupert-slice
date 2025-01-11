@@ -19,6 +19,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 struct BigInt {
@@ -27,7 +28,7 @@ struct BigInt {
   BigInt() : BigInt(uint32_t{0}) {}
   // From any integral type, but only up to 64 bits are supported.
   inline explicit BigInt(std::integral auto n);
-  inline explicit BigInt(const std::string &digits);
+  inline explicit BigInt(std::string_view digits);
 
   // Value semantics with linear-time copies (like std::vector).
   inline BigInt(const BigInt &other);
@@ -193,7 +194,7 @@ struct BigInt {
   inline void Swap(BigInt *other);
 
 
-private:
+ private:
   friend struct BigRat;
   #ifdef BIG_USE_GMP
   using Rep = mpz_t;
@@ -248,14 +249,23 @@ private:
 struct BigRat {
   // Zero.
   inline BigRat() : BigRat(0LL, 1LL) {}
-  inline BigRat(int64_t numer, int64_t denom);
-  inline BigRat(int64_t numer);
+  inline explicit BigRat(int64_t numer, int64_t denom);
+  inline explicit BigRat(int64_t numer);
   inline BigRat(const BigInt &numer, const BigInt &denom);
   inline BigRat(const BigInt &numer);
+  // PERF: Could have versions that move numerator/denominator?
 
   inline BigRat(const BigRat &other);
+  inline BigRat(BigRat &&other);
   inline BigRat &operator =(const BigRat &other);
   inline BigRat &operator =(BigRat &&other);
+
+  // Must be of the form [-]digits[.digits]; no exponential notation.
+  // The finite decimal expansion is represented exactly.
+  static BigRat FromDecimal(std::string_view num);
+
+  inline static BigRat FromDouble(double num);
+  inline static BigRat ApproxDouble(double num, int64_t max_denom);
 
   inline ~BigRat();
 
@@ -267,8 +277,17 @@ struct BigRat {
   // Get the numerator and denominator.
   inline std::pair<BigInt, BigInt> Parts() const;
 
+  // Returns -1, 0, or 1.
+  inline static int Sign(const BigRat &a);
+
+  // Returns -1, 0, or 1.
   inline static int Compare(const BigRat &a, const BigRat &b);
   inline static bool Eq(const BigRat &a, const BigRat &b);
+  inline static bool Less(const BigRat &a, const BigRat &b);
+  inline static bool LessEq(const BigRat &a, const BigRat &b);
+  inline static bool Greater(const BigRat &a, const BigRat &b);
+  inline static bool GreaterEq(const BigRat &a, const BigRat &b);
+
   inline static BigRat Abs(const BigRat &a);
   inline static BigRat Div(const BigRat &a, const BigRat &b);
   inline static BigRat Inverse(const BigRat &a);
@@ -280,11 +299,13 @@ struct BigRat {
   inline static BigRat Min(const BigRat &a, const BigRat &b);
   inline static BigRat Max(const BigRat &a, const BigRat &b);
 
-  inline static BigRat ApproxDouble(double num, int64_t max_denom);
+  // Returns a rational approximation to the square root of a,
+  // which differs from the correct answer by no more than epsilon.
+  static BigRat Sqrt(const BigRat &a, const BigRat &epsilon);
 
   inline void Swap(BigRat *other);
 
-private:
+ private:
   #ifdef BIG_USE_GMP
   using Rep = mpq_t;
   #else
@@ -373,11 +394,13 @@ BigInt &BigInt::operator =(BigInt &&other) {
   return *this;
 }
 
-BigInt::BigInt(const std::string &digits) {
+BigInt::BigInt(std::string_view digits) {
   mpz_init(rep);
-  int res = mpz_set_str(rep, digits.c_str(), 10);
+  // PERF: It would be nice if we could convert without copying,
+  // but mpz_set_str wants zero-termination.
+  int res = mpz_set_str(rep, std::string(digits).c_str(), 10);
   if (0 != res) {
-    printf("Invalid number [%s]\n", digits.c_str());
+    printf("Invalid number [%s]\n", std::string(digits).c_str());
     assert(false);
   }
 }
@@ -904,6 +927,13 @@ BigRat::BigRat(int64_t numer, int64_t denom) :
 
 BigRat::BigRat(int64_t numer) : BigRat(BigInt{numer}) {}
 
+BigRat::BigRat(BigRat &&other) {
+  // PERF: This is correct, but is there a way to move from other
+  // without initializing at all?
+  mpq_init(rep);
+  Swap(&other);
+}
+
 BigRat::BigRat(const BigInt &numer, const BigInt &denom) {
   mpq_init(rep);
   mpq_set_z(rep, numer.rep);
@@ -1010,6 +1040,12 @@ std::pair<BigInt, BigInt> BigRat::Parts() const {
   return std::make_pair(numer, denom);
 }
 
+BigRat BigRat::FromDouble(double num) {
+  BigRat ret;
+  mpq_set_d(ret.rep, num);
+  return ret;
+}
+
 BigRat BigRat::ApproxDouble(double num, int64_t max_denom) {
   // XXX implement max_denom somehow?
   BigRat ret;
@@ -1070,8 +1106,8 @@ void BigInt::Swap(BigInt *other) {
   std::swap(rep, other->rep);
 }
 
-BigInt::BigInt(const std::string &digits) {
-  rep = BzFromStringLen(digits.c_str(), digits.size(), 10, BZ_UNTIL_END);
+BigInt::BigInt(std::string_view digits) {
+  rep = BzFromStringLen(digits.data(), digits.size(), 10, BZ_UNTIL_END);
 }
 
 std::string BigInt::ToString(int base) const {
@@ -1409,12 +1445,18 @@ BigRat &BigRat::operator =(const BigRat &other) {
   if (this == &other) return *this;
   BqDelete(rep);
   rep = BqCreate(BqGetNumerator(other.rep),
-                  BqGetDenominator(other.rep));
+                 BqGetDenominator(other.rep));
   return *this;
 }
 BigRat &BigRat::operator =(BigRat &&other) {
   Swap(&other);
   return *this;
+}
+
+BigRat::BigRat(BigRat &&other) : BigRat() {
+  // PERF: Should not actually need to create the rep only
+  // to swap/free it.
+  Swap(&other);
 }
 
 void BigRat::Swap(BigRat *other) {
@@ -1475,6 +1517,12 @@ std::pair<BigInt, BigInt> BigRat::Parts() const {
                         BigInt(BzCopy(BqGetDenominator(rep)), nullptr));
 }
 
+BigRat BigRat::FromDouble(double num) {
+  // XXX as long as it's not inf or nan, we should be able to
+  // get an exact result here.
+  return ApproxDouble(num, int64_t{1} << 60);
+}
+
 BigRat BigRat::ApproxDouble(double num, int64_t max_denom) {
   return BigRat{BqFromDouble(num, max_denom), nullptr};
 }
@@ -1497,13 +1545,31 @@ BigRat BigRat::Pow(const BigRat &a, uint64_t exponent) {
 }
 
 BigRat BigRat::Min(const BigRat &a, const BigRat &b) {
-  int cmp = BigRat::Compare(a, b);
+  const int cmp = BigRat::Compare(a, b);
   return cmp == 1 ? b : a;
 }
 
 BigRat BigRat::Max(const BigRat &a, const BigRat &b) {
-  int cmp = BigRat::Compare(a, b);
+  const int cmp = BigRat::Compare(a, b);
   return cmp == -1 ? b : a;
+}
+
+int BigRat::Sign(const BigRat &a) {
+  // PERF: This can surely be done more efficiently!
+  return BigRat::Compare(a, BigRat(0));
+}
+
+bool BigRat::Less(const BigRat &a, const BigRat &b) {
+  return Compare(a, b) == -1;
+}
+bool BigRat::LessEq(const BigRat &a, const BigRat &b) {
+  return Compare(a, b) != 1;
+}
+bool BigRat::Greater(const BigRat &a, const BigRat &b) {
+  return Compare(a, b) == 1;
+}
+bool BigRat::GreaterEq(const BigRat &a, const BigRat &b) {
+  return Compare(a, b) != -1;
 }
 
 #endif

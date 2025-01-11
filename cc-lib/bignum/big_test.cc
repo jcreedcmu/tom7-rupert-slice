@@ -90,6 +90,18 @@ static void LowWord() {
   CHECK(BigInt::LowWord(a) != BigInt::LowWord(big));
 }
 
+static void TestRatFromDouble() {
+  BigRat one_half = BigRat::FromDouble(0.5);
+  CHECK(one_half.ToString() == "1/2");
+
+  // Note: This number is not exactly representable as a double
+  // (not just 1/3, but 0.3333333). GMP gives slightly different
+  // approximation, which I think is more correct.
+  BigRat thirdish = BigRat::FromDouble(0.3333333);
+  double t = thirdish.ToDouble();
+  CHECK(std::abs(t - 0.3333333) < 0.0000001) << thirdish.ToString();
+}
+
 static void TestToDouble() {
   BigInt a{1234};
   BigInt b{-5678};
@@ -757,6 +769,91 @@ static void TestSwap() {
   CHECK(b.ToString() == "11223344556677889900");
 }
 
+
+static void TestRatSwap() {
+  BigRat a(BigInt("11111111111111111117"), BigInt("555555555555555555555"));
+  BigRat b(BigInt("11111111111111111111"), BigInt("259259259259259259259"));
+
+  std::swap(a, b);
+  CHECK(a.ToString() == "11111111111111111111/259259259259259259259");
+  CHECK(b.ToString() == "11111111111111111117/555555555555555555555");
+}
+
+static void TestRatMove() {
+  BigRat a(BigInt("11111111111111111117"), BigInt("555555555555555555555"));
+  BigRat b(BigInt("11111111111111111111"), BigInt("259259259259259259259"));
+
+  BigRat c{std::move(a)};
+  CHECK(c.ToString() == "11111111111111111117/555555555555555555555");
+
+  a = std::move(b);
+  CHECK(a.ToString() == "11111111111111111111/259259259259259259259");
+
+  b = BigRat(7);
+  CHECK(b.ToString() == "7");
+}
+
+static void TestRatSqrt() {
+  {
+    BigRat epsilon = BigRat(1, int64_t{1000000000});
+    BigRat half = BigRat::Sqrt(BigRat(1, 4), epsilon);
+
+    BigRat err = BigRat::Abs(BigRat::Minus(half, BigRat(1, 2)));
+
+    CHECK(BigRat::LessEq(err, epsilon));
+  }
+
+  {
+    printf("Test sqrt:\n");
+
+    #if BIG_USE_GMP
+    const char *EPS =
+      "0.000000000000000000000000000000000000000000000000000"
+      "00000000000000000000000000000000000000000000000000000"
+      "00000000000000000000000000000000000000000000000000001";
+    const char *EPS2 =
+      "0.0000000000000000000000000000000000000000000000000001";
+    #else
+    const char *EPS = "0.0000000000000000000000000001";
+    const char *EPS2 = "0.0000000001";
+    #endif
+
+    BigRat epsilon = BigRat::FromDecimal(EPS);
+
+    BigRat approx_pi =
+      BigRat::FromDecimal(
+          "3.141592653589793238462643383279502884197169399375105820974"
+          "94459230781640628620899862803482534211706798214808651328230"
+          "66470938446095505822317253594081284811174502841027019385211"
+          "05559644622948954930381964428810975665933446128475648233786"
+          "78316527120190914564856692346034861045432664821339360726024"
+          "9141273724587006");
+
+    BigRat root_pi = BigRat::Sqrt(approx_pi, epsilon);
+
+    BigRat expected =
+      BigRat::FromDecimal(
+          "1.772453850905516027298167483341145182797549456122387128213"
+          "80778985291128459103218137495065673854466541622682362428257"
+          "06662361528657244226025250937096027870684620376986531051228"
+          "49925173028950826228932095379267962800174639015351479720516"
+          "70019018523401858544697449491264031392177552590621640541933"
+          "25009063984076137334774751534336679897893658518364087954511"
+          "65161738760059067393431791332809854846248184902054654852195");
+
+    BigRat err = BigRat::Abs(BigRat::Minus(root_pi, expected));
+
+    CHECK(BigRat::LessEq(err, epsilon));
+
+    BigRat sq = BigRat::Times(expected, expected);
+
+    BigRat err2 = BigRat::Abs(BigRat::Minus(approx_pi, sq));
+    BigRat eps2 = BigRat::FromDecimal(EPS2);
+    CHECK(BigRat::LessEq(err2, eps2));
+  }
+  printf("Sqrt OK\n");
+}
+
 static void TestCtz() {
   CHECK(BigInt::BitwiseCtz(BigInt(0)) == 0);
   CHECK(BigInt::BitwiseCtz(BigInt(-1)) == 0);
@@ -896,6 +993,11 @@ int main(int argc, char **argv) {
   TestInvert();
 
   TestSwap();
+  TestRatSwap();
+  TestRatMove();
+  TestRatSqrt();
+
+  TestRatFromDouble();
   TestToDouble();
 
   printf("OK\n");

@@ -1233,3 +1233,66 @@ bool BigInt::IsPrime(const BigInt &x) {
 }
 
 #endif
+
+BigRat BigRat::FromDecimal(std::string_view num) {
+  // Parse numerator and denominator as bigints.
+  bool negative = false;
+  assert(!num.empty());
+  if (num[0] == '-') {
+    negative = true;
+    num.remove_prefix(1);
+  }
+
+  auto ParseBigInt = [](std::string_view s) {
+      assert(!s.empty());
+      for (int i = 0; i < s.size(); i++) {
+        assert(s[i] >= '0' && s[i] <= '9');
+      }
+      return BigInt(s);
+    };
+
+  assert(!num.empty());
+  // We do allow 1. or .1, but not simply ".".
+  assert(num[0] != '.' || num.size() > 1);
+
+  for (int i = 0; i < num.size(); i++) {
+    if (num[i] == '.') {
+      // Then we have a string with a decimal point.
+      BigInt intpart = (i == 0) ? BigInt(0) : ParseBigInt(num.substr(0, i));
+      num.remove_prefix(i + 1);
+
+      if (negative) intpart = BigInt::Negate(std::move(intpart));
+
+      // Now the fractional part:
+      BigInt numer = ParseBigInt(num);
+      //  dddddddddd
+      //  ----------
+      // 10000000000
+      BigInt denom = BigInt::Pow(BigInt(10), num.size());
+
+      BigRat fracpart(std::move(numer), std::move(denom));
+      return BigRat::Plus(intpart, fracpart);
+    }
+  }
+
+  // If we get here, then there was no decimal point. So the rational is
+  // just an integer.
+  return negative ? BigRat(BigInt::Negate(ParseBigInt(num))) :
+    BigRat(ParseBigInt(num));
+}
+
+BigRat BigRat::Sqrt(const BigRat &xx, const BigRat &epsilon) {
+  const BigRat two(2);
+  assert(BigRat::Sign(xx) != -1);
+
+  // "Heron's Method".
+  BigRat x = BigInt(1);
+  for (;;) {
+    // So we have xx = x * y.
+    BigRat y = BigRat::Div(xx, x);
+    if (BigRat::Less(BigRat::Abs(BigRat::Minus(x, y)), epsilon)) {
+      return y;
+    }
+    x = BigRat::Div(BigRat::Plus(x, y), two);
+  }
+}
