@@ -223,6 +223,14 @@ static quat4 SmallQuat(const BigQuat &q) {
   return quat4{q.x.ToDouble(), q.y.ToDouble(), q.z.ToDouble(), q.w.ToDouble()};
 }
 
+std::string VecString(const BigVec2 &v) {
+  return StringPrintf(
+      "(x: " ARED("%s") " ≅ %.17g; "
+      "y: " AGREEN("%s") " ≅ %.17g)",
+      v.x.ToString().c_str(), v.x.ToDouble(),
+      v.y.ToString().c_str(), v.y.ToDouble());
+}
+
 std::string QuatString(const BigQuat &q) {
   return StringPrintf(
       "x: " ARED("%s") " ≅ %.17g\n"
@@ -636,6 +644,32 @@ InMeshExhaustive(const BigMesh2D &mesh, const BigVec2 &pt) {
   return std::nullopt;
 }
 
+BigRat LengthSquared(const BigVec2 &a) {
+  return a.x * a.x + a.y + a.y;
+}
+
+BigRat DistanceSquared(const BigVec2 &a, const BigVec2 &b) {
+  BigVec2 edge(a.x - b.x, a.y - b.y);
+  return LengthSquared(edge);
+}
+
+static int GetClosestPoint(const BigMesh2D &mesh, const BigVec2 &pt) {
+  CHECK(!mesh.vertices.empty());
+  BigRat best_sqdist = DistanceSquared(mesh.vertices[0], pt);
+  int best_idx = 0;
+
+  for (int i = 1; i < mesh.vertices.size(); i++) {
+    const BigVec2 &a = mesh.vertices[i];
+    BigRat sqdist = DistanceSquared(a, pt);
+    if (sqdist < best_sqdist) {
+      best_sqdist = std::move(sqdist);
+      best_idx = i;
+    }
+  }
+
+  return best_idx;
+}
+
 static void Validate() {
   // BigRat pi = MakePi(DIGITS);
   // printf("pi: %s\n", pi.ToString().c_str());
@@ -797,6 +831,11 @@ static void Validate() {
       RenderInside(triangle, i);
       ins.push_back(i);
     } else {
+      int closest = GetClosestPoint(souter, v);
+      printf("  Point at %s.\n"
+             "  Closest: %s\n",
+             VecString(v).c_str(),
+             VecString(souter.vertices[closest]).c_str());
       outs.push_back(i);
     }
   }
