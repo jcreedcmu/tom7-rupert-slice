@@ -16,12 +16,14 @@
 struct BigVec3 {
   BigVec3(BigRat x, BigRat y, BigRat z) :
     x(std::move(x)), y(std::move(y)), z(std::move(z)) {}
+  BigVec3() {}
   BigRat x = BigRat(0), y = BigRat(0), z = BigRat(0);
 };
 
 struct BigVec2 {
   BigVec2(BigRat x, BigRat y) :
     x(std::move(x)), y(std::move(y)) {}
+  BigVec2() {}
   BigRat x = BigRat(0), y = BigRat(0);
 };
 
@@ -29,12 +31,14 @@ struct BigVec2 {
 struct BigQuat {
   BigQuat(BigRat x, BigRat y, BigRat z, BigRat w) :
     x(std::move(x)), y(std::move(y)), z(std::move(z)), w(std::move(w)) {}
+  BigQuat() {}
   BigRat x = BigRat(0), y = BigRat(0), z = BigRat(0), w = BigRat(1);
 };
 
 struct BigPoly {
   std::vector<BigVec3> vertices;
   const Faces *faces = nullptr;
+  const char *name = "";
 };
 
 struct BigMesh2D {
@@ -71,8 +75,12 @@ inline quat4 SmallQuat(const BigQuat &q) {
   return quat4{q.x.ToDouble(), q.y.ToDouble(), q.z.ToDouble(), q.w.ToDouble()};
 }
 
+// With color
 std::string VecString(const BigVec2 &v);
 std::string QuatString(const BigQuat &q);
+// For serialization to disk, etc.
+std::string PlainVecString(const BigVec2 &v);
+std::string PlainQuatString(const BigQuat &q);
 
 BigQuat Normalize(const BigQuat &q, int digits);
 
@@ -133,6 +141,9 @@ struct BigFrame {
 // quaternion v.
 BigFrame RotationFrame(const BigQuat &v);
 
+// Same, but not requiring a unit quaternion.
+BigFrame NonUnitRotationFrame(const BigQuat &v);
+
 inline BigVec3 operator*(const BigVec3& a, BigRat b) {
   return BigVec3(a.x * b, a.y * b, a.z * b);
 }
@@ -191,3 +202,7 @@ inline BigRat DistanceSquared(const BigVec2 &a, const BigVec2 &b) {
 }
 
 int GetClosestPoint(const BigMesh2D &mesh, const BigVec2 &pt);
+
+// Get the convex hull. This is intended to be exact.
+std::vector<int> BigQuickHull(const std::vector<BigVec2> &vertices);
+

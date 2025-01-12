@@ -757,7 +757,7 @@ static void QuickHullRec(const std::vector<vec2> &vertices,
     const vec2 &ii = vertices[i];
     // In the presence of exact duplicates for one of the endpoints,
     // we need to filter them out here or else we can end up in
-    // infinite loops. Removing them does not affect the hull.
+    // infinite loops. Removing duplicates does not affect the hull.
     if (ii == aa || ii == bb || ii == ff) continue;
 
     if (CounterClockwise(aa, ff, ii) > 0.0) {
@@ -2735,3 +2735,4 @@ Polyhedron PentagonalHexecontahedron() {
   return MakeConvexOrDie(
       std::move(vertices), "pentagonalhexecontahedron");
 }
+

@@ -77,13 +77,22 @@ static void Validate() {
   // Represent the double quaternions as rational with a lot of
   // digits of precision.
   printf("Normalize Outer:\n");
-  BigQuat outer_rot = Normalize(oq, DIGITS);
+  // BigQuat outer_rot = Normalize(oq, DIGITS);
 
   printf("Normalize Inner:\n");
-  BigQuat inner_rot = Normalize(iq, DIGITS);
+  // BigQuat inner_rot = Normalize(iq, DIGITS);
 
-  printf("Norm Outer (r):\n%s\n", QuatString(outer_rot).c_str());
-  printf("Norm Inner (r):\n%s\n", QuatString(inner_rot).c_str());
+  // printf("Norm Outer (r):\n%s\n", QuatString(outer_rot).c_str());
+  // printf("Norm Inner (r):\n%s\n", QuatString(inner_rot).c_str());
+
+  // XXX just testing a very non-normalized vector.
+  iq.x *= BigRat(2, 3);
+  iq.y *= BigRat(2, 3);
+  iq.z *= BigRat(2, 3);
+  iq.w *= BigRat(2, 3);
+
+  const BigQuat &outer_rot = oq;
+  const BigQuat &inner_rot = iq;
 
   {
     // Convert back and render.
@@ -111,8 +120,8 @@ static void Validate() {
 
   printf("Made BigQuats\n");
 
-  BigFrame big_outer_frame = RotationFrame(outer_rot);
-  BigFrame big_inner_frame = RotationFrame(inner_rot);
+  BigFrame big_outer_frame = NonUnitRotationFrame(outer_rot);
+  BigFrame big_inner_frame = NonUnitRotationFrame(inner_rot);
 
   // BigPoly outer = Rotate(outer_rot, ridode);
   // BigPoly inner = Rotate(inner_rot, ridode);

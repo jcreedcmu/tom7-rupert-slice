@@ -53,6 +53,30 @@ std::string QuatString(const BigQuat &q) {
       q.w.ToString().c_str(), q.w.ToDouble());
 }
 
+std::string PlainVecString(const BigVec2 &v) {
+  return StringPrintf(
+      "BigVec2{\n"
+      "  x = %s ≅ %.17g\n"
+      "  y = %s ≅ %.17g\n"
+      "}\n",
+      v.x.ToString().c_str(), v.x.ToDouble(),
+      v.y.ToString().c_str(), v.y.ToDouble());
+}
+
+std::string PlainQuatString(const BigQuat &q) {
+  return StringPrintf(
+      "BigQuat{\n"
+      "  x = %s ≅ %.17g\n"
+      "  y = %s ≅ %.17g\n"
+      "  z = %s ≅ %.17g\n"
+      "  w = %s ≅ %.17g\n"
+      "}\n",
+      q.x.ToString().c_str(), q.x.ToDouble(),
+      q.y.ToString().c_str(), q.y.ToDouble(),
+      q.z.ToString().c_str(), q.z.ToDouble(),
+      q.w.ToString().c_str(), q.w.ToDouble());
+}
+
 
 BigQuat Normalize(const BigQuat &q, int digits) {
   printf("Quat: %s\n", QuatString(q).c_str());
@@ -86,6 +110,53 @@ BigFrame RotationFrame(const BigQuat &v) {
     {BigRat(0), BigRat(0), BigRat(0)}
   };
 }
+
+
+BigFrame NonUnitRotationFrame(const BigQuat &v) {
+  BigRat two(2);
+
+  BigRat xx = v.x * v.x;
+  BigRat yy = v.y * v.y;
+  BigRat zz = v.z * v.z;
+  BigRat ww = v.w * v.w;
+
+  // This normalization term is |v|^-2, which is
+  // 1/(sqrt(x^2 + y^2 + z^2 + w^2))^2, so we can avoid
+  // the square root! It's always multipled by 2 in the
+  // terms below, so we also do that here.
+  BigRat two_s = BigRat(2) / (xx + yy + zz + ww);
+
+  BigRat xy = v.x * v.y;
+  BigRat zx = v.z * v.x;
+  BigRat zw = v.z * v.w;
+  BigRat yw = v.y * v.w;
+  BigRat yz = v.y * v.z;
+  BigRat xw = v.x * v.w;
+
+  BigRat one(1);
+
+  /*
+    1 - 2s(y^2 + z^2)    ,   2s (x y - z w)      ,   2s (x z + y w)
+    2s (x y + z w)       ,   1 - 2s(x^2 + z^2)   ,   2s (y z - x w)
+    2s (x z - y w)       ,   2s (y z + x w)      ,   1 - 2s(x^2 + y^2)
+  */
+
+  // Note that the yocto matrix looks a bit different from this. On the
+  // diagonal, it's doing the trick that since v^2 = 1, we can write
+  // 1 + s(y^2 + z^2) as (x^2 + y^2 + z^2 + w^2) - 2(y^2 + z^2) and
+  // then cancel terms.
+  //
+  // There are also some sign differences. I think this is because
+  // of differences in the handedness of the coordinate system. XXX I need
+  // to check it.
+
+  return {
+    { one - two_s * (yy + zz), two_s * (xy - zw), two_s * (zx + yw) },
+    { two_s * (xy + zw), one - two_s * (xx + zz), two_s * (yz - xw) },
+    { two_s * (zx - yw), two_s * (yz + xw), one - two_s * (xx + yy) },
+  };
+}
+
 
 
 BigMesh2D Shadow(const BigPoly &poly) {
@@ -394,3 +465,170 @@ int GetClosestPoint(const BigMesh2D &mesh, const BigVec2 &pt) {
   return best_idx;
 }
 
+
+// The QuickHull implementation below and its helper routines are based on code
+// by Miguel Vieira (see LICENSES) although I have heavily modified it; see
+// the floating point version in polyhedra.cc for more info.
+
+// Returns the index of the farthest point from segment (a, b).
+// Requires that all points are to the left of the segment (a,b) (or colinear).
+static int GetFarthest(const BigVec2 &a, const BigVec2 &b,
+                       const std::vector<BigVec2> &v,
+                       const std::vector<int> &pts) {
+  CHECK(!pts.empty());
+  const BigRat dx = b.x - a.x;
+  const BigRat dy = b.y - a.y;
+  auto SqDist = [&](const BigVec2 &p) -> BigRat {
+      return dx * (a.y - p.y) - dy * (a.x - p.x);
+    };
+
+  int best_idx = pts[0];
+  BigRat best_dist = SqDist(v[best_idx]);
+
+  for (int i = 1; i < pts.size(); i++) {
+    int p = pts[i];
+    BigRat d = SqDist(v[p]);
+    if (d < best_dist) {
+      best_idx = p;
+      best_dist = std::move(d);
+    }
+  }
+
+  return best_idx;
+}
+
+
+// The z-value of the cross product of segments
+// (a, b) and (a, c). Positive means c is ccw (to the left)
+// from (a, b), negative cw. Zero means it's colinear.
+enum Orientation {
+  CCW, COLINEAR, CW,
+};
+static Orientation CounterClockwise(
+    const BigVec2 &a, const BigVec2 &b, const BigVec2 &c) {
+  int s = BigRat::Sign(cross(b - a, c - a));
+  if (s < 0) return CW;
+  if (s > 0) return CCW;
+  return COLINEAR;
+}
+
+// Recursive call of the quickhull algorithm.
+static void QuickHullRec(const std::vector<BigVec2> &vertices,
+                         const std::vector<int> &pts,
+                         int a, int b,
+                         std::vector<int> *hull) {
+  static constexpr bool SELF_CHECK = false;
+  static constexpr int VERBOSE = 0;
+
+  if (pts.empty()) {
+    return;
+  }
+
+  if (SELF_CHECK) {
+    for (int x : pts) {
+      CHECK(x != a && x != b) << x << " candidate points should "
+        "not include the endpoints of the recursed upon segment.";
+      for (int y : *hull) {
+        CHECK(x != y) << x << " is already in the hull!";
+      }
+    }
+  }
+
+  const BigVec2 &aa = vertices[a];
+  const BigVec2 &bb = vertices[b];
+
+  if (SELF_CHECK) {
+    for (int x : pts) {
+      const BigVec2 &xx = vertices[x];
+      CHECK(aa == xx || bb == xx ||
+            CounterClockwise(aa, bb, xx) == CCW);
+    }
+  }
+
+  int f = GetFarthest(aa, bb, vertices, pts);
+  const BigVec2 &ff = vertices[f];
+  if (VERBOSE) printf("Farthest is %d (%s)\n", f, VecString(ff).c_str());
+
+  // Collect points to the left of segment (a, f) and to the left
+  // of segment f, b (which we call "right"). A point cannot be in both
+  // sets, because that would require it to be farther away than f, but f
+  // is maximal.
+  //
+  //             f
+  //       left / \   right
+  //      set  /   \   set
+  //          a     b
+  //
+  std::vector<int> left, right;
+  for (int i : pts) {
+    const BigVec2 &ii = vertices[i];
+    // In the presence of exact duplicates for one of the endpoints,
+    // we need to filter them out here or else we can end up in
+    // infinite loops. Removing duplicates does not affect the hull.
+    if (ii == aa || ii == bb || ii == ff) continue;
+
+    if (CounterClockwise(aa, ff, ii) == CCW) {
+      left.push_back(i);
+    } else if (CounterClockwise(ff, bb, ii) == CCW) {
+      right.push_back(i);
+    }
+  }
+  if (VERBOSE) printf("%d left, %d right vertices.\n",
+                      (int)left.size(), (int)right.size());
+  QuickHullRec(vertices, left, a, f, hull);
+
+  // Add f to the hull
+  hull->push_back(f);
+
+  if (VERBOSE) printf("%d right vertices.\n", (int)right.size());
+  QuickHullRec(vertices, right, f, b, hull);
+}
+
+// QuickHull algorithm.
+// https://en.wikipedia.org/wiki/QuickHull
+std::vector<int> BigQuickHull(const std::vector<BigVec2> &vertices) {
+  std::vector<int> hull;
+  if (vertices.empty()) return {};
+  if (vertices.size() == 1) return {0};
+  if (vertices.size() == 2) return {0, 1};
+
+  // Returns true if a is lexicographically before b.
+  auto LeftOf = [](const BigVec2 &a, const BigVec2 &b) -> bool {
+      return (a.x < b.x || (a.x == b.x && a.y < b.y));
+    };
+
+  // Get the leftmost (a) and rightmost (b) points.
+  int a = 0, b = 0;
+  for (int i = 1; i < (int)vertices.size(); i++) {
+    if (LeftOf(vertices[i], vertices[a])) a = i;
+    if (LeftOf(vertices[b], vertices[i])) b = i;
+  }
+
+  CHECK(a != b);
+
+  // Split the points on either side of segment (a, b).
+  std::vector<int> left, right;
+  for (int i = 0; i < (int)vertices.size(); i++) {
+    if (i != a && i != b) {
+      Orientation side = CounterClockwise(vertices[a], vertices[b], vertices[i]);
+      if (side == CCW) left.push_back(i);
+      else if (side == CW) right.push_back(i);
+      // Ignore if colinear.
+    }
+  }
+
+  // Be careful to add points to the hull
+  // in the correct order. Add our leftmost point.
+  hull.push_back(a);
+
+  // Add hull points from the left (top)
+  QuickHullRec(vertices, left, a, b, &hull);
+
+  // Add our rightmost point
+  hull.push_back(b);
+
+  // Add hull points from the right (bottom)
+  QuickHullRec(vertices, right, b, a, &hull);
+
+  return hull;
+}

@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "ansi.h"
@@ -25,7 +26,20 @@ std::string FullMethodName(const char *color,
   }
 }
 
-static void PrintAll(std::string_view filter_name) {
+static const std::unordered_set<std::string> &Wishlist() {
+  static auto *s = new std::unordered_set<std::string>{
+    "snubcube",
+    "rhombicosidodecahedron",
+    "snubdodecahedron",
+    "pentagonalhexecontahedron,"
+    "deltoidalhexecontahedron,"
+  };
+
+  return *s;
+}
+
+
+static void PrintAll(const std::unordered_set<std::string> &filter) {
 
   std::unordered_map<std::string, std::vector<Attempt>> attmap;
   std::unordered_map<std::string, std::vector<Solution>> solmap;
@@ -48,7 +62,10 @@ static void PrintAll(std::string_view filter_name) {
   }
 
   for (const std::string &name : names) {
-    if (filter_name.empty() || filter_name == name) {
+    if (filter.empty() || filter.contains(name)) {
+      if (Wishlist().contains(name)) {
+        printf(AYELLOW("⋆") " ");
+      }
       printf(AWHITE("%s") ":\n", name.c_str());
       // const std::vector<Attempt> &atts = attmap[name];
       for (const Attempt &att : attmap[name]) {
@@ -74,10 +91,16 @@ static void PrintAll(std::string_view filter_name) {
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  std::string name;
-  if (argc > 1) name = argv[1];
-
-  PrintAll(name);
+  if (argc > 1) {
+    std::string name = argv[1];
+    if (name == "wishlist") {
+      PrintAll(Wishlist());
+    } else {
+      PrintAll({name});
+    }
+  } else {
+    PrintAll({});
+  }
 
   return 0;
 }
