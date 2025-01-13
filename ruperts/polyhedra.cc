@@ -297,7 +297,7 @@ inline double SquaredPointLineDistance(
   const vec2 c = ClosestPointOnSegment(v0, v1, pt);
   const double dx = pt.x - c.x;
   const double dy = pt.y - c.y;
-  return sqrt(dx * dx + dy * dy);
+  return dx * dx + dy * dy;
 }
 
 inline double PointLineDistance(

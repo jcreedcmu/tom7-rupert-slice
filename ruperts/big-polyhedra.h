@@ -62,9 +62,17 @@ inline BigVec2 operator -(const BigVec2 &a, const BigVec2 &b) {
   return BigVec2(a.x - b.x, a.y - b.y);
 }
 
+inline BigVec2 operator *(const BigVec2 &v, const BigRat &s) {
+  return BigVec2(v.x * s, v.y * s);
+}
+
 // Exact equality.
 inline bool operator ==(const BigVec2 &a, const BigVec2 &b) {
   return a.x == b.x && a.y == b.y;
+}
+
+inline BigRat dot(const BigVec2 &a, const BigVec2 &b) {
+  return a.x * b.x + a.y * b.y;
 }
 
 inline BigRat cross(const BigVec2 &a, const BigVec2 &b) {
@@ -193,7 +201,7 @@ std::optional<std::tuple<int, int, int>>
 InMeshExhaustive(const BigMesh2D &mesh, const BigVec2 &pt);
 
 inline BigRat LengthSquared(const BigVec2 &a) {
-  return a.x * a.x + a.y + a.y;
+  return dot(a, a);
 }
 
 inline BigRat DistanceSquared(const BigVec2 &a, const BigVec2 &b) {
@@ -201,8 +209,32 @@ inline BigRat DistanceSquared(const BigVec2 &a, const BigVec2 &b) {
   return LengthSquared(edge);
 }
 
+// Get the index of the closest mesh point to the target point.
 int GetClosestPoint(const BigMesh2D &mesh, const BigVec2 &pt);
+
+// Get the vertex index of the closest vertex (among those in the
+// hull) to the target point. Also returns the *squared* distance.
+std::pair<int, BigRat> GetClosestPoint(const std::vector<BigVec2> &vertices,
+                                       const std::vector<int> &hull,
+                                       const BigVec2 &pt);
 
 // Get the convex hull. This is intended to be exact.
 std::vector<int> BigQuickHull(const std::vector<BigVec2> &vertices);
 
+// Check if the point is strictly within the convex hull. Either hull
+// orientation works, but it must be a convex polygon (not just a
+// point set).
+bool InHull(const std::vector<BigVec2> &vertices,
+            const std::vector<int> &hull,
+            const BigVec2 &pt);
+
+BigRat SquaredDistanceToClosestPointOnSegment(
+    // Line segment
+    const BigVec2 &v0,
+    const BigVec2 &v1,
+    // Point to test
+    const BigVec2 &pt);
+
+BigRat SquaredDistanceToHull(const std::vector<BigVec2> &vertices,
+                             const std::vector<int> &hull,
+                             const BigVec2 &pt);

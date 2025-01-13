@@ -307,7 +307,7 @@ BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices) {
     double x = v.x.ToDouble();
     double y = v.y.ToDouble();
     double z = v.z.ToDouble();
-    printf("%.17g,%.17g,%.17g\n", x, y, z);
+    // printf("%.17g,%.17g,%.17g\n", x, y, z);
     dvertices.emplace_back(x, y, z);
   }
 
@@ -465,6 +465,26 @@ int GetClosestPoint(const BigMesh2D &mesh, const BigVec2 &pt) {
   return best_idx;
 }
 
+std::pair<int, BigRat> GetClosestPoint(const std::vector<BigVec2> &vertices,
+                                       const std::vector<int> &hull,
+                                       const BigVec2 &pt) {
+  CHECK(!hull.empty());
+  BigRat best_sqdist = DistanceSquared(vertices[hull[0]], pt);
+  int best_idx = hull[0];
+
+  for (int i = 1; i < hull.size(); i++) {
+    int idx = hull[i];
+    const BigVec2 &a = vertices[idx];
+    BigRat sqdist = DistanceSquared(a, pt);
+    if (sqdist < best_sqdist) {
+      best_sqdist = std::move(sqdist);
+      best_idx = idx;
+    }
+  }
+
+  return std::make_pair(best_idx, std::move(best_sqdist));
+}
+
 
 // The QuickHull implementation below and its helper routines are based on code
 // by Miguel Vieira (see LICENSES) although I have heavily modified it; see
@@ -504,7 +524,7 @@ static int GetFarthest(const BigVec2 &a, const BigVec2 &b,
 enum Orientation {
   CCW, COLINEAR, CW,
 };
-static Orientation CounterClockwise(
+static Orientation GetOrientation(
     const BigVec2 &a, const BigVec2 &b, const BigVec2 &c) {
   int s = BigRat::Sign(cross(b - a, c - a));
   if (s < 0) return CW;
@@ -541,7 +561,7 @@ static void QuickHullRec(const std::vector<BigVec2> &vertices,
     for (int x : pts) {
       const BigVec2 &xx = vertices[x];
       CHECK(aa == xx || bb == xx ||
-            CounterClockwise(aa, bb, xx) == CCW);
+            GetOrientation(aa, bb, xx) == CCW);
     }
   }
 
@@ -567,9 +587,9 @@ static void QuickHullRec(const std::vector<BigVec2> &vertices,
     // infinite loops. Removing duplicates does not affect the hull.
     if (ii == aa || ii == bb || ii == ff) continue;
 
-    if (CounterClockwise(aa, ff, ii) == CCW) {
+    if (GetOrientation(aa, ff, ii) == CCW) {
       left.push_back(i);
-    } else if (CounterClockwise(ff, bb, ii) == CCW) {
+    } else if (GetOrientation(ff, bb, ii) == CCW) {
       right.push_back(i);
     }
   }
@@ -610,7 +630,7 @@ std::vector<int> BigQuickHull(const std::vector<BigVec2> &vertices) {
   std::vector<int> left, right;
   for (int i = 0; i < (int)vertices.size(); i++) {
     if (i != a && i != b) {
-      Orientation side = CounterClockwise(vertices[a], vertices[b], vertices[i]);
+      Orientation side = GetOrientation(vertices[a], vertices[b], vertices[i]);
       if (side == CCW) left.push_back(i);
       else if (side == CW) right.push_back(i);
       // Ignore if colinear.
@@ -631,4 +651,73 @@ std::vector<int> BigQuickHull(const std::vector<BigVec2> &vertices) {
   QuickHullRec(vertices, right, b, a, &hull);
 
   return hull;
+}
+
+bool InHull(const std::vector<BigVec2> &vertices,
+            const std::vector<int> &hull,
+            const BigVec2 &pt) {
+  // No area.
+  if (hull.size() < 3) return false;
+
+  std::optional<Orientation> same_side;
+  for (int i = 0; i < hull.size(); i++) {
+    const BigVec2 &a = vertices[hull[i]];
+    const BigVec2 &b = vertices[hull[(i + 1) % hull.size()]];
+
+    Orientation side = GetOrientation(a, b, pt);
+    if (side == COLINEAR) return false;
+    if (!same_side.has_value()) {
+      same_side = side;
+    } else {
+      if (same_side.value() != side) return false;
+    }
+  }
+  // Always on the same side.
+  return true;
+}
+
+// Return the closest point (to x,y) on the given line segment.
+// It may be one of the endpoints.
+BigRat SquaredDistanceToClosestPointOnSegment(
+    // Line segment
+    const BigVec2 &v0,
+    const BigVec2 &v1,
+    // Point to test
+    const BigVec2 &pt) {
+  const BigRat zero(0);
+  const BigRat one(1);
+
+  BigVec2 v = v1 - v0;
+
+  BigRat sqlen = LengthSquared(v);
+  if (sqlen == zero) {
+    // Degenerate case where line segment is just a point,
+    // so there is only one choice.
+    return DistanceSquared(pt, v0);
+  }
+
+  BigVec2 w = pt - v0;
+  BigRat t = BigRat::Max(zero, BigRat::Min(one, dot(v, w) / sqlen));
+
+  BigVec2 closest = v0 + (v * t);
+  return DistanceSquared(pt, closest);
+}
+
+
+BigRat SquaredDistanceToHull(const std::vector<BigVec2> &vertices,
+                             const std::vector<int> &hull,
+                             const BigVec2 &pt) {
+  std::optional<BigRat> min_sqlen;
+  for (int i = 0; i < hull.size(); i++) {
+    const BigVec2 &a = vertices[hull[i]];
+    const BigVec2 &b = vertices[hull[(i + 1) % hull.size()]];
+
+    BigRat sqlen = SquaredDistanceToClosestPointOnSegment(a, b, pt);
+    if (!min_sqlen.has_value() || sqlen < min_sqlen.value()) {
+      min_sqlen = {std::move(sqlen)};
+    }
+  }
+
+  CHECK(min_sqlen.has_value()) << "empty hull?";
+  return min_sqlen.value();
 }

@@ -11,8 +11,9 @@
 #include "base/stringprintf.h"
 #include "big-polyhedra.h"
 
+#include <algorithm>
 #include <array>
-#include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <optional>
 #include <cstdint>
@@ -27,6 +28,7 @@
 #include "atomic-util.h"
 #include "bignum/big-overloads.h"
 #include "bignum/big.h"
+#include "auto-histo.h"
 #include "opt/opt.h"
 #include "periodically.h"
 #include "polyhedra.h"
@@ -41,7 +43,7 @@
 
 DECLARE_COUNTERS(iters, attempts, u1_, u2_, u3_, u4_, u5_, u6_);
 
-static constexpr int NUM_OUTER_THREADS = 1;
+static constexpr int NUM_OUTER_THREADS = 8;
 
 struct BigSolver {
 
@@ -58,7 +60,8 @@ struct BigSolver {
   Timer run_timer;
   Periodically status_per;
   // BigRat best_error = BigRat::FromDecimal("100000000000000000000000000000");
-  double best_error = 0.0;
+  double best_error = 9999999999999.0;
+  int best_errors = 99999999;
 
   double prep_time = 0.0, opt_time = 0.0;
 
@@ -192,7 +195,7 @@ struct BigSolver {
           }
 
           const auto &[error, outer_rot, inner_rot, translation] =
-            RunOne(&rc);
+            RunOne(&rc, thread_idx);
 
           if (error == 0.0) {
             Solved(outer_rot, inner_rot, translation);
@@ -222,13 +225,14 @@ struct BigSolver {
                       total_time);
 
                 // TODO: Can use progress bar when there's a timer.
-                status->Statusf(
-                    "%s\n"
-                    "%s iters, %s attempts; best: %.11g"
+                status->EmitLine(NUM_OUTER_THREADS, bar.c_str());
+                status->LineStatusf(
+                    NUM_OUTER_THREADS + 1,
+                    "%s iters, %s attempts; best: #d, %.7f"
                     " [" ACYAN("%.3f") "/s]\n",
-                    bar.c_str(),
                     FormatNum(it).c_str(),
                     FormatNum(attempts.Read()).c_str(),
+                    best_errors,
                     best_error, ips);
               });
           }
@@ -242,7 +246,8 @@ struct BigSolver {
   // Run one iteration, and return the error. Error of 0.0 means
   // a solution.
   // Exclusive access to rc.
-  std::tuple<double, BigQuat, BigQuat, BigVec2> RunOne(ArcFour *rc) {
+  std::tuple<double, BigQuat, BigQuat, BigVec2> RunOne(ArcFour *rc,
+                                                       int thread_idx) {
 
     // Add tiny random jitter.
     auto Jitter = [&rc](BigRat *r) {
@@ -251,6 +256,9 @@ struct BigSolver {
                      BigInt(Rand64(rc)) + BigInt(1000));
       };
 
+    AutoHisto histo(10000);
+    Timer timer;
+    Periodically status_per(60.0);
 
     // Unlike the double-based solvers, we do not keep a unit
     // quaternion here; we want to avoid Sqrt so that everything is
@@ -276,8 +284,10 @@ struct BigSolver {
     // which we use to scale down every argument?
     //
     // Or we can set this randomly.
-    static constexpr int SCALE = 8;
+    const int SCALE = 64 + RandTo(rc, 1024);
     const BigRat scale_down(1, SCALE);
+
+    int local_best_errors = 9999999;
 
     static constexpr int D = 10;
     auto MakeConfig = [&](const std::array<double, D> &args) {
@@ -318,48 +328,48 @@ struct BigSolver {
         BigMesh2D souter = Shadow(outer);
         BigMesh2D sinner = Translate(itrans, Shadow(inner));
 
-        // TODO:
-
-        std::vector<std::pair<int, BigRat>> res =
-          ParallelTabulate(sinner.vertices.size(),
-                           [&](int i) -> std::pair<int, BigRat> {
-                             const BigVec2 &v = sinner.vertices[i];
-                             const std::optional<std::tuple<int, int, int>> triangle =
-                               InMeshExhaustive(souter, v);
-                             bool in = triangle.has_value();
-                             if (in) {
-                               // XXX maybe inner gradient too
-                               return std::make_pair(0, BigRat(0));
-                             } else {
-                               // XXX distance to hull, not vertex!
-                               int closest = GetClosestPoint(souter, v);
-                               return std::make_pair(
-                                   1,
-                                   DistanceSquared(souter.vertices[closest], v));
-                             }
-                           },
-                           12);
+        std::vector<int> hull = BigQuickHull(souter.vertices);
+        std::vector<int> inner_hull = BigQuickHull(sinner.vertices);
 
         BigRat loss(0);
         int errors = 0;
-        for (const auto &[e, l] : res) {
-          errors += e;
-          loss += l;
+        for (int i : inner_hull) {
+          const BigVec2 &v = sinner.vertices[i];
+          if (InHull(souter.vertices, hull, v)) {
+            // Include inner gradient, but scaled down
+            loss -= SquaredDistanceToHull(souter.vertices, hull, v) / BigRat(512);
+          } else {
+            loss += SquaredDistanceToHull(souter.vertices, hull, v);
+            errors++;
+          }
         }
 
         calls++;
-        status->Printf("[%d] %d errors Computed loss in %s\n",
-                       calls,
-                       errors,
-                       ANSI::Time(timer.Seconds()).c_str());
-
+        attempts++;
+        histo.Observe(errors);
+        if (status_per.ShouldRun()) {
+          status->LineStatusf(
+              thread_idx,
+              AFGCOLOR(200, 200, 140, "%s") " %d" ACYAN("×")
+              ", err #%d (#%d" ABLUE("↓") "), in %s\n",
+              histo.UnlabeledHoriz(32).c_str(),
+              calls,
+              errors, local_best_errors,
+              ANSI::Time(timer.Seconds()).c_str());
+        }
         if (errors == 0) {
           Solved(orot, irot, itrans);
           // Can just abort here...
         }
 
+        if (errors < local_best_errors) {
+          local_best_errors = errors;
+          MutexLock ml(&m);
+          best_errors = std::min(best_errors, errors);
+        }
+
         if (errors == 0) return 0.0;
-        else return (double)errors + loss.ToDouble();
+        else return (double)errors + std::abs(loss.ToDouble());
       };
 
     const std::array<double, D> lb =
@@ -369,8 +379,14 @@ struct BigSolver {
 
     Timer opt_timer;
     const auto &[args, error] =
-      Opt::Minimize<D>(Loss, lb, ub, 1000, 2);
+      Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 1, rc->Byte());
     [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
+
+    status->Printf(AYELLOW("%s") " | Done in %s. Best errs #%d\n",
+                   histo.UnlabeledHoriz(32).c_str(),
+                   ANSI::Time(opt_timer.Seconds()).c_str(),
+                   local_best_errors);
+
 
     const auto &[orot, irot, itrans] = MakeConfig(args);
     return std::make_tuple(error, orot, irot, itrans);
@@ -379,7 +395,7 @@ struct BigSolver {
 
 static void Ratpert() {
   BigPoly ridode(BigRidode(100));
-  StatusBar status(2);
+  StatusBar status(NUM_OUTER_THREADS + 2);
 
   for (;;) {
     BigSolver solver(ridode, &status, {60.0 * 60.0});
