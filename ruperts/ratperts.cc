@@ -170,7 +170,7 @@ struct BigSolver {
     ParallelFan(
       NUM_OUTER_THREADS,
       [&](int thread_idx) {
-        ArcFour rc(StringPrintf("solve.%d.%lld", thread_idx,
+        ArcFour rc(StringPrintf("ratperts.%d.%lld", thread_idx,
                                 time(nullptr)));
 
         for (;;) {
@@ -182,7 +182,8 @@ struct BigSolver {
               should_die = true;
               SolutionDB db;
               db.AddAttempt(polyhedron.name,
-                            SolutionDB::METHOD_RATIONAL, 0,
+                            SolutionDB::METHOD_RATIONAL,
+                            0,
                             best_error, iters.Read(),
                             attempts.Read());
               iters.Reset();
@@ -228,7 +229,7 @@ struct BigSolver {
                 status->EmitLine(NUM_OUTER_THREADS, bar.c_str());
                 status->LineStatusf(
                     NUM_OUTER_THREADS + 1,
-                    "%s iters, %s attempts; best: #d, %.7f"
+                    "%s iters, %s attempts; best: #%d, %.7f"
                     " [" ACYAN("%.3f") "/s]\n",
                     FormatNum(it).c_str(),
                     FormatNum(attempts.Read()).c_str(),
@@ -263,9 +264,18 @@ struct BigSolver {
     // Unlike the double-based solvers, we do not keep a unit
     // quaternion here; we want to avoid Sqrt so that everything is
     // exact.
-    BigQuat outer_rot = initial_outer_rot;
-    BigQuat inner_rot = initial_inner_rot;
-    BigVec2 translation = initial_translation;
+    BigRat zero(0);
+    BigQuat outer_rot = BigQuat(zero, zero, zero, BigRat(1));
+    BigQuat inner_rot = BigQuat(zero, zero, zero, BigRat(1));
+    BigVec2 translation = BigVec2(zero, zero);
+    std::string what = "id";
+
+    if (rc->Byte() & 1) {
+      what = "ref";
+      outer_rot = initial_outer_rot;
+      inner_rot = initial_inner_rot;
+      translation = initial_translation;
+    }
 
     Jitter(&outer_rot.x);
     Jitter(&outer_rot.y);
@@ -350,9 +360,11 @@ struct BigSolver {
         if (status_per.ShouldRun()) {
           status->LineStatusf(
               thread_idx,
-              AFGCOLOR(200, 200, 140, "%s") " %d" ACYAN("×")
+              AFGCOLOR(200, 200, 140, "%s") " " AWHITE("%s")
+              " %d" ACYAN("×")
               ", err #%d (#%d" ABLUE("↓") "), in %s\n",
               histo.UnlabeledHoriz(32).c_str(),
+              what.c_str(),
               calls,
               errors, local_best_errors,
               ANSI::Time(timer.Seconds()).c_str());

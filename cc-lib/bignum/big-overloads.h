@@ -274,15 +274,30 @@ inline BigRat operator/(const BigRat &a, const BigRat &b) {
   return BigRat::Div(a, b);
 }
 
-/*
-inline BigRat operator-(BigRat &&a) {
-  return BigRat::Negate(a);
-}
-*/
-
 inline BigRat operator-(const BigRat &a) {
   return BigRat::Negate(a);
 }
+
+inline BigRat &operator+=(BigRat &a, const BigRat &b) {
+  a = a + b;
+  return a;
+}
+
+inline BigRat &operator-=(BigRat &a, const BigRat &b) {
+  a = a - b;
+  return a;
+}
+
+inline BigRat &operator*=(BigRat &a, const BigRat &b) {
+  a = a * b;
+  return a;
+}
+
+inline BigRat &operator/=(BigRat &a, const BigRat &b) {
+  a = a / b;
+  return a;
+}
+
 
 // TODO: Combinations that take integers or bigints.
 
