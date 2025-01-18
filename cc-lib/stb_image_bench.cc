@@ -20,6 +20,7 @@
 using namespace std;
 using uint8 = uint8_t;
 using uint32 = uint32_t;
+using int64 = int64_t;
 
 static constexpr int WIDTH = 1920;
 static constexpr int HEIGHT = 1080;

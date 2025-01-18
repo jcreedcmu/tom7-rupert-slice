@@ -22,6 +22,9 @@
 // We could use std::format in c++20, for example.
 #include "base/stringprintf.h"
 
+using uint8 = uint8_t;
+using uint32 = uint32_t;
+
 static constexpr bool VERBOSE = false;
 
 using std::string;

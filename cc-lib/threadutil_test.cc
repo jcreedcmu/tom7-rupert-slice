@@ -32,14 +32,15 @@ static void TestAccumulate() {
   // thread-safe access to individual elements (which are packed into
   // words).
   vector<int> did_run(NUM, 0);
-  int64 acc =
-    ParallelAccumulate<int64>(NUM, 0LL, [](int64 a, int64 b) { return a + b; },
-                              [&did_run](int idx, int64 *acc) {
-                                CHECK(did_run[idx] == 0) << idx << " = "
-                                                         << did_run[idx];
-                                did_run[idx] = idx;
-                                ++*acc;
-                              }, 25);
+  int64_t acc =
+    ParallelAccumulate<int64_t>(
+        NUM, 0LL, [](int64_t a, int64_t b) { return a + b; },
+        [&did_run](int idx, int64_t *acc) {
+          CHECK(did_run[idx] == 0) << idx << " = "
+                                   << did_run[idx];
+          did_run[idx] = idx;
+          ++*acc;
+        }, 25);
   for (int i = 0; i < NUM; i++) CHECK(did_run[i] == i) << i;
   CHECK_EQ(acc, NUM) << acc;
 }

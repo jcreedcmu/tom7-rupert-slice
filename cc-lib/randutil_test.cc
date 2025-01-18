@@ -39,7 +39,7 @@ static void TestShuffleArray() {
 static void TestShuffle(int n, double absolute_error) {
   ArcFour rc(StringPrintf("test_%d", n));
 
-  unordered_map<string, int64> counts;
+  unordered_map<string, int64_t> counts;
   static constexpr int ITERS = 10000000;
   for (int iter = ITERS; --iter;) {
     vector<char> vec;
@@ -52,7 +52,7 @@ static void TestShuffle(int n, double absolute_error) {
     counts[s]++;
   }
   auto factorial = [](int j) {
-    int64 ret = 1;
+    int64_t ret = 1;
     for (int i = 2; i <= j; i++) ret *= i;
     return ret;
   };

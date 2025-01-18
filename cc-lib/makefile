@@ -11,7 +11,7 @@ ifeq ($(UNAME),Cygwin)
   CXX=x86_64-w64-mingw32-g++
   CC=x86_64-w64-mingw32-g++
   # FLTO=-flto=auto
-  CXXFLAGS=-march=native -pipe -Wall -I. --std=c++20 -O3 -static $(FLTO)
+  CXXFLAGS=-march=native -pipe -Wall -I. --std=c++23 -O3 -static $(FLTO)
   SOCK_LFLAGS= -lws2_32
 else
 ifeq ($(UNAME),Msys)
@@ -19,8 +19,8 @@ ifeq ($(UNAME),Msys)
   CXX=clang++
   CC=clang
   # FLTO=-flto=thin
-  CXXFLAGS=-fsanitize=address -march=native -Wall -Wextra -Wno-unused-parameter -I. --std=c++20 -g -O $(FLTO)
-  # CXXFLAGS=-fno-omit-frame-pointer -march=native -g -O3 -Wall -Wextra -Wno-unused-parameter -I. --std=c++20
+  CXXFLAGS=-fsanitize=address -march=native -Wall -Wextra -Wno-unused-parameter -I. --std=c++23 -g -O $(FLTO)
+  # CXXFLAGS=-fno-omit-frame-pointer -march=native -g -O3 -Wall -Wextra -Wno-unused-parameter -I. --std=c++23
   SOCK_LFLAGS= -lws2_32
 else
   # Linux
@@ -28,8 +28,8 @@ else
   CC=gcc
   # no-psabi suppresses warnings all over STL in GCC 7.1 for ARM (e.g. pi)
   # it can probably be removed in a few years?
-  CXXFLAGS=-fsanitize=address -fsanitize=undefined -g -Wall -I. --std=c++20 -O -Wno-psabi
-  # CXXFLAGS=-march=native -g -Wall -I. --std=c++20 -O3 -Wno-psabi
+  CXXFLAGS=-fsanitize=address -fsanitize=undefined -g -Wall -I. --std=c++23 -O -Wno-psabi
+  # CXXFLAGS=-march=native -g -Wall -I. --std=c++23 -O3 -Wno-psabi
   SOCK_LFLAGS=
 endif
 endif
@@ -215,7 +215,7 @@ pcg_test.exe : pcg_test.o $(BASE)
 montgomery64_test.exe : montgomery64_test.o base/int128.o $(TEST_UTIL) $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-numbers_test.exe : numbers_test.o numbers.o base/int128.o factorization.o bignum/big.o bignum/bigz.o bignum/bign.o $(TEST_UTIL) $(BASE)
+numbers_test.exe : numbers_test.o numbers.o base/int128.o factorization.o bignum/big.o bignum/bigz.o bignum/bign.o bignum/bigq.o bignum/bign.o bignum/bigz.o $(TEST_UTIL) $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 work-queue_test.exe : work-queue_test.o $(BASE)
@@ -273,6 +273,9 @@ map-util_test.exe : map-util_test.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 interval-cover-util_test.exe : interval-cover-util_test.o interval-cover-util.o ansi.o util.o $(BASE)
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+base_test.exe : base_test.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 clean :

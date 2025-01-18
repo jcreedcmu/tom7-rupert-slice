@@ -494,12 +494,12 @@ string Util::ReadFileMagic(string s, const string &mag) {
   return ReadAndCloseFile<string>(f, &mag);
 }
 
-bool Util::WriteFile(const string &fn, const string &s) {
-  FILE *f = fopen(fn.c_str(), "wb");
+bool Util::WriteFile(std::string_view fn, std::string_view s) {
+  FILE *f = fopen(std::string(fn).c_str(), "wb");
   if (f == nullptr) return false;
 
-  const size_t len = s.length();
-  const size_t wrote_len = fwrite(s.c_str(), 1, len, f);
+  const size_t len = s.size();
+  const size_t wrote_len = fwrite(s.data(), 1, len, f);
 
   fclose(f);
 

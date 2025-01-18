@@ -30,7 +30,7 @@ static WebServer::Response SlashHandler(const WebServer::Request &request) {
         "<p>Params:\n"
         "%s"
         "</html>",
-        (int64)time(nullptr),
+        (int64_t)time(nullptr),
         request.path.c_str(),
         table.c_str());
   return response;

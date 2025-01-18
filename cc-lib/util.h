@@ -33,7 +33,8 @@ struct Util {
   static std::optional<string> ReadFileOpt(const string &filename);
 
   // Returns true upon success.
-  static bool WriteFile(const string &filename, const string &contents);
+  static bool WriteFile(std::string_view filename,
+                        std::string_view contents);
 
   // Reads the lines in the file to the vector. Ignores all
   // carriage returns, including ones not followed by newline.

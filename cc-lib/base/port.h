@@ -11,17 +11,16 @@
 #ifndef BASE_PORT_H_
 #define BASE_PORT_H_
 
-#include <limits.h>         // So we can set the bounds of our types
-#include <string.h>         // for memcpy()
-#include <stdlib.h>         // for free()
+#include <limits>
+#include <cstring>
+#include <cstdlib>
+#include <cstdint>
 
 #if defined(OS_MACOSX)
   #include <unistd.h>         // for getpagesize() on mac
 #elif defined(OS_CYGWIN)
   #include <malloc.h>         // for memalign()
 #endif
-
-#include "base/integral_types.h"
 
 // Must happens before inttypes.h inclusion */
 #if defined(OS_MACOSX)
@@ -84,9 +83,7 @@
   #define strtoq  strtoll
   #define strtouq strtoull
 
-  // It doesn't define the posix-standard(?) u_int_16
   #include <sys/int_types.h>
-  typedef uint16_t u_int16_t;
 
 #elif defined OS_MACOSX
 
@@ -783,13 +780,13 @@ extern inline void prefetch(const char *) {}
   // modern PowerPC hardware can also do unaligned integer loads and stores;
   // but note: the FPU still sends unaligned loads and stores to a trap handler!
 
-  #define UNALIGNED_LOAD16(_p) (*reinterpret_cast<const uint16 *>(_p))
-  #define UNALIGNED_LOAD32(_p) (*reinterpret_cast<const uint32 *>(_p))
-  #define UNALIGNED_LOAD64(_p) (*reinterpret_cast<const uint64 *>(_p))
+  #define UNALIGNED_LOAD16(_p) (*reinterpret_cast<const uint16_t *>(_p))
+  #define UNALIGNED_LOAD32(_p) (*reinterpret_cast<const uint32_t *>(_p))
+  #define UNALIGNED_LOAD64(_p) (*reinterpret_cast<const uint64_t *>(_p))
 
-  #define UNALIGNED_STORE16(_p, _val) (*reinterpret_cast<uint16 *>(_p) = (_val))
-  #define UNALIGNED_STORE32(_p, _val) (*reinterpret_cast<uint32 *>(_p) = (_val))
-  #define UNALIGNED_STORE64(_p, _val) (*reinterpret_cast<uint64 *>(_p) = (_val))
+  #define UNALIGNED_STORE16(_p, _val) (*reinterpret_cast<uint16_t *>(_p) = (_val))
+  #define UNALIGNED_STORE32(_p, _val) (*reinterpret_cast<uint32_t *>(_p) = (_val))
+  #define UNALIGNED_STORE64(_p, _val) (*reinterpret_cast<uint64_t *>(_p) = (_val))
 
 #else
 
@@ -798,33 +795,33 @@ extern inline void prefetch(const char *) {}
   // These functions are provided for architectures that don't support
   // unaligned loads and stores.
 
-  inline uint16 UNALIGNED_LOAD16(const void *p) {
-    uint16 t;
+  inline uint16_t UNALIGNED_LOAD16(const void *p) {
+    uint16_t t;
     memcpy(&t, p, sizeof t);
     return t;
   }
 
-  inline uint32 UNALIGNED_LOAD32(const void *p) {
-    uint32 t;
+  inline uint32_t UNALIGNED_LOAD32(const void *p) {
+    uint32_t t;
     memcpy(&t, p, sizeof t);
     return t;
   }
 
-  inline uint64 UNALIGNED_LOAD64(const void *p) {
-    uint64 t;
+  inline uint64_t UNALIGNED_LOAD64(const void *p) {
+    uint64_t t;
     memcpy(&t, p, sizeof t);
     return t;
   }
 
-  inline void UNALIGNED_STORE16(void *p, uint16 v) {
+  inline void UNALIGNED_STORE16(void *p, uint16_t v) {
     memcpy(p, &v, sizeof v);
   }
 
-  inline void UNALIGNED_STORE32(void *p, uint32 v) {
+  inline void UNALIGNED_STORE32(void *p, uint32_t v) {
     memcpy(p, &v, sizeof v);
   }
 
-  inline void UNALIGNED_STORE64(void *p, uint64 v) {
+  inline void UNALIGNED_STORE64(void *p, uint64_t v) {
     memcpy(p, &v, sizeof v);
   }
 

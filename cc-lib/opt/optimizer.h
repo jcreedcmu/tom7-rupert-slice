@@ -15,6 +15,7 @@
 //     avoid the overhead if THREADS=1
 //   - TODO: serialize state?
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <chrono>
@@ -24,10 +25,10 @@
 #include <functional>
 #include <limits>
 #include <optional>
-#include <unordered_map>
-#include <utility>
-#include <unordered_set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 
 #include "opt/opt.h"
 

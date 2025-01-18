@@ -1245,7 +1245,7 @@ BigRat BigRat::FromDecimal(std::string_view num) {
 
   auto ParseBigInt = [](std::string_view s) {
       assert(!s.empty());
-      for (int i = 0; i < s.size(); i++) {
+      for (size_t i = 0; i < s.size(); i++) {
         assert(s[i] >= '0' && s[i] <= '9');
       }
       return BigInt(s);
@@ -1255,7 +1255,7 @@ BigRat BigRat::FromDecimal(std::string_view num) {
   // We do allow 1. or .1, but not simply ".".
   assert(num[0] != '.' || num.size() > 1);
 
-  for (int i = 0; i < num.size(); i++) {
+  for (size_t i = 0; i < num.size(); i++) {
     if (num[i] == '.') {
       // Then we have a string with a decimal point.
       BigInt intpart = (i == 0) ? BigInt(0) : ParseBigInt(num.substr(0, i));

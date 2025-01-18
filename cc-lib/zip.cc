@@ -722,7 +722,7 @@ void ZIP::CCLibHeader::SetFlags(uint32_t f) {
   flags_msb_first[1] = f & 0xFF; f >>= 8;
   flags_msb_first[0] = f & 0xFF; f >>= 8;
 }
-uint32 ZIP::CCLibHeader::GetFlags() const {
+uint32_t ZIP::CCLibHeader::GetFlags() const {
   uint32_t f = 0;
   f <<= 8; f |= flags_msb_first[0];
   f <<= 8; f |= flags_msb_first[1];
