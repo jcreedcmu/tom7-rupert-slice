@@ -30,7 +30,6 @@ using frame3 = yocto::frame<double, 3>;
 
 // We never change the connectivity of the objects
 // in question, so we can avoid copying the faces.
-//
 struct Faces {
   // Each face is represented as the list of vertex (indices) that
   // circumscribe it. The vertices may appear in clockwise or

@@ -27,7 +27,7 @@
 #include "interval-cover.h"
 #include "opt/opt.h"
 #include "periodically.h"
-#include "point-set.h"
+#include "point-map.h"
 #include "polyhedra.h"
 #include "randutil.h"
 #include "rendering.h"
@@ -448,7 +448,7 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
               if (pointset.Size() > 6000) {
                 status->Printf(ARED("Too big!!") "\n");
 
-                DebugPointCloudAsSTL(pointset.ExtractVector(),
+                DebugPointCloudAsSTL(pointset.Points(),
                                      "too-big.stl");
 
                 LOG(FATAL) << "Something is wrong";
@@ -462,7 +462,7 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
 
               if (!pointset.Contains(v)) {
                 // identity is not included.
-                pointset.Add(v);
+                pointset.Add(v, '@');
               }
 
               for (const frame3 &rot : group.rots) {
@@ -470,14 +470,14 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
                 if (pointset.Contains(vr)) {
                   // Skip.
                 } else {
-                  pointset.Add(vr);
+                  pointset.Add(vr, '@');
                   todo.push_back(vr);
                 }
               }
             }
           }
 
-          points = pointset.ExtractVector();
+          points = pointset.Points();
           if (VERBOSE > 0) {
             status->Printf("Done with num points = " AYELLOW("%d") "\n",
                            (int)points.size());

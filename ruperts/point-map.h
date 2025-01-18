@@ -26,7 +26,7 @@ struct PointMap3 {
   }
 
   bool Contains(const vec3 &p) const {
-    for (const vec3 &q : pts) {
+    for (const auto &[q, v_] : pts) {
       if (distance_squared(p, q) < SQDIST) {
         return true;
       }
