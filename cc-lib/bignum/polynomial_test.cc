@@ -117,14 +117,27 @@ static void ZeroPower() {
   CHECK_PEQ(res, t1 + t2);
 }
 
-int main(int argc, char **argv) {
+static void Rats() {
+  // 1/2 a + 4/8 a
+  {
+    Polynomial a = BigRat(1, 2) * "a"_p + BigRat(4, 8) * "a"_p;
+    CHECK_PEQ(a, "a"_p);
+  }
 
+  {
+    CHECK_PEQ((3 * "x"_p) * (BigRat(1, 4) * "x"_p) - 5 * "x"_p,
+              BigRat(3, 4) * "x"_p * "x"_p - 2 * (BigRat(5, 2) * "x"_p));
+  }
+}
+
+int main(int argc, char **argv) {
   Simple();
   Canceling();
   DivideTerm();
   Subst();
 
   ZeroPower();
+  Rats();
 
   printf("OK\n");
   return 0;
