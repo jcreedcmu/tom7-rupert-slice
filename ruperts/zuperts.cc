@@ -1,6 +1,7 @@
 
 #include "ansi.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <format>
 #include <print>
@@ -8,6 +9,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <unordered_set>
 
 #include "base/stringprintf.h"
 #include "bignum/big-overloads.h"
@@ -16,10 +18,31 @@
 #include "polyhedra.h"
 #include "util.h"
 
+struct SymbolTable {
+  int64_t counter = 0;
+  std::unordered_set<std::string> used;
+  std::string Fresh(std::string_view hint) {
+    std::string actual = std::string(hint);
+    while (used.contains(actual)) {
+      actual = std::format("{}_v{}", hint, counter);
+      counter++;
+    }
+    used.insert(actual);
+    return actual;
+  }
+};
+
+static std::string Fresh(std::string_view hint = "") {
+  static SymbolTable *table = new SymbolTable;
+  if (hint.empty()) hint = "o";
+  return table->Fresh(hint);
+}
+
 // For symbolic reasoning we want an exact representation of
 // coordinates. One thing that will generally work here is
 // to express each coordinate as the root of a polynomial in
 // a single variable t.
+
 
 Polynomial Constant(int c) {
   return "t"_p - Polynomial(c);
@@ -77,6 +100,86 @@ SymbolicPolyhedron SymbolicCube() {
   };
 }
 
+
+struct Z3Real {
+  explicit Z3Real(int i) : Z3Real((int64_t)i) {}
+  explicit Z3Real(int64_t i) : s(std::format("{}.0", i)) {}
+  explicit Z3Real(std::string s) : s(std::move(s)) {}
+  Z3Real(const Z3Real &other) = default;
+  Z3Real(Z3Real &&other) = default;
+  Z3Real &operator =(const Z3Real &other) = default;
+  Z3Real &operator =(Z3Real &&other) = default;
+  std::string s;
+ private:
+  // avoid constructing from doubles, since there are many
+  // values that cannot be represented exactly.
+  Z3Real(double d) {}
+};
+
+struct Z3Vec3 {
+  Z3Vec3(Z3Real x, Z3Real y, Z3Real z) :
+    x(std::move(x)), y(std::move(y)), z(std::move(z)) {}
+  Z3Real x;
+  Z3Real y;
+  Z3Real z;
+};
+
+struct Z3Vec2 {
+  Z3Vec2(Z3Real x, Z3Real y) : x(std::move(x)), y(std::move(y)) {}
+  Z3Real x;
+  Z3Real y;
+};
+
+struct Z3Quat {
+  Z3Quat(Z3Real x, Z3Real y, Z3Real z, Z3Real w) :
+    x(std::move(x)), y(std::move(y)), z(std::move(z)), w(std::move(w)) {}
+  Z3Real x;
+  Z3Real y;
+  Z3Real z;
+  Z3Real w;
+};
+
+struct Z3Frame {
+  Z3Frame(Z3Vec3 x, Z3Vec3 y, Z3Vec3 z) :
+    x(std::move(x)), y(std::move(y)), z(std::move(z)) {}
+  // Column-major, following Yocto.
+  Z3Vec3 x;
+  Z3Vec3 y;
+  Z3Vec3 z;
+};
+
+Z3Real operator+(const Z3Real &a, const Z3Real &b) {
+  return Z3Real(std::format("(+ {} {})", a.s, b.s));
+}
+
+Z3Real operator-(const Z3Real &a, const Z3Real &b) {
+  return Z3Real(std::format("(- {} {})", a.s, b.s));
+}
+
+Z3Real operator*(const Z3Real &a, const Z3Real &b) {
+  return Z3Real(std::format("(* {} {})", a.s, b.s));
+}
+
+Z3Real operator/(const Z3Real &a, const Z3Real &b) {
+  return Z3Real(std::format("(/ {} {})", a.s, b.s));
+}
+
+Z3Vec3 operator*(const Z3Vec3 &a, const Z3Real &b) {
+  return Z3Vec3(a.x * b, a.y * b, a.z * b);
+}
+
+Z3Vec3 operator+(const Z3Vec3 &a, const Z3Vec3 &b) {
+  return Z3Vec3(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
+Z3Vec2 operator*(const Z3Vec2 &a, const Z3Real &b) {
+  return Z3Vec2(a.x * b, a.y * b);
+}
+
+Z3Vec2 operator+(const Z3Vec2 &a, const Z3Vec2 &b) {
+  return Z3Vec2(a.x + b.x, a.y + b.y);
+}
+
 std::string ToZ3(std::string_view var, const Polynomial &p) {
   if (p.sum.empty()) return "0.0";
   // Otherwise, a sum...
@@ -121,73 +224,83 @@ void EmitVertex(std::string_view var,
   AppendFormat(out, "(assert (= {} 0.0))\n", ToZ3(var, p));
 }
 
-void EmitPolyhedron(const SymbolicPolyhedron &poly,
-                    std::string_view p,
-                    std::string *out) {
+std::vector<Z3Vec3> EmitPolyhedron(const SymbolicPolyhedron &poly,
+                                   std::string_view p,
+                                   std::string *out) {
+  std::vector<Z3Vec3> vs;
   for (int i = 0; i < poly.vertices.size(); i++) {
-    std::string vx = std::format("{}_{}_x", p, i);
-    std::string vy = std::format("{}_{}_y", p, i);
-    std::string vz = std::format("{}_{}_z", p, i);
+    std::string vx = Fresh(std::format("{}_{}_x", p, i));
+    std::string vy = Fresh(std::format("{}_{}_y", p, i));
+    std::string vz = Fresh(std::format("{}_{}_z", p, i));
     EmitVertex(vx, poly.vertices[i].x, out);
     EmitVertex(vy, poly.vertices[i].y, out);
     EmitVertex(vz, poly.vertices[i].z, out);
+    vs.emplace_back(Z3Real(vx), Z3Real(vy), Z3Real(vz));
   }
+
+  return vs;
 }
 
-std::string AppendQuatParams(std::string_view v, std::string *out) {
-  AppendFormat(out,
-               "(declare-const q{}_x Real)\n"
-               "(declare-const q{}_y Real)\n"
-               "(declare-const q{}_z Real)\n"
-               "(declare-const q{}_w Real)\n",
-               v, v, v, v);
-  return std::format("q{}", v);
+static Z3Real NewReal(std::string *out, std::string_view name_hint = "") {
+  std::string r = Fresh(name_hint);
+  AppendFormat(out, "(declare-const {} Real)\n", r);
+  return Z3Real(r);
 }
 
-void EmitRotation(std::string_view vin,
-                  std::string_view q,
-                  std::string_view vout,
-                  // temporary name for matrix components
-                  std::string_view m,
-                  std::string *out) {
+static Z3Real NameReal(std::string *out, const Z3Real &r,
+                       std::string_view name_hint = "") {
+  std::string v = Fresh(name_hint);
+  AppendFormat(out, "(define-fun {} () Real {})\n", v, r.s);
+  return Z3Real(v);
+}
 
-  // quaternion components
-  auto Times2 = [q](std::string_view a, std::string_view b) {
-      return std::format("(* {}_{} {}_{})", q, a, q, b);
-    };
+static Z3Vec3 NameVec3(std::string *out, const Z3Vec3 &v,
+                       std::string_view name_hint = "v") {
+  Z3Real x = NameReal(out, v.x, std::format("{}_x", name_hint));
+  Z3Real y = NameReal(out, v.y, std::format("{}_y", name_hint));
+  Z3Real z = NameReal(out, v.z, std::format("{}_z", name_hint));
+  return Z3Vec3(Z3Real(x), Z3Real(y), Z3Real(z));
+}
 
-  std::string xx = Times2("x", "x");
-  std::string yy = Times2("y", "y");
-  std::string zz = Times2("z", "z");
-  std::string ww = Times2("w", "w");
+static Z3Vec2 NameVec2(std::string *out, const Z3Vec2 &v,
+                       std::string_view name_hint = "v") {
+  Z3Real x = NameReal(out, v.x, std::format("{}_x", name_hint));
+  Z3Real y = NameReal(out, v.y, std::format("{}_y", name_hint));
+  return Z3Vec2(Z3Real(x), Z3Real(y));
+}
+
+static Z3Quat NewQuat(std::string *out, std::string_view v) {
+  Z3Real qx = NewReal(out, std::format("q{}_x", v));
+  Z3Real qy = NewReal(out, std::format("q{}_y", v));
+  Z3Real qz = NewReal(out, std::format("q{}_z", v));
+  Z3Real qw = NewReal(out, std::format("q{}_w", v));
+  return Z3Quat(qx, qy, qz, qw);
+}
+
+static std::vector<Z3Vec2> EmitShadow(std::string *out,
+                                      const std::vector<Z3Vec3> vin,
+                                      const Z3Quat &q,
+                                      const Z3Vec2 &trans,
+                                      std::string_view name_hint) {
+  Z3Real xx = q.x * q.x;
+  Z3Real yy = q.y * q.y;
+  Z3Real zz = q.z * q.z;
+  Z3Real ww = q.w * q.w;
 
   // This normalization term is |v|^-2, which is
   // 1/(sqrt(x^2 + y^2 + z^2 + w^2))^2, so we can avoid
   // the square root! It's always multipled by 2 in the
   // terms below, so we also do that here.
-  std::string two_s = std::format("(/ 2.0 (+ {} {} {} {}))",
-                                  xx, yy, zz, ww);
+  Z3Real two_s = NameReal(out,
+                          Z3Real(2) / (xx + yy + zz + ww),
+                          std::format("{}_two_s", name_hint));
 
-  std::string xy = Times2("x", "y");
-  std::string zx = Times2("z", "x");
-  std::string zw = Times2("z", "w");
-  std::string yw = Times2("y", "w");
-  std::string yz = Times2("y", "z");
-  std::string xw = Times2("x", "w");
-
-  // Note that the yocto matrix looks a bit different from this. On the
-  // diagonal, it's doing the trick that since v^2 = 1, we can write
-  // 1 + s(y^2 + z^2) as (x^2 + y^2 + z^2 + w^2) - 2(y^2 + z^2) and
-  // then cancel terms.
-  //
-  // There are also some sign differences. I think this is because
-  // of differences in the handedness of the coordinate system.
-  // This should not matter as long as we're consistent, but I need
-  // to verify.
-
-  // m00 m01 m02
-  // m10 m11 m12
-  // m20 m21 m22
+  Z3Real xy = q.x * q.y;
+  Z3Real zx = q.z * q.x;
+  Z3Real zw = q.z * q.w;
+  Z3Real yw = q.y * q.w;
+  Z3Real yz = q.y * q.z;
+  Z3Real xw = q.x * q.w;
 
   /*
     1 - 2s(y^2 + z^2)    ,   2s (x y - z w)      ,   2s (x z + y w)
@@ -195,76 +308,47 @@ void EmitRotation(std::string_view vin,
     2s (x z - y w)       ,   2s (y z + x w)      ,   1 - 2s(x^2 + y^2)
   */
 
-  /*
-
-    {{w * w + x * x - y * y - z * z, (x * y + z * w) * 2, (z * x - y * w) * 2},
-      {(x * y - z * w) * 2, w * w - x * x + y * y - z * z, (y * z + x * w) * 2},
-      {(z * x + y * w) * 2, (y * z - x * w) * 2, w * w - x * x - y * y + z * z},
-      {0, 0, 0}};
-
-   */
-
   // Following yocto, the matrix consists of three columns called "x",
   // "y", "z", each with "x", "y", "z" coordinates.
-  auto M = [m](int r, int c) {
-      return std::format("m{}{}{}", m, c, r);
-    };
 
-  // Let's do this in column-major order so it's easiest to compare
-  // to the yocto code (and big-polyhedra), but of course the order
-  // does not matter here.
-  // Left column
-  AppendFormat(out, "(define-fun {} () Real (- 1.0 (* {} (+ {} {}))))\n",
-               M(0, 0), two_s, yy, zz);
-  AppendFormat(out, "(define-fun {} () Real (* {} (+ {} {})))\n",
-               M(1, 0), two_s, xy, zw);
-  AppendFormat(out, "(define-fun {} () Real (* {} (- {} {})))\n",
-               M(2, 0), two_s, zx, yw);
-  // Middle column
-  AppendFormat(out, "(define-fun {} () Real (* {} (- {} {})))\n",
-               M(0, 1), two_s, xy, zw);
-  AppendFormat(out, "(define-fun {} () Real (- 1.0 (* {} (+ {} {}))))\n",
-               M(1, 1), two_s, xx, zz);
-  AppendFormat(out, "(define-fun {} () Real (* {} (+ {} {})))\n",
-               M(2, 1), two_s, yz, xw);
-  // Right column
-  AppendFormat(out, "(define-fun {} () Real (* {} (+ {} {})))\n",
-               M(0, 2), two_s, zx, yw);
-  AppendFormat(out, "(define-fun {} () Real (* {} (- {} {})))\n",
-               M(1, 2), two_s, yz, xw);
-  AppendFormat(out, "(define-fun {} () Real (- 1.0 (* {} (+ {} {}))))\n",
-               M(2, 2), two_s, xx, yy);
+  // We give these names since they appear many times (for each vertex!)
+  std::string m = std::format("{}m", name_hint);
+  // left column
+  Z3Vec3 mx =
+    NameVec3(out, Z3Vec3(Z3Real(1) - two_s * (yy + zz),
+                         two_s * (xy + zw),
+                         two_s * (zx - yw)), std::format("{}x", m));
+  // middle
+  Z3Vec3 my =
+    NameVec3(out, Z3Vec3(two_s * (xy - zw),
+                         Z3Real(1) - two_s * (xx + zz),
+                         two_s * (yz + xw)), std::format("{}y", m));
+  // right
+  Z3Vec3 mz =
+    NameVec3(out, Z3Vec3(two_s * (zx + yw),
+                         two_s * (yz - xw),
+                         Z3Real(1) - two_s * (xx + yy)),
+             std::format("{}z", m));
 
+  // Now multiply each vertex.
+ std::vector<Z3Vec2> ret;
+ ret.reserve(vin.size());
+ for (int i = 0; i < vin.size(); i++) {
+   const Z3Vec3 &v = vin[i];
 
-  // we have tmpa : vec2 = m.x * v.x
-  //         tmpb : vec2 = m.y * v.y
-  //         tmpc : vec2 = m.z * v.z
+   Z3Vec3 x = mx * v.x;
+   Z3Vec3 y = my * v.y;
+   Z3Vec3 z = mz * v.z;
 
-  std::string tmpa = std::format("t{}_a", m);
-  std::string tmpb = std::format("t{}_b", m);
-  std::string tmpc = std::format("t{}_c", m);
+   // Just discarding the z coordinates.
+   Z3Vec2 proj(x.x + y.x + z.x + trans.x,
+               x.y + y.y + z.y + trans.y);
 
-  auto Times3To2 = [](std::string_view out,
-                      int col,
-                      std::string_view e) {
-      AppendFormat(out, "(define-fun
-    };
+   Z3Vec2 p = NameVec2(out, proj, std::format("s{}{}", name_hint, i));
+   ret.push_back(p);
+ }
 
-inline BigVec2 TransformAndProjectPoint(const BigFrame &f, const BigVec3 &v) {
-  // scale vector, but discard the z coordinate
-  auto Times3To2 = [](const BigVec3 &u, const BigRat &r) {
-    return BigVec2(u.x * r, u.y * r);
-  };
-
-  BigVec2 fx = Times3To2(f.x, v.x);
-  BigVec2 fy = Times3To2(f.y, v.y);
-  BigVec2 fz = Times3To2(f.z, v.z);
-  // PERF this is always zero for our problems
-  BigVec2 o = BigVec2(f.o.x, f.o.y);
-
-  return fx + fy + fz + o;
-}
-
+ return ret;
 }
 
 
@@ -274,20 +358,23 @@ void EmitProblem(const SymbolicPolyhedron &outer,
   std::string out;
 
   // Polyhedra in their base orientations.
-  EmitPolyhedron(outer, "o", &out);
-  EmitPolyhedron(inner, "i", &out);
+  std::vector<Z3Vec3> outer_verts = EmitPolyhedron(outer, "o", &out);
+  std::vector<Z3Vec3> inner_verts = EmitPolyhedron(inner, "i", &out);
 
   // Parameters.
-  std::string qo = AppendQuatParams("o", &out);
-  std::string qi = AppendQuatParams("i", &out);
-  AppendFormat(&out,
-               "(declare-const t_x Real)\n"
-               "(declare-const t_y Real)\n");
+  Z3Quat qo = NewQuat(&out, "o");
+  Z3Quat qi = NewQuat(&out, "i");
+  Z3Vec2 trans(NewReal(&out, "tx"), NewReal(&out, "ty"));
+
+  Z3Vec2 id(Z3Real("0.0"), Z3Real("0.0"));
 
   // Polyhedra in their rotated orientations.
-  EmitRotation("o", qo, "ro", "mo", &out);
-  EmitRotation("i", qi, "ri", "mi", &out);
+  std::vector<Z3Vec2> outer_shadow =
+    EmitShadow(&out, outer_verts, qo, id, "o");
+  std::vector<Z3Vec2> inner_shadow =
+    EmitShadow(&out, inner_verts, qi, trans, "i");
 
+  // XXX containment constraints
 
   AppendFormat(&out, "\n");
   AppendFormat(&out, "(check-sat)\n");
