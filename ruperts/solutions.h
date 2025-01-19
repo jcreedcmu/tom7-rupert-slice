@@ -30,7 +30,8 @@ struct SolutionDB {
   static constexpr int METHOD_ORIGIN = 7;
   static constexpr int METHOD_ALMOST_ID = 8;
   static constexpr int METHOD_IMPROVE = 9;
-  static constexpr int METHOD_RATIONAL = 10;
+  static constexpr int METHOD_RATIONAL_OLD = 10;
+  static constexpr int METHOD_RATIONAL = 11;
 
   static const char *MethodName(int m) {
     switch (m) {
@@ -43,6 +44,7 @@ struct SolutionDB {
     case METHOD_ORIGIN: return "METHOD_ORIGIN";
     case METHOD_ALMOST_ID: return "METHOD_ALMOST_ID";
     case METHOD_IMPROVE: return "METHOD_IMPROVE";
+    case METHOD_RATIONAL_OLD: return "METHOD_RATIONAL_OLD";
     case METHOD_RATIONAL: return "METHOD_RATIONAL";
     default: return "UNKNOWN";
     }

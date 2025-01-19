@@ -347,7 +347,8 @@ struct BigSolver {
           const BigVec2 &v = sinner.vertices[i];
           if (InHull(souter.vertices, hull, v)) {
             // Include inner gradient, but scaled down
-            loss -= SquaredDistanceToHull(souter.vertices, hull, v) / BigRat(512);
+            loss -= SquaredDistanceToHull(souter.vertices, hull, v) /
+              BigRat(512);
           } else {
             loss += SquaredDistanceToHull(souter.vertices, hull, v);
             errors++;

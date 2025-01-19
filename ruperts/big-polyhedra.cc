@@ -122,7 +122,7 @@ BigFrame NonUnitRotationFrame(const BigQuat &v) {
 
   // This normalization term is |v|^-2, which is
   // 1/(sqrt(x^2 + y^2 + z^2 + w^2))^2, so we can avoid
-  // the square root! It's always multipled by 2 in the
+  // the square root! It's always multiplied by 2 in the
   // terms below, so we also do that here.
   BigRat two_s = BigRat(2) / (xx + yy + zz + ww);
 
@@ -146,15 +146,24 @@ BigFrame NonUnitRotationFrame(const BigQuat &v) {
   // 1 + s(y^2 + z^2) as (x^2 + y^2 + z^2 + w^2) - 2(y^2 + z^2) and
   // then cancel terms.
   //
-  // There are also some sign differences. I think this is because
-  // of differences in the handedness of the coordinate system. XXX I need
-  // to check it.
+  // Also note: Yocto stores these in column-major format. Since it's
+  // a rotation matrix I think the transpose is just the inverse
+  // (which should be fine for these problems if we are consistent),
+  // but be careful.
 
   return {
-    { one - two_s * (yy + zz), two_s * (xy - zw), two_s * (zx + yw) },
-    { two_s * (xy + zw), one - two_s * (xx + zz), two_s * (yz - xw) },
-    { two_s * (zx - yw), two_s * (yz + xw), one - two_s * (xx + yy) },
-  };
+    // Left
+    {one - two_s * (yy + zz),
+     two_s * (xy + zw),
+     two_s * (zx - yw)},
+    // Middle
+    {two_s * (xy - zw),
+     one - two_s * (xx + zz),
+     two_s * (yz + xw)},
+    // Right
+    {two_s * (zx + yw),
+     two_s * (yz - xw),
+     one - two_s * (xx + yy)}};
 }
 
 
@@ -294,7 +303,8 @@ Mesh2D SmallMesh(const BigMesh2D &big) {
   };
 }
 
-BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices) {
+BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices,
+                                const char *name) {
   // XXX check
   PointMap3<int> duplicates;
 
@@ -336,6 +346,7 @@ BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices) {
   BigPoly bpoly;
   bpoly.vertices = std::move(vertices);
   bpoly.faces = poly.faces;
+  bpoly.name = name;
   return bpoly;
 }
 
@@ -387,7 +398,7 @@ BigPoly BigRidode(int digits) {
   }
 
   CHECK(vertices.size() == 60) << vertices.size();
-  return MakeBigPolyFromVertices(std::move(vertices));
+  return MakeBigPolyFromVertices(std::move(vertices), "rhombicosidodecahedron");
 }
 
 // Is pt strictly within the triangle a-b-c? Works with both winding orders.
