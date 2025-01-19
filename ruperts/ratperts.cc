@@ -319,7 +319,7 @@ struct BigSolver {
         irot.w += BigRat::FromDouble(iw) * scale_down;
 
         itrans.x += BigRat::FromDouble(tx) * scale_down;
-        itrans.y += BigRat::FromDouble(tx) * scale_down;
+        itrans.y += BigRat::FromDouble(ty) * scale_down;
 
         return std::make_tuple(std::move(orot),
                                std::move(irot),
