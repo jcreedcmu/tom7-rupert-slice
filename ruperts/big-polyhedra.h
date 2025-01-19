@@ -152,12 +152,27 @@ BigFrame RotationFrame(const BigQuat &v);
 // Same, but not requiring a unit quaternion.
 BigFrame NonUnitRotationFrame(const BigQuat &v);
 
-inline BigVec3 operator*(const BigVec3& a, BigRat b) {
+inline BigVec3 operator*(const BigVec3 &a, BigRat b) {
   return BigVec3(a.x * b, a.y * b, a.z * b);
 }
 
 inline BigVec3 TransformPoint(const BigFrame &f, const BigVec3 &v) {
   return f.x * v.x + f.y * v.y + f.z * v.z + f.o;
+}
+
+inline BigVec2 TransformAndProjectPoint(const BigFrame &f, const BigVec3 &v) {
+  // scale vector, but discard the z coordinate
+  auto Times3To2 = [](const BigVec3 &u, const BigRat &r) {
+    return BigVec2(u.x * r, u.y * r);
+  };
+
+  BigVec2 fx = Times3To2(f.x, v.x);
+  BigVec2 fy = Times3To2(f.y, v.y);
+  BigVec2 fz = Times3To2(f.z, v.z);
+  // PERF this is always zero for our problems
+  BigVec2 o = BigVec2(f.o.x, f.o.y);
+
+  return fx + fy + fz + o;
 }
 
 // XXX These don't work how I'd expect. Fix or delete.
@@ -170,6 +185,9 @@ BigPoly Rotate(const BigFrame &f, const BigPoly &poly);
 BigMesh2D Shadow(const BigPoly &poly);
 // Translate the entire mesh by the vector t.
 BigMesh2D Translate(const BigVec2 &t, const BigMesh2D &m);
+// Rotate and project at once, which is faster because we don't
+// need to compute the discarded z coordinates.
+BigMesh2D RotateAndProject(const BigFrame &f, const BigPoly &poly);
 
 std::vector<int> BigHull(const std::vector<BigVec2> &bigvs);
 

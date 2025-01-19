@@ -178,6 +178,15 @@ BigMesh2D Shadow(const BigPoly &poly) {
   return BigMesh2D{.vertices = std::move(vertices), .faces = poly.faces};
 }
 
+BigMesh2D RotateAndProject(const BigFrame &f, const BigPoly &poly) {
+  std::vector<BigVec2> vertices;
+  vertices.reserve(poly.vertices.size());
+  for (const BigVec3 &v : poly.vertices) {
+    vertices.push_back(TransformAndProjectPoint(f, v));
+  }
+  return BigMesh2D{.vertices = std::move(vertices), .faces = poly.faces};
+}
+
 BigPoly Rotate(const BigFrame &f, const BigPoly &poly) {
   std::vector<BigVec3> vertices;
   vertices.reserve(poly.vertices.size());
