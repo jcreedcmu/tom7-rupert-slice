@@ -44,9 +44,9 @@ struct Faces {
   // Number of vertices we expect.
   int NumVertices() const { return (int)neighbors.size(); }
 
-  // Computes the neighbors from the faces. This assumes that
-  // every vertex is on at least one face, which will be true
-  // for well-formed polyhedra.
+  // Computes the neighbors and triangulation from the faces. This
+  // assumes that every vertex is on at least one face, which will be
+  // true for well-formed polyhedra.
   Faces(int num_vertices, std::vector<std::vector<int>> v);
 
   Faces() {}

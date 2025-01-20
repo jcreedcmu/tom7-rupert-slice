@@ -1,6 +1,4 @@
 
-#include "ansi.h"
-
 #include <cstdint>
 #include <cstdio>
 #include <format>
@@ -11,9 +9,8 @@
 #include <vector>
 #include <unordered_set>
 
+#include "ansi.h"
 #include "base/stringprintf.h"
-#include "bignum/big-overloads.h"
-#include "bignum/big.h"
 #include "bignum/polynomial.h"
 #include "polyhedra.h"
 #include "util.h"
@@ -100,6 +97,29 @@ SymbolicPolyhedron SymbolicCube() {
   };
 }
 
+struct Z3Bool {
+  explicit Z3Bool(std::string s) : s(std::move(s)) {}
+  std::string s;
+};
+
+static Z3Bool operator&&(const Z3Bool &a, const Z3Bool &b) {
+  return Z3Bool(std::format("(and {} {})", a.s, b.s));
+}
+
+static Z3Bool operator||(const Z3Bool &a, const Z3Bool &b) {
+  return Z3Bool(std::format("(or {} {})", a.s, b.s));
+}
+
+static Z3Bool Or(const std::vector<Z3Bool> &v) {
+  if (v.size() == 1) return v[0];
+  if (v.empty()) return Z3Bool("true");
+  std::string ret = "(or";
+  for (const Z3Bool &b : v) {
+    AppendFormat(&ret, " {}", b.s);
+  }
+  ret += ")";
+  return Z3Bool(ret);
+}
 
 struct Z3Real {
   explicit Z3Real(int i) : Z3Real((int64_t)i) {}
@@ -179,6 +199,15 @@ Z3Vec2 operator*(const Z3Vec2 &a, const Z3Real &b) {
 Z3Vec2 operator+(const Z3Vec2 &a, const Z3Vec2 &b) {
   return Z3Vec2(a.x + b.x, a.y + b.y);
 }
+
+Z3Vec2 operator-(const Z3Vec2 &a, const Z3Vec2 &b) {
+  return Z3Vec2(a.x - b.x, a.y - b.y);
+}
+
+Z3Real cross(const Z3Vec2 &a, const Z3Vec2 &b) {
+  return a.x * b.y - a.y * b.x;
+}
+
 
 std::string ToZ3(std::string_view var, const Polynomial &p) {
   if (p.sum.empty()) return "0.0";
@@ -351,6 +380,36 @@ static std::vector<Z3Vec2> EmitShadow(std::string *out,
  return ret;
 }
 
+static Z3Bool SameNonzeroSign(std::string *out, const Z3Real &a, const Z3Real &b) {
+  Z3Real aval = NameReal(out, a, "sgna");
+  Z3Real bval = NameReal(out, b, "sgnb");
+  return Z3Bool(
+      std::format("(or "
+                  "(and (< {} 0.0) (< {} 0.0)) "
+                  "(and (> {} 0.0) (> {} 0.0)))", aval.s, bval.s, aval.s, bval.s));
+}
+
+static Z3Bool EmitInTriangle(std::string *out,
+                             const Z3Vec2 &a, const Z3Vec2 &b, const Z3Vec2 &c,
+                             const Z3Vec2 &pt) {
+  // The idea behind this test is that for each edge, we check
+  // to see if the test point is on the same side as a reference
+  // point, which is the third point of the triangle.
+  auto SameSide = [out](const Z3Vec2 &u, const Z3Vec2 &v,
+                        const Z3Vec2 &p1, const Z3Vec2 &p2) -> Z3Bool {
+      Z3Vec2 edge = v - u;
+      Z3Real c1 = cross(edge, p1 - u);
+      Z3Real c2 = cross(edge, p2 - u);
+
+      // Excluding the edge itself.
+      return SameNonzeroSign(out, c1, c2);
+    };
+
+  return SameSide(a, b, c, pt) &&
+    SameSide(b, c, a, pt) &&
+    SameSide(c, a, b, pt);
+}
+
 
 void EmitProblem(const SymbolicPolyhedron &outer,
                  const SymbolicPolyhedron &inner,
@@ -366,6 +425,12 @@ void EmitProblem(const SymbolicPolyhedron &outer,
   Z3Quat qi = NewQuat(&out, "i");
   Z3Vec2 trans(NewReal(&out, "tx"), NewReal(&out, "ty"));
 
+  // XXX
+  AppendFormat(&out, "(assert (= {} 0.0))\n", qi.x.s);
+  AppendFormat(&out, "(assert (= {} 0.0))\n", qi.y.s);
+  AppendFormat(&out, "(assert (= {} 0.0))\n", qi.z.s);
+  AppendFormat(&out, "(assert (= {} 1.0))\n", qi.w.s);
+
   Z3Vec2 id(Z3Real("0.0"), Z3Real("0.0"));
 
   // Polyhedra in their rotated orientations.
@@ -374,7 +439,22 @@ void EmitProblem(const SymbolicPolyhedron &outer,
   std::vector<Z3Vec2> inner_shadow =
     EmitShadow(&out, inner_verts, qi, trans, "i");
 
-  // XXX containment constraints
+  // Containment constraints...
+  for (int i = 0; i < inner_shadow.size(); i++) {
+    const Z3Vec2 &pt = inner_shadow[i];
+    // Must be in some triangle.
+    std::vector<Z3Bool> tris;
+    for (const auto &[a, b, c] : outer.faces->triangulation) {
+      tris.push_back(EmitInTriangle(&out,
+                                    outer_shadow[a],
+                                    outer_shadow[b],
+                                    outer_shadow[c],
+                                    pt));
+    }
+    AppendFormat(&out,
+                 ";; inner point {} in triangle?\n"
+                 "(assert {})\n", i, Or(tris).s);
+  }
 
   AppendFormat(&out, "\n");
   AppendFormat(&out, "(check-sat)\n");
@@ -383,7 +463,6 @@ void EmitProblem(const SymbolicPolyhedron &outer,
   Util::WriteFile(filename, out);
   std::print("Wrote {}\n", filename);
 }
-
 
 static void Emit() {
   SymbolicPolyhedron cube = SymbolicCube();
