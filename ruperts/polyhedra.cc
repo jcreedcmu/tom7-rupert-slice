@@ -355,6 +355,27 @@ double DistanceToHull(
   return sqrt(SquaredDistanceToHull(points, hull, pt));
 }
 
+std::pair<vec2, double> ClosestPointOnHull(
+    const std::vector<vec2> &points, const std::vector<int> &hull,
+    const vec2 &pt) {
+  std::optional<double> best_sqdist;
+  vec2 best;
+  for (int i = 0; i < hull.size(); i++) {
+    const vec2 &v0 = points[hull[i]];
+    const vec2 &v1 = points[hull[(i + 1) % hull.size()]];
+
+    const vec2 o = ClosestPointOnSegment(v0, v1, pt);
+    double sqdist = distance_squared(o, pt);
+    if (!best_sqdist.has_value() || sqdist < best_sqdist.value()) {
+      best_sqdist = {sqdist};
+      best = o;
+    }
+  }
+  CHECK(best_sqdist.has_value());
+  return {best, std::sqrt(best_sqdist.value())};
+}
+
+
 double DistanceToMesh(const Mesh2D &mesh, const vec2 &pt) {
   std::optional<double> best_sqdist;
   for (const std::vector<int> &polygon : mesh.faces->v) {
@@ -1560,9 +1581,11 @@ static bool InitPolyhedronInternal(
 }
 
 static Polyhedron MakeConvexOrDie(
-    std::vector<vec3> vertices, const char *name) {
+    std::vector<vec3> vertices, const char *name,
+    SymmetryGroup symmetry) {
   Polyhedron poly;
   (void)InitPolyhedronInternal<true>(vertices, name, &poly);
+  poly.symmetry = SYM_UNKNOWN;
   return poly;
 }
 
@@ -1625,7 +1648,8 @@ Polyhedron SnubCube() {
     vertices.emplace_back(vec3(c, b, a) * signs);
   }
 
-  return MakeConvexOrDie(std::move(vertices), "snubcube");
+  return MakeConvexOrDie(std::move(vertices), "snubcube",
+                         SYM_OCTAHEDRAL);
 }
 
 Polyhedron Tetrahedron() {
@@ -1636,7 +1660,8 @@ Polyhedron Tetrahedron() {
     vec3{-1.0, -1.0,  1.0},
   };
 
-  return MakeConvexOrDie(std::move(vertices), "tetrahedron");
+  return MakeConvexOrDie(std::move(vertices), "tetrahedron",
+                         SYM_TETRAHEDRAL);
 }
 
 Polyhedron Cube() {
@@ -1700,7 +1725,8 @@ Polyhedron Octahedron() {
   }
 
   CHECK(vertices.size() == 6);
-  return MakeConvexOrDie(std::move(vertices), "octahedron");
+  return MakeConvexOrDie(std::move(vertices), "octahedron",
+                         SYM_OCTAHEDRAL);
 }
 
 Polyhedron Icosahedron() {
@@ -1717,7 +1743,8 @@ Polyhedron Icosahedron() {
     vertices.push_back(vec3{.x = 0.0, .y = s1, .z = s2 * phi});
   }
 
-  return MakeConvexOrDie(std::move(vertices), "icosahedron");
+  return MakeConvexOrDie(std::move(vertices), "icosahedron",
+                         SYM_ICOSAHEDRAL);
 }
 
 Polyhedron Cuboctahedron() {
@@ -1731,7 +1758,8 @@ Polyhedron Cuboctahedron() {
     vertices.emplace_back(0.0, s1, s2);
   }
   return MakeConvexOrDie(
-      std::move(vertices), "cuboctahedron");
+      std::move(vertices), "cuboctahedron",
+      SYM_TETRAHEDRAL | SYM_OCTAHEDRAL);
 }
 
 Polyhedron Rhombicuboctahedron() {
@@ -1750,7 +1778,11 @@ Polyhedron Rhombicuboctahedron() {
 
   // printf("Get faces..\n");
   return MakeConvexOrDie(
-      std::move(vertices), "rhombicuboctahedron");
+      std::move(vertices), "rhombicuboctahedron",
+      SYM_OCTAHEDRAL
+      // I think also "SYM_TETRAHEDRAL" may be correct here.
+      // It is formally "pyritohedral"
+                         );
 }
 
 Polyhedron TruncatedCuboctahedron() {
@@ -1778,7 +1810,8 @@ Polyhedron TruncatedCuboctahedron() {
 
   CHECK(vertices.size() == 48);
   return MakeConvexOrDie(
-      std::move(vertices), "truncatedcuboctahedron");
+      std::move(vertices), "truncatedcuboctahedron",
+      SYM_OCTAHEDRAL);
 }
 
 static void AddEvenPermutations(double a, double b, double c,
@@ -1835,7 +1868,8 @@ Polyhedron Icosidodecahedron() {
 
   CHECK(vertices.size() == 30);
   return MakeConvexOrDie(
-      std::move(vertices), "icosidodecahedron");
+      std::move(vertices), "icosidodecahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 Polyhedron TruncatedDodecahedron() {
@@ -1864,7 +1898,8 @@ Polyhedron TruncatedDodecahedron() {
 
   CHECK(vertices.size() == 60);
   return MakeConvexOrDie(
-      std::move(vertices), "truncateddodecahedron");
+      std::move(vertices), "truncateddodecahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 Polyhedron TruncatedIcosahedron() {
@@ -1892,7 +1927,8 @@ Polyhedron TruncatedIcosahedron() {
 
   CHECK(vertices.size() == 60);
   return MakeConvexOrDie(
-      std::move(vertices), "truncatedicosahedron");
+      std::move(vertices), "truncatedicosahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 Polyhedron TruncatedIcosidodecahedron() {
@@ -1927,7 +1963,8 @@ Polyhedron TruncatedIcosidodecahedron() {
 
   CHECK(vertices.size() == 120);
   return MakeConvexOrDie(
-      std::move(vertices), "truncatedicosidodecahedron");
+      std::move(vertices), "truncatedicosidodecahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 
@@ -1957,7 +1994,9 @@ Polyhedron Rhombicosidodecahedron() {
   }
 
   CHECK(vertices.size() == 60) << vertices.size();
-  return MakeConvexOrDie(std::move(vertices), "rhombicosidodecahedron");
+  return MakeConvexOrDie(
+      std::move(vertices), "rhombicosidodecahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 Polyhedron TruncatedTetrahedron() {
@@ -1982,7 +2021,8 @@ Polyhedron TruncatedTetrahedron() {
   }
 
   CHECK(vertices.size() == 12);
-  return MakeConvexOrDie(std::move(vertices), "truncatedtetrahedron");
+  return MakeConvexOrDie(std::move(vertices), "truncatedtetrahedron",
+                         SYM_TETRAHEDRAL);
 }
 
 Polyhedron TruncatedCube() {
@@ -2000,7 +2040,8 @@ Polyhedron TruncatedCube() {
   }
 
   CHECK(vertices.size() == 24);
-  return MakeConvexOrDie(std::move(vertices), "truncatedcube");
+  return MakeConvexOrDie(std::move(vertices), "truncatedcube",
+                         SYM_OCTAHEDRAL);
 }
 
 Polyhedron TruncatedOctahedron() {
@@ -2024,7 +2065,8 @@ Polyhedron TruncatedOctahedron() {
 
   CHECK(vertices.size() == 24);
   return MakeConvexOrDie(std::move(vertices),
-                                      "truncatedoctahedron");
+                         "truncatedoctahedron",
+                         SYM_OCTAHEDRAL);
 }
 
 // The snub dodecahedron code is shared by the SnubDodecahedron
@@ -2099,7 +2141,8 @@ Polyhedron SnubDodecahedron() {
 
   CHECK(vertices.size() == 60);
   return MakeConvexOrDie(std::move(vertices),
-                                      "snubdodecahedron");
+                         "snubdodecahedron",
+                         SYM_ICOSAHEDRAL);
 }
 
 Polyhedron TriakisTetrahedron() {
@@ -2116,7 +2159,8 @@ Polyhedron TriakisTetrahedron() {
   };
 
   return MakeConvexOrDie(
-      std::move(vertices), "triakistetrahedron");
+      std::move(vertices), "triakistetrahedron",
+      SYM_TETRAHEDRAL);
 }
 
 Polyhedron RhombicDodecahedron() {
@@ -2140,7 +2184,8 @@ Polyhedron RhombicDodecahedron() {
   CHECK(vertices.size() == 14);
 
   return MakeConvexOrDie(
-      std::move(vertices), "rhombicdodecahedron");
+      std::move(vertices), "rhombicdodecahedron",
+      SYM_OCTAHEDRAL);
 }
 
 Polyhedron TriakisOctahedron() {
@@ -2165,7 +2210,8 @@ Polyhedron TriakisOctahedron() {
   CHECK(vertices.size() == 14);
 
   return MakeConvexOrDie(
-      std::move(vertices), "triakisoctahedron");
+      std::move(vertices), "triakisoctahedron",
+      SYM_OCTAHEDRAL);
 }
 
 Polyhedron TetrakisHexahedron() {
@@ -2188,7 +2234,8 @@ Polyhedron TetrakisHexahedron() {
   CHECK(vertices.size() == 14);
 
   return MakeConvexOrDie(
-      std::move(vertices), "tetrakishexahedron");
+      std::move(vertices), "tetrakishexahedron",
+      SYM_OCTAHEDRAL);
 }
 
 Polyhedron DeltoidalIcositetrahedron() {
@@ -2221,7 +2268,8 @@ Polyhedron DeltoidalIcositetrahedron() {
   CHECK(vertices.size() == 26);
 
   return MakeConvexOrDie(
-    std::move(vertices), "deltoidalicositetrahedron");
+      std::move(vertices), "deltoidalicositetrahedron",
+      SYM_OCTAHEDRAL);
 }
 
 Polyhedron DisdyakisDodecahedron() {
@@ -2256,7 +2304,8 @@ Polyhedron DisdyakisDodecahedron() {
   CHECK(vertices.size() == 26);
 
   return MakeConvexOrDie(
-      std::move(vertices), "disdyakisdodecahedron");
+      std::move(vertices), "disdyakisdodecahedron",
+      SYM_OCTAHEDRAL);
 }
 
 Polyhedron DeltoidalHexecontahedron() {
@@ -2349,7 +2398,8 @@ Polyhedron DeltoidalHexecontahedron() {
 
   CHECK(vertices.size() == 62);
   return MakeConvexOrDie(
-      std::move(vertices), "deltoidalhexecontahedron");
+      std::move(vertices), "deltoidalhexecontahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 Polyhedron PentagonalIcositetrahedron() {
@@ -2401,7 +2451,8 @@ Polyhedron PentagonalIcositetrahedron() {
   CHECK(vertices.size() == 38);
 
   return MakeConvexOrDie(
-      std::move(vertices), "pentagonalicositetrahedron");
+      std::move(vertices), "pentagonalicositetrahedron",
+      SYM_OCTAHEDRAL);
 }
 
 
@@ -2439,7 +2490,8 @@ Polyhedron RhombicTriacontahedron() {
   CHECK(vertices.size() == 32);
 
   return MakeConvexOrDie(
-      std::move(vertices), "rhombictriacontahedron");
+      std::move(vertices), "rhombictriacontahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 
@@ -2477,7 +2529,8 @@ Polyhedron TriakisIcosahedron() {
 
   CHECK(vertices.size() == 32);
   return MakeConvexOrDie(
-      std::move(vertices), "triakisicosahedron");
+      std::move(vertices), "triakisicosahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 Polyhedron PentakisDodecahedron() {
@@ -2517,7 +2570,8 @@ Polyhedron PentakisDodecahedron() {
 
   CHECK(vertices.size() == 32);
   return MakeConvexOrDie(
-      std::move(vertices), "pentakisdodecahedron");
+      std::move(vertices), "pentakisdodecahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 Polyhedron DisdyakisTriacontahedron() {
@@ -2567,7 +2621,8 @@ Polyhedron DisdyakisTriacontahedron() {
 
   CHECK(vertices.size() == 62);
   return MakeConvexOrDie(
-      std::move(vertices), "disdyakistriacontahedron");
+      std::move(vertices), "disdyakistriacontahedron",
+      SYM_ICOSAHEDRAL);
 }
 
 
@@ -2733,6 +2788,7 @@ Polyhedron PentagonalHexecontahedron() {
 
   CHECK(vertices.size() == 92);
   return MakeConvexOrDie(
-      std::move(vertices), "pentagonalhexecontahedron");
+      std::move(vertices), "pentagonalhexecontahedron",
+      SYM_ICOSAHEDRAL);
 }
 

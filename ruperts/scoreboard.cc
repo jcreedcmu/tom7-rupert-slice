@@ -40,7 +40,6 @@ static const std::unordered_set<std::string> &Wishlist() {
 
 
 static void PrintAll(const std::unordered_set<std::string> &filter) {
-
   std::unordered_map<std::string, std::vector<Attempt>> attmap;
   std::unordered_map<std::string, std::vector<Solution>> solmap;
   std::set<std::string> names;

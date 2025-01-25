@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <format>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -66,10 +67,13 @@ static vec3 RandomVec(ArcFour *rc) {
 }
 
 // Return the number of iterations taken, or nullopt if we exceeded
-// the limit.
+// the limit. If solved and the arguments are non-null, sets the outer
+// frame and inner frame to some solution.
 static constexpr int MAX_ITERS = 10000;
 static std::optional<int> TrySolve(int thread_idx,
-                                   ArcFour *rc, const Polyhedron &poly) {
+                                   ArcFour *rc, const Polyhedron &poly,
+                                   frame3 *outer_frame_out,
+                                   frame3 *inner_frame_out) {
   CHECK(!poly.faces->v.empty());
 
   for (int iter = 0; iter < MAX_ITERS; iter++) {
@@ -148,6 +152,13 @@ static std::optional<int> TrySolve(int thread_idx,
       Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 10, seed);
 
     if (error == 0.0) {
+      if (outer_frame_out != nullptr) {
+        *outer_frame_out = OuterFrame(args);
+      }
+      if (inner_frame_out != nullptr) {
+        *inner_frame_out = InnerFrame(args);
+      }
+
       if (iter > 100) {
         printf("%d-point polyhedron " AYELLOW("solved") " after "
                AWHITE("%d") " iters.\n",
@@ -376,7 +387,6 @@ struct SymmetryGroups {
       }
     }
   }
-
 };
 
 
@@ -386,6 +396,8 @@ struct SymmetryGroups {
 // but we try to get close.
 static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
   static SymmetryGroups *symmetry = new SymmetryGroups;
+
+  static constexpr SymmetryGroup GROUPS_ENABLED = SYM_TETRAHEDRAL;
 
   auto MakePoints = [rc](int num) {
       if (VERBOSE > 1) {
@@ -489,11 +501,14 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
         return false;
       };
 
-    if (false && UsePolyhedralGroup("icosahedron", symmetry->icosahedron, 3)) {
+    if ((GROUPS_ENABLED & SYM_ICOSAHEDRAL) &&
+        UsePolyhedralGroup("icosahedron", symmetry->icosahedron, 3)) {
       // nothing
-    } else if (UsePolyhedralGroup("octahedron", symmetry->octahedron, 3)) {
+    } else if ((GROUPS_ENABLED & SYM_OCTAHEDRAL) &&
+               UsePolyhedralGroup("octahedron", symmetry->octahedron, 3)) {
       // nothing
-    } else if (UsePolyhedralGroup("tetrahedron", symmetry->tetrahedron, 3)) {
+    } else if ((GROUPS_ENABLED & SYM_TETRAHEDRAL) &&
+               UsePolyhedralGroup("tetrahedron", symmetry->tetrahedron, 3)) {
       // nothing
     } else {
       // Then we can always use the cyclic (or dihedral if reflections
@@ -905,7 +920,8 @@ static bool Nopert(CandidateMaker *candidates) {
           }
 
           Timer solve_timer;
-          std::optional<int> iters = TrySolve(thread_idx, &rc, poly);
+          std::optional<int> iters = TrySolve(thread_idx, &rc, poly,
+                                              nullptr, nullptr);
           const double solve_sec = solve_timer.Seconds();
 
           {
@@ -991,6 +1007,128 @@ static bool Nopert(CandidateMaker *candidates) {
   return success;
 }
 
+static void DoAdversary(int64_t num_points) {
+  const double TIME_LIMIT = 60.0 * 60.0;
+  Timer run_timer;
+
+  // Start from a random polyhedron with n vertices.
+  // Solve it. If we can't, we're done.
+  // Otherwise, take the solution and make it invalid by moving
+  // one inner point to the outer hull.
+  // Normalize so that we don't grow without bound. Repeat.
+
+  std::mutex m;
+  Periodically status_per(5.0);
+  ArcFour rc(std::format("adv.{}.{}", num_points, time(nullptr)));
+  int64_t num_poly = 0;
+  AutoHisto iter_histo;
+  int MAX_TURNS = 10000;
+  while (run_timer.Seconds() < TIME_LIMIT) {
+    Polyhedron poly = RandomCyclicPolyhedron(&rc, num_points);
+
+    for (int turn = 0; turn < MAX_TURNS; turn++) {
+      frame3 outer_frame, inner_frame;
+      polyhedra++;
+      std::optional<int> iters = TrySolve(0, &rc, poly, &outer_frame, &inner_frame);
+      if (!iters.has_value()) {
+        SolutionDB db;
+        db.AddNopert(poly, SolutionDB::NOPERT_METHOD_ADVERSARY);
+        printf(AGREEN("Success!") "\n");
+        return;
+      }
+      iter_histo.Observe(iters.value());
+
+      Polyhedron opoly = Rotate(poly, outer_frame);
+      Mesh2D oshadow = Shadow(opoly);
+      Polyhedron ipoly = Rotate(poly, inner_frame);
+      Mesh2D ishadow = Shadow(ipoly);
+
+      std::vector<int> ohull = QuickHull(oshadow.vertices);
+      std::vector<int> ihull = QuickHull(ishadow.vertices);
+
+      // Heuristically, it would be better to move a vertex that is
+      // on the inner hull (thus certainly increasing the area of the
+      // inner shadow) but not on the outer hull (not necessarily
+      // increasing the area of the outer shadow).
+
+      std::unordered_set<int> oset(ohull.begin(), ohull.end());
+      std::vector<int> best;
+      for (int i : ihull)
+        if (!oset.contains(i))
+          best.push_back(i);
+
+      // The vertex we'll move.
+      int idx = best.empty() ? ihull[RandTo(&rc, ihull.size())] :
+        best[RandTo(&rc, best.size())];
+
+      // Find the shortest distance from the vertex to the outer hull
+      // in the 2D shadow.
+      const auto &[o, d] = ClosestPointOnHull(oshadow.vertices, ohull,
+                                              ishadow.vertices[idx]);
+
+      // The polyhedra have already been rotated, so we can just
+      // extend it in the xy plane; this is the shortest vector
+      // to the outer hull.
+
+      // Note that this can make the polyhedron non-convex! We should
+      // fix that by taking the convex hull, or by never extending
+      // outside the existing hull, or by only moving points on the
+      // surface of the sphere, or something.
+      ipoly.vertices[idx].x = o.x;
+      ipoly.vertices[idx].y = o.y;
+
+      // Anyway, normalize.
+      poly = NormalizeRadius(ipoly);
+
+      if (status_per.ShouldRun()) {
+        MutexLock ml(&m);
+        double total_time = run_timer.Seconds();
+        const int64_t polys = polyhedra.Read();
+        double tps = polys / total_time;
+
+        ANSI::ProgressBarOptions options;
+        options.include_frac = false;
+        options.include_percent = true;
+
+        std::string timing = StringPrintf("%.4f polys/s", tps);
+
+        std::string msg =
+          StringPrintf(
+              APURPLE("%s") AWHITE("x") " "
+              ABLUE("%s") AWHITE("∎") " "
+              ACYAN("%d") " turns",
+              FormatNum(attempts.Read()).c_str(),
+              FormatNum(polys).c_str(),
+              turn + 1);
+
+        std::string bar =
+          ANSI::ProgressBar(total_time, TIME_LIMIT,
+                            msg, total_time, options);
+
+        status->Statusf(
+            "%s\n"
+            "%s\n"
+            "%s\n",
+            iter_histo.SimpleANSI(HISTO_LINES).c_str(),
+            timing.c_str(),
+            bar.c_str());
+      }
+
+    }
+
+    delete poly.faces;
+
+    num_poly++;
+  }
+
+  printf("No nopert (adversarial) after %s\n", ANSI::Time(run_timer.Seconds()).c_str());
+
+  // Record the attempt, but fail.
+  SolutionDB db;
+  db.AddNopertAttempt(num_points, num_poly, iter_histo,
+                      SolutionDB::NOPERT_METHOD_ADVERSARY);
+}
+
 // Prep
 static void Run(uint64_t parameter) {
 
@@ -998,7 +1136,10 @@ static void Run(uint64_t parameter) {
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
   static constexpr int64_t MAX_SECONDS = 60 * 60;
 
-  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_REDUCE_SC;
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_REDUCE_SC;
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
+  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_ADVERSARY;
 
   switch (METHOD) {
   case SolutionDB::NOPERT_METHOD_RANDOM:
@@ -1065,6 +1206,9 @@ static void Run(uint64_t parameter) {
 
     break;
   }
+  case SolutionDB::NOPERT_METHOD_ADVERSARY:
+    DoAdversary(parameter);
+    break;
   default:
     LOG(FATAL) << "Bad nopert method";
   }

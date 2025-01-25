@@ -89,6 +89,13 @@ struct SolutionDB {
     int64_t evals = 0;
   };
 
+  struct Nopert {
+    int id = 0;
+    std::vector<vec3> vertices;
+    int64_t createdate = 0;
+    int method = 0;
+  };
+
   std::vector<Solution> GetAllSolutions();
   std::vector<Attempt> GetAllAttempts();
   // Or abort.
@@ -111,12 +118,14 @@ struct SolutionDB {
   static constexpr int NOPERT_METHOD_CYCLIC = 2;
   static constexpr int NOPERT_METHOD_SYMMETRIC = 3;
   static constexpr int NOPERT_METHOD_REDUCE_SC = 4;
+  static constexpr int NOPERT_METHOD_ADVERSARY = 5;
   static const char *NopertMethodName(int m) {
     switch (m) {
     case NOPERT_METHOD_RANDOM: return "NOPERT_METHOD_RANDOM";
     case NOPERT_METHOD_CYCLIC: return "NOPERT_METHOD_CYCLIC";
     case NOPERT_METHOD_SYMMETRIC: return "NOPERT_METHOD_SYMMETRIC";
     case NOPERT_METHOD_REDUCE_SC: return "NOPERT_METHOD_REDUCE_SC";
+    case NOPERT_METHOD_ADVERSARY: return "NOPERT_METHOD_ADVERSARY";
     default: return "UNKNOWN";
     }
   }
@@ -126,6 +135,8 @@ struct SolutionDB {
                         int method);
 
   void AddNopert(const Polyhedron &poly, int method);
+
+  std::vector<Nopert> GetAllNoperts();
 
   void ExecuteAndPrint(const std::string &s) {
     db->ExecuteAndPrint(s);

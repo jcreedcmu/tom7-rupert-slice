@@ -28,6 +28,12 @@ using mat4 = yocto::mat<double, 4>;
 using quat4 = yocto::quat<double, 4>;
 using frame3 = yocto::frame<double, 3>;
 
+inline constexpr uint8_t SYM_UNKNOWN = 0b0;
+inline constexpr uint8_t SYM_TETRAHEDRAL = 0b1;
+inline constexpr uint8_t SYM_OCTAHEDRAL = 0b10;
+inline constexpr uint8_t SYM_ICOSAHEDRAL = 0b100;
+using SymmetryGroup = uint8_t;
+
 // We never change the connectivity of the objects
 // in question, so we can avoid copying the faces.
 struct Faces {
@@ -70,6 +76,8 @@ struct Polyhedron {
   const Faces *faces = nullptr;
   // The optional name of the polyhedron.
   const char *name = "";
+  // The optional symmetry group(s).
+  SymmetryGroup symmetry = SYM_UNKNOWN;
 };
 
 // A polyhedron projected to 2D. This generally creates
@@ -135,7 +143,8 @@ inline double SignedDistanceToEdge(const vec2 &v0, const vec2 &v1,
 // Unsigned distance to the edge.
 double DistanceToEdge(const vec2 &v0, const vec2 &v1, const vec2 &p);
 
-// Rotate the polyhedron. They share the same faces pointer.
+// Rotate (and translate, if the frame contains a translation) the polyhedron.
+// They share the same faces pointer.
 inline Polyhedron Rotate(const Polyhedron &p, const frame3 &frame) {
   Polyhedron ret = p;
   for (vec3 &v : ret.vertices) {
@@ -173,6 +182,12 @@ Mesh2D Shadow(const Polyhedron &p);
 
 // Non-negative distance to hull.
 double DistanceToHull(
+    const std::vector<vec2> &points, const std::vector<int> &hull,
+    const vec2 &pt);
+
+// Return the closest point (could be on an edge or a vertex) on
+// the hull, and its distance.
+std::pair<vec2, double> ClosestPointOnHull(
     const std::vector<vec2> &points, const std::vector<int> &hull,
     const vec2 &pt);
 

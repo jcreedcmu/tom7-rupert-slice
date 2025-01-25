@@ -53,12 +53,6 @@ inline constexpr Parameterization parameterization =
   Parameterization::BOUNDED_MATRICES;
 // Parameterization::QUATS;
 
-enum class SymmetryGroup {
-  //   TETRAHEDRAL,
-  OCTAHEDRAL,
-  ICOSAHEDRAL,
-};
-
 inline constexpr SymmetryGroup symmetry_group =
   SymmetryGroup::OCTAHEDRAL;
 

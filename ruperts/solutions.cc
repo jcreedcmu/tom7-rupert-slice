@@ -124,7 +124,6 @@ void SolutionDB::Init() {
                       "createdate integer not null, "
                       "method integer not null"
                       ")");
-
 }
 
 void SolutionDB::AddNopertAttempt(int points, int64_t attempts,
@@ -274,4 +273,38 @@ void SolutionDB::AddSolution(const std::string &polyhedron,
           FrameString(inner_frame).c_str(),
           time(nullptr),
           ratio));
+}
+
+static std::vector<SolutionDB::Nopert> GetNopertsForQuery(
+    std::unique_ptr<Database::Query> q) {
+  std::vector<SolutionDB::Nopert> ret;
+  while (std::unique_ptr<Database::Row> r = q->NextRow()) {
+    SolutionDB::Nopert nop;
+    nop.id = r->GetInt(0);
+    std::string vs = r->GetString(1);
+    std::vector<std::string> parts = Util::Split(vs, ',');
+    CHECK(parts.size() % 3 == 0);
+    auto GetDouble = [](const std::string &s) {
+        auto od = Util::ParseDoubleOpt(s);
+        CHECK(od.has_value()) << "Expected double in nopert: " << s;
+        return od.value();
+      };
+    for (int i = 0; i < parts.size(); i += 3) {
+      nop.vertices.emplace_back(GetDouble(parts[i]),
+                                GetDouble(parts[i + 1]),
+                                GetDouble(parts[i + 2]));
+    }
+    nop.method = r->GetInt(2);
+    nop.createdate = r->GetInt(3);
+    ret.push_back(std::move(nop));
+  }
+  return ret;
+}
+
+std::vector<SolutionDB::Nopert> SolutionDB::GetAllNoperts() {
+  return GetNopertsForQuery(
+    db->ExecuteString(
+        "select "
+        "id, vertices, method, createdate "
+        "from noperts"));
 }
