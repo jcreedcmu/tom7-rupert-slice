@@ -141,7 +141,7 @@ struct Util {
   static string lcase(std::string_view in);
   static string ucase(std::string_view in);
 
-  static bool ExistsFile(const string &f);
+  static bool ExistsFile(std::string_view filename);
 
   // Figure out the location of the binary from the argv[0] parameter.
   // This can be used to load data files that are expected to be
@@ -206,9 +206,9 @@ struct Util {
      and line becomes empty. */
   static string chop(string &line);
 
-  static double ParseDouble(const string &s,
+  static double ParseDouble(std::string_view s,
                             double default_value = 0.0);
-  static std::optional<double> ParseDoubleOpt(const string &s);
+  static std::optional<double> ParseDoubleOpt(std::string_view s);
 
   /* number of entries (not . or ..) in dir d */
   static int dirsize(string d);
@@ -254,7 +254,7 @@ struct Util {
 
   // All whitespace becomes a single space. Leading and trailing
   // whitespace is dropped.
-  static string NormalizeWhitespace(const string &s);
+  static string NormalizeWhitespace(std::string_view s);
 
   static bool IsWhitespace(char c);
 
@@ -268,11 +268,13 @@ struct Util {
   /* try to remove the file. If it
      doesn't exist or is successfully
      removed, then return true. */
-  static bool remove(const string &f);
+  static bool RemoveFile(std::string_view filename);
 
   /* move a file from src to dst. Return
-     true on success. */
-  static bool Move(std::string_view src, std::string_view dst);
+     true on success.
+     (n.b. that "MoveFile" is #defined on some windows platforms)
+  */
+  static bool RelocateFile(std::string_view src, std::string_view dst);
 
   // Move a file to a new name (arbitrary) to make room for
   // "overwriting" it. Returns the new filename. Should not fail
@@ -281,7 +283,7 @@ struct Util {
   static std::string BackupFile(std::string_view src);
 
   /* make a copy by reading/writing */
-  static bool copy(const string &src, const string &dst);
+  static bool CopyFileBytes(std::string_view src, std::string_view dst);
 
   static string tempfile(const string &suffix);
 

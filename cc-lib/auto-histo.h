@@ -76,8 +76,17 @@ struct AutoHisto {
         // TODO: Detect integral data better.
         min = data[skip];
         double max = data[data.size() - (1 + skip)];
+
+        // Expand bounds if requested.
+        if (flag_min.has_value())
+          min = std::min(min, flag_min.value());
+
+        if (flag_max.has_value())
+          max = std::max(max, flag_max.value());
+
         // XXX do something when samples are degenerate.
         CHECK(min < max);
+
         width = max - min;
 
         num_buckets = max_samples;

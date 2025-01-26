@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <ctime>
@@ -149,9 +148,9 @@ bool Util::isdir(const string &f) {
   return (0 == stat(f.c_str(), &st)) && (st.st_mode & S_IFDIR);
 }
 
-bool Util::ExistsFile(const string &s) {
+bool Util::ExistsFile(std::string_view filename) {
   struct stat st;
-
+  std::string s{filename};
   return 0 == stat(s.c_str(), &st);
 }
 
@@ -757,7 +756,7 @@ string Util::chop(string &line) {
   return "";
 }
 
-optional<double> Util::ParseDoubleOpt(const string &s) {
+optional<double> Util::ParseDoubleOpt(std::string_view s) {
   // To get rid of leading and trailing whitespace. strtod will skip
   // it anyway, but we want to be able to check that the whole
   // string was consumed in a simple way.
@@ -777,7 +776,7 @@ optional<double> Util::ParseDoubleOpt(const string &s) {
   }
 }
 
-double Util::ParseDouble(const string &s, double default_value) {
+double Util::ParseDouble(std::string_view s, double default_value) {
   optional<double> od = ParseDoubleOpt(s);
   if (od.has_value()) return od.value();
   else return default_value;
@@ -855,7 +854,7 @@ string Util::RemoveChar(std::string_view s, char c) {
   return RemoveCharsMatching(s, [c](char cc) { return c == cc; });
 }
 
-string Util::NormalizeWhitespace(const string &s) {
+string Util::NormalizeWhitespace(std::string_view s) {
   string ret;
   // Skip at beginning.
   bool skip_ws = true;
@@ -875,7 +874,7 @@ string Util::NormalizeWhitespace(const string &s) {
     }
   }
 
-  return LoseWhiteR(ret);
+  return LoseWhiteR(std::move(ret));
 }
 
 string Util::tempfile(const string &suffix) {
@@ -1189,9 +1188,10 @@ bool Util::library_matches(char k, const string &s) {
    Can just use remove from stdio.h
 
 */
-bool Util::remove(const string &f) {
-  if (!ExistsFile(f.c_str())) return true;
+bool Util::RemoveFile(std::string_view filename) {
+  if (!ExistsFile(filename)) return true;
   else {
+    std::string f{filename};
 # ifdef WIN32
     /* We can do this by:
        rename tmp  delme1234.exe
@@ -1216,7 +1216,7 @@ bool Util::remove(const string &f) {
   return false;
 }
 
-bool Util::Move(std::string_view src, std::string_view dst) {
+bool Util::RelocateFile(std::string_view src, std::string_view dst) {
   namespace fs = std::filesystem;
   fs::path p1 = src;
   fs::path p2 = dst;
@@ -1239,18 +1239,19 @@ std::string Util::BackupFile(std::string_view src) {
     printf("Try %s\n", newfile.c_str());
   } while (Util::ExistsFile(newfile));
 
-  if (!Util::Move(src, newfile))
+  if (!Util::RelocateFile(src, newfile))
     return "";
   return newfile;
 }
 
-bool Util::copy(const string &src, const string &dst) {
-  FILE *s = fopen(src.c_str(), "rb");
+bool Util::CopyFileBytes(std::string_view src, std::string_view dst) {
+  std::string fsrc{src}, fdst{dst};
+  FILE *s = fopen(fsrc.c_str(), "rb");
   if (!s) {
     // fprintf(stderr, "Couldn't open %s for reading\n", src.c_str());
     return false;
   }
-  FILE *d = fopen(dst.c_str(), "wb");
+  FILE *d = fopen(fdst.c_str(), "wb");
   if (!d) {
     // fprintf(stderr, "Couldn't open %s for writing\n", dst.c_str());
     fclose(s);
