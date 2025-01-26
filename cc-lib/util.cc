@@ -4,22 +4,23 @@
 #define _DARWIN_USE_64_BIT_INODE 1
 #endif
 
-#include <sys/stat.h>
-#include <bit>
-#include <cstring>
-#include <string.h>
 #include <algorithm>
+#include <bit>
+#include <cassert>
+#include <chrono>
 #include <cstdint>
+#include <cstring>
+#include <ctime>
+#include <filesystem>
+#include <optional>
 #include <stdio.h>
 #include <stdlib.h>
-#include <type_traits>
+#include <string.h>
 #include <string_view>
-#include <optional>
-#include <ctime>
-#include <unordered_set>
-#include <cassert>
+#include <sys/stat.h>
 #include <system_error>
-#include <filesystem>
+#include <type_traits>
+#include <unordered_set>
 
 #include "util.h"
 
@@ -1442,6 +1443,68 @@ vector<int> Util::Factorize(int n) {
   std::sort(out.begin(), out.end());
   return out;
 }
+
+#if 0
+// localtime is not thread safe, and the _r and _s versions
+// have portability issues. It's almost like they don't want
+// me to use the ancient C library in 2024! And yet, the
+// std::chrono version is also unavailable!
+static std::tm LocalTime(int64_t unix_timestamp) {
+  auto time_point = std::chrono::system_clock::from_time_t(unix_timestamp);
+  auto local_zone = std::chrono::locate_zone("local");
+}
+#endif
+
+static void LocalTimeTo(int64_t unix_timestamp, std::tm *tm) {
+  #ifdef WIN32
+  // On windows, localtime_s has its arguments reversed
+  // compared to unix.
+  const time_t tt = unix_timestamp;
+  localtime_s(tm, &tt);
+  #elif _POSIX_C_SOURCE >= 1 || _POSIX_SOURCE
+  // POSIX
+  localtime_r(&tt, tm);
+  #else
+  #error "I don't know how to get localtime on this platform?"
+  #endif
+}
+
+std::string Util::FormatTime(std::string_view fmt,
+                             int64_t unix_timestamp) {
+  if (fmt.empty()) return "";
+
+  // Count output buffer size.
+  std::string out_buffer;
+  // %H:%M:%s %Y-%m-%d would be a typical usage.
+  // Here only %Y is longer than its format string.
+  // So 2x is a fairly safe initial guess.
+  out_buffer.resize(fmt.size() * 2);
+
+  // We need the format string to not be empty, because
+  // this function has an ambiguous return value for
+  // (potentially) empty format strings.
+  std::string nonempty_fmt = std::string(fmt) + "_";
+
+  std::tm lt;
+  LocalTimeTo(unix_timestamp, &lt);
+
+  for (;;) {
+    size_t written =
+      strftime(out_buffer.data(), out_buffer.size() - 1,
+               nonempty_fmt.c_str(), &lt);
+    if (written > 0) {
+      // Success; we have the number of bytes written (not including a
+      // terminating null character). We also want to strip the
+      // padding _ character.
+      out_buffer.resize(written - 1);
+      return out_buffer;
+    }
+
+    // Otherwise, try again with more space.
+    out_buffer.resize(out_buffer.size() * 2);
+  }
+}
+
 
 const uint8_t *Util::MemMem(const uint8_t *haystack, size_t n,
                             const uint8_t *needle, size_t m) {

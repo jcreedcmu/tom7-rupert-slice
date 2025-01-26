@@ -89,6 +89,16 @@ struct AutoHisto {
     }
   }
 
+  // Add a point to include in the domain of the histogram (e.g. 0.0) even
+  // if we don't have samples that would require it.
+  void AddFlag(double f) {
+    if (!flag_min.has_value()) flag_min = {f};
+    if (!flag_max.has_value()) flag_max = {f};
+
+    flag_min = {std::min(flag_min.value(), f)};
+    flag_max = {std::max(flag_max.value(), f)};
+  }
+
   // Recommended to use a number of buckets that divides max_samples;
   // otherwise we get aliasing.
   Histo GetHisto(int buckets) const {
@@ -398,6 +408,11 @@ struct AutoHisto {
                                 num_buckets - 1);
     (*v)[bucket]++;
   }
+
+
+  // This represents points that we want to include in the final histogram
+  // (e.g. 0.0) even if there are no data points that would require them.
+  std::optional<double> flag_min, flag_max;
 
   // This either represents the exact data (until we exceed max_samples)
   // or the bucketed data (once we've decided on min, max, buckets).

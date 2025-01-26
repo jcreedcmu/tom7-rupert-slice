@@ -4,12 +4,13 @@
 
 #include "util.h"
 
-#include <cstdio>
+#include <cinttypes>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
-#include <cstdint>
 
 #include "base/logging.h"
 
@@ -628,6 +629,17 @@ static void TestChopTo() {
   }
 }
 
+static void TestFormatTime() {
+  int64_t tt = time(nullptr);
+  // TODO: Check something about it.
+  // We can't just test for a particular string, though;
+  // we don't want the test to depend on the current time zone!
+  printf("The current time: %" PRIi64 " = [%s]\n",
+         tt,
+         Util::FormatTime("%Y-%m-%d, %H:%M:%S",
+                          tt).c_str());
+}
+
 int main(int argc, char **argv) {
   TestItos();
   TestStoi();
@@ -661,6 +673,7 @@ int main(int argc, char **argv) {
   TestLoseWhiteL();
   TestChop();
   TestChopTo();
+  TestFormatTime();
 
   printf("OK\n");
   return 0;
