@@ -1457,10 +1457,10 @@ static std::tm LocalTime(int64_t unix_timestamp) {
 #endif
 
 static void LocalTimeTo(int64_t unix_timestamp, std::tm *tm) {
+  const time_t tt = unix_timestamp;
   #ifdef WIN32
   // On windows, localtime_s has its arguments reversed
   // compared to unix.
-  const time_t tt = unix_timestamp;
   localtime_s(tm, &tt);
   #elif _POSIX_C_SOURCE >= 1 || _POSIX_SOURCE
   // POSIX
