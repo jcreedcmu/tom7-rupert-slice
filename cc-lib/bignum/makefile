@@ -66,7 +66,7 @@ big-overloads-nogmp_test.exe : big-nogmp.o big-overloads_test-nogmp.o $(CCLIB_OB
 big-numbers-nogmp_test.exe : big-numbers_test-nogmp.o big-nogmp.o big-numbers-nogmp.o $(CCLIB_OBJECTS) $(BIG_NOGMP_OBJECTS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LFLAGS)
 
-polynomial-nogmp_test.exe : polynomial-nogmp_test.o polynomial-nogmp.o big.o big-numbers.o $(CCLIB_OBJECTS)
+polynomial-nogmp_test.exe : polynomial_test-nogmp.o polynomial-nogmp.o big.o big-numbers.o bigz.o bign.o bigq.o $(CCLIB_OBJECTS)
 	$(CXX) $(GMP_CFLAGS) $(CXXFLAGS) $^ -o $@ $(GMP_LFLAGS) $(LFLAGS)
 
 clean :

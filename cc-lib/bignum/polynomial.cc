@@ -296,7 +296,7 @@ string Polynomial::ToCode(const string &type, const Polynomial &p) {
                 "\n"
                 "  return ");
   {
-    for (int sidx = 0; sidx < p.sum.size(); sidx++) {
+    for (int sidx = 0; sidx < (int)p.sum.size(); sidx++) {
       if (sidx != 0)
         StringAppendF(&code, " + ");
       StringAppendF(&code, "%s", SummandVar(sidx).c_str());
