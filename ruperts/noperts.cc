@@ -43,7 +43,7 @@
 
 #define ABLOOD(s) AFGCOLOR(148, 0, 0, s)
 
-DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped, u1_, u2_, u3_, u4_);
+DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped, turns, u1_, u2_, u3_);
 
 static constexpr int VERBOSE = 0;
 static constexpr bool SAVE_EVERY_IMAGE = false;
@@ -160,9 +160,9 @@ static std::optional<int> TrySolve(int thread_idx,
       }
 
       if (iter > 100) {
-        printf("%d-point polyhedron " AYELLOW("solved") " after "
-               AWHITE("%d") " iters.\n",
-               (int)poly.vertices.size(), iter);
+        status->Printf("%d-point polyhedron " AYELLOW("solved") " after "
+                       AWHITE("%d") " iters.\n",
+                       (int)poly.vertices.size(), iter);
       }
       return {iter};
     }
@@ -1007,9 +1007,13 @@ static bool Nopert(CandidateMaker *candidates) {
   return success;
 }
 
+// TODO: Opt/Unopt nesting
+
 static void DoAdversary(int64_t num_points) {
   const double TIME_LIMIT = 60.0 * 60.0;
   Timer run_timer;
+
+  polyhedra.Reset();
 
   // Start from a random polyhedron with n vertices.
   // Solve it. If we can't, we're done.
@@ -1017,69 +1021,15 @@ static void DoAdversary(int64_t num_points) {
   // one inner point to the outer hull.
   // Normalize so that we don't grow without bound. Repeat.
 
+  static constexpr int NUM_THREADS = 8;
+
   std::mutex m;
+  std::vector<int> thread_turn(NUM_THREADS, 0);
   Periodically status_per(5.0);
-  ArcFour rc(std::format("adv.{}.{}", num_points, time(nullptr)));
-  int64_t num_poly = 0;
   AutoHisto iter_histo;
-  int MAX_TURNS = 10000;
-  while (run_timer.Seconds() < TIME_LIMIT) {
-    Polyhedron poly = RandomCyclicPolyhedron(&rc, num_points);
-
-    for (int turn = 0; turn < MAX_TURNS; turn++) {
-      frame3 outer_frame, inner_frame;
-      polyhedra++;
-      std::optional<int> iters = TrySolve(0, &rc, poly, &outer_frame, &inner_frame);
-      if (!iters.has_value()) {
-        SolutionDB db;
-        db.AddNopert(poly, SolutionDB::NOPERT_METHOD_ADVERSARY);
-        printf(AGREEN("Success!") "\n");
-        return;
-      }
-      iter_histo.Observe(iters.value());
-
-      Polyhedron opoly = Rotate(poly, outer_frame);
-      Mesh2D oshadow = Shadow(opoly);
-      Polyhedron ipoly = Rotate(poly, inner_frame);
-      Mesh2D ishadow = Shadow(ipoly);
-
-      std::vector<int> ohull = QuickHull(oshadow.vertices);
-      std::vector<int> ihull = QuickHull(ishadow.vertices);
-
-      // Heuristically, it would be better to move a vertex that is
-      // on the inner hull (thus certainly increasing the area of the
-      // inner shadow) but not on the outer hull (not necessarily
-      // increasing the area of the outer shadow).
-
-      std::unordered_set<int> oset(ohull.begin(), ohull.end());
-      std::vector<int> best;
-      for (int i : ihull)
-        if (!oset.contains(i))
-          best.push_back(i);
-
-      // The vertex we'll move.
-      int idx = best.empty() ? ihull[RandTo(&rc, ihull.size())] :
-        best[RandTo(&rc, best.size())];
-
-      // Find the shortest distance from the vertex to the outer hull
-      // in the 2D shadow.
-      const auto &[o, d] = ClosestPointOnHull(oshadow.vertices, ohull,
-                                              ishadow.vertices[idx]);
-
-      // The polyhedra have already been rotated, so we can just
-      // extend it in the xy plane; this is the shortest vector
-      // to the outer hull.
-
-      // Note that this can make the polyhedron non-convex! We should
-      // fix that by taking the convex hull, or by never extending
-      // outside the existing hull, or by only moving points on the
-      // surface of the sphere, or something.
-      ipoly.vertices[idx].x = o.x;
-      ipoly.vertices[idx].y = o.y;
-
-      // Anyway, normalize.
-      poly = NormalizeRadius(ipoly);
-
+  iter_histo.AddFlag(0.0);
+  iter_histo.AddFlag(500.0);
+  auto MaybeStatus = [&]() {
       if (status_per.ShouldRun()) {
         MutexLock ml(&m);
         double total_time = run_timer.Seconds();
@@ -1092,14 +1042,18 @@ static void DoAdversary(int64_t num_points) {
 
         std::string timing = StringPrintf("%.4f polys/s", tps);
 
+        for (int i = 0; i < thread_turn.size(); i++) {
+          AppendFormat(&timing, " {}", thread_turn[i]);
+        }
+
         std::string msg =
           StringPrintf(
               APURPLE("%s") AWHITE("x") " "
               ABLUE("%s") AWHITE("∎") " "
-              ACYAN("%d") " turns",
+              ACYAN("%s") " turns",
               FormatNum(attempts.Read()).c_str(),
               FormatNum(polys).c_str(),
-              turn + 1);
+              FormatNum(turns.Read()).c_str());
 
         std::string bar =
           ANSI::ProgressBar(total_time, TIME_LIMIT,
@@ -1113,19 +1067,143 @@ static void DoAdversary(int64_t num_points) {
             timing.c_str(),
             bar.c_str());
       }
+    };
 
-    }
+  bool should_die = false;
+  int MAX_TURNS = 1000;
+  ParallelFan(
+      NUM_THREADS,
+      [&](int thread_idx) {
+        ArcFour rc(std::format("adv.{}.{}.{}", thread_idx,
+                               num_points, time(nullptr)));
+        for (;;) {
+          Polyhedron poly = RandomCyclicPolyhedron(&rc, num_points);
 
-    delete poly.faces;
+          for (int turn = 0; turn < MAX_TURNS; turn++) {
+            frame3 outer_frame, inner_frame;
+            polyhedra++;
+            turns++;
+            std::optional<int> iters = TrySolve(thread_idx,
+                                                &rc, poly, &outer_frame, &inner_frame);
+            if (!iters.has_value()) {
+              MutexLock ml(&m);
+              SolutionDB db;
+              db.AddNopert(poly, SolutionDB::NOPERT_METHOD_ADVERSARY);
+              printf(AGREEN("Success!") "\n");
+              should_die = true;
+              return;
+            } else {
+              MutexLock ml(&m);
+              if (should_die) return;
+              if (run_timer.Seconds() > TIME_LIMIT) {
+                should_die = true;
+                return;
+              }
+              thread_turn[thread_idx] = turn;
+              iter_histo.Observe(iters.value());
+            }
 
-    num_poly++;
-  }
+            Polyhedron opoly = Rotate(poly, outer_frame);
+            Mesh2D oshadow = Shadow(opoly);
+            Polyhedron ipoly = Rotate(poly, inner_frame);
+            Mesh2D ishadow = Shadow(ipoly);
+
+            std::vector<int> ohull = QuickHull(oshadow.vertices);
+            std::vector<int> ihull = QuickHull(ishadow.vertices);
+
+            // Heuristically, it would be better to move a vertex that is
+            // on the inner hull (thus certainly increasing the area of the
+            // inner shadow) but not on the outer hull (not necessarily
+            // increasing the area of the outer shadow).
+
+            std::unordered_set<int> oset(ohull.begin(), ohull.end());
+            std::vector<int> best;
+            for (int i : ihull)
+              if (!oset.contains(i))
+                best.push_back(i);
+
+            // TODO: Rather than picking randomly, we can:
+            //  * use heuristics like closest
+            //  * try several and see which one produces the hardest to solve?
+
+            // The vertex we'll move.
+            int idx = best.empty() ? ihull[RandTo(&rc, ihull.size())] :
+              best[RandTo(&rc, best.size())];
+
+            // Find the shortest distance from the vertex to the outer hull
+            // in the 2D shadow.
+            const auto &[o, d] = ClosestPointOnHull(oshadow.vertices, ohull,
+                                                    ishadow.vertices[idx]);
+
+            // The polyhedra have already been rotated, so we can just
+            // extend it in the xy plane; this is the shortest vector
+            // to the outer hull.
+
+            // Note that this can make the polyhedron non-convex! That
+            // isn't really a problem (we just use the convex hull) but
+            // it may mean that we have effectively fewer vertices.
+            //
+            // We could fix it by never extending outside the existing
+            // hull, or by only moving points on the surface of the
+            // sphere, or something like that.
+
+            constexpr double EPSILON = 0.00001;
+
+            vec2 displacement(o.x - ipoly.vertices[idx].x,
+                              o.y - ipoly.vertices[idx].y);
+
+            vec2 extra_displacement = displacement * (1 + EPSILON);
+
+            // XXX: Typically this does not really introduce an
+            // unsolvable 2D shadow, since we can shift the inner
+            // polyhedron away from this direction and still have a
+            // solution (assuming epsilon clearance on the other
+            // sides). We might consider doing this for three points
+            // on the hull that are on "different sides."
+            ipoly.vertices[idx].x += extra_displacement.x;
+            ipoly.vertices[idx].y += extra_displacement.y;
+
+            static constexpr int RENDER_FRAMES = 0;
+            if (RENDER_FRAMES > 0 && thread_idx == 0) {
+              MutexLock ml(&m);
+              static int frames = 0;
+              if (frames < RENDER_FRAMES) {
+                Rendering rendering(ipoly, 1920, 1080);
+                rendering.RenderMesh(oshadow);
+                rendering.DarkenBG();
+
+                // old
+                rendering.RenderHull(ishadow, ihull, 0x6666FFAA);
+
+                // new
+                rendering.RenderHull(oshadow, ohull, 0xCCCCCCAA);
+
+                Mesh2D nishadow = Shadow(ipoly);
+                std::vector<int> nihull = QuickHull(nishadow.vertices);
+                rendering.RenderHull(nishadow, nihull, 0x66FF66AA);
+
+                std::string filename = std::format("adversary{}.png", frames);
+                rendering.Save(filename, false);
+                status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+                frames++;
+              }
+            }
+
+            // Anyway, normalize. Recentering is important not just because
+            // we've moved a vertex, but typically the inner polyhedron is
+            // also translated!
+            poly = NormalizeRadius(Recenter(ipoly));
+
+            MaybeStatus();
+          }
+        }
+      });
 
   printf("No nopert (adversarial) after %s\n", ANSI::Time(run_timer.Seconds()).c_str());
 
   // Record the attempt, but fail.
   SolutionDB db;
-  db.AddNopertAttempt(num_points, num_poly, iter_histo,
+  db.AddNopertAttempt(num_points, polyhedra.Read(), iter_histo,
                       SolutionDB::NOPERT_METHOD_ADVERSARY);
 }
 
@@ -1207,7 +1285,10 @@ static void Run(uint64_t parameter) {
     break;
   }
   case SolutionDB::NOPERT_METHOD_ADVERSARY:
-    DoAdversary(parameter);
+    for (;;) {
+      DoAdversary(parameter);
+      parameter++;
+    }
     break;
   default:
     LOG(FATAL) << "Bad nopert method";

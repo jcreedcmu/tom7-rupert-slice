@@ -874,6 +874,20 @@ Polyhedron NormalizeRadius(const Polyhedron &p) {
   return copy;
 }
 
+Polyhedron Recenter(const Polyhedron &p) {
+  vec3 avg(0.0, 0.0, 0.0);
+  for (const vec3 &v : p.vertices) {
+    avg += v;
+  }
+
+  avg /= p.vertices.size();
+  Polyhedron copy = p;
+  for (vec3 &v : copy.vertices) {
+    v -= avg;
+  }
+  return copy;
+}
+
 double PlanarityError(const Polyhedron &p) {
   double error = 0.0;
   for (const std::vector<int> &face : p.faces->v) {

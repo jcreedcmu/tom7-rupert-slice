@@ -172,9 +172,14 @@ bool IsConvex(const std::vector<vec2> &points,
 // Note: This is non-standard.
 double Diameter(const Polyhedron &p);
 
-// Normalize so that the most distant point from the origin
-// is distance 1.
+// Normalize so that the most distant point from the origin is
+// distance 1. This really only makes sense if the polyhedron
+// contains the origin (and ideally is centered around it).
 Polyhedron NormalizeRadius(const Polyhedron &p);
+
+// Move the polyhedron so that the origin is at the center of
+// mass of its vertices.
+Polyhedron Recenter(const Polyhedron &p);
 
 // Create the shadow of the polyhedron on the x-y plane.
 // The mesh's faces object aliases the input polyhedron's.
