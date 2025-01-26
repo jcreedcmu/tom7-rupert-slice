@@ -43,7 +43,8 @@
 
 #define ABLOOD(s) AFGCOLOR(148, 0, 0, s)
 
-DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped, turns, u1_, u2_, u3_);
+DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped,
+                 hard, successes, u1_, u_2);
 
 static constexpr int VERBOSE = 0;
 static constexpr bool SAVE_EVERY_IMAGE = false;
@@ -70,6 +71,7 @@ static vec3 RandomVec(ArcFour *rc) {
 // the limit. If solved and the arguments are non-null, sets the outer
 // frame and inner frame to some solution.
 static constexpr int MAX_ITERS = 10000;
+static constexpr int MIN_VERBOSE_ITERS = 500;
 static std::optional<int> TrySolve(int thread_idx,
                                    ArcFour *rc, const Polyhedron &poly,
                                    frame3 *outer_frame_out,
@@ -78,7 +80,7 @@ static std::optional<int> TrySolve(int thread_idx,
 
   for (int iter = 0; iter < MAX_ITERS; iter++) {
 
-    if (iter > 0 && (iter % 100) == 0) {
+    if (iter > 0 && (iter % 500) == 0) {
       status->Printf("[" APURPLE("%d") "] %d-point polyhedron "
                      AFGCOLOR(190, 220, 190, "not solved")
                      " after " AWHITE("%d") " iters...\n",
@@ -86,9 +88,14 @@ static std::optional<int> TrySolve(int thread_idx,
                      (int)poly.vertices.size(), iter);
 
       if (iter == 2000) {
+        hard++;
         std::string filename = StringPrintf("hard.%lld.%d.stl",
                                             time(nullptr), thread_idx);
         SaveAsSTL(poly, filename);
+        status->Printf("[" APURPLE("%d") "] Hard %d-point polyhedron saved "
+                       "to " AGREEN("%s") "\n",
+                       thread_idx, (int)poly.vertices.size(),
+                       filename.c_str());
       }
     }
 
@@ -159,7 +166,7 @@ static std::optional<int> TrySolve(int thread_idx,
         *inner_frame_out = InnerFrame(args);
       }
 
-      if (iter > 100) {
+      if (iter > MIN_VERBOSE_ITERS) {
         status->Printf("%d-point polyhedron " AYELLOW("solved") " after "
                        AWHITE("%d") " iters.\n",
                        (int)poly.vertices.size(), iter);
@@ -937,6 +944,7 @@ static bool Nopert(CandidateMaker *candidates) {
 
               SolutionDB db;
               db.AddNopert(poly, candidates->Method());
+              successes++;
 
               status->Printf(
                   "\n\n" ABGCOLOR(200, 0, 200,
@@ -1048,12 +1056,16 @@ static void DoAdversary(int64_t num_points) {
 
         std::string msg =
           StringPrintf(
+              AYELLOW("%lld") AWHITE("⋮") "  |  "
               APURPLE("%s") AWHITE("x") " "
               ABLUE("%s") AWHITE("∎") " "
-              ACYAN("%s") " turns",
+              AORANGE("%lld") AWHITE("⋆") " "
+              AGREEN("%lld") AWHITE("♚"),
+              num_points,
               FormatNum(attempts.Read()).c_str(),
               FormatNum(polys).c_str(),
-              FormatNum(turns.Read()).c_str());
+              hard.Read(),
+              successes.Read());
 
         std::string bar =
           ANSI::ProgressBar(total_time, TIME_LIMIT,
@@ -1082,13 +1094,13 @@ static void DoAdversary(int64_t num_points) {
           for (int turn = 0; turn < MAX_TURNS; turn++) {
             frame3 outer_frame, inner_frame;
             polyhedra++;
-            turns++;
             std::optional<int> iters = TrySolve(thread_idx,
                                                 &rc, poly, &outer_frame, &inner_frame);
             if (!iters.has_value()) {
               MutexLock ml(&m);
               SolutionDB db;
               db.AddNopert(poly, SolutionDB::NOPERT_METHOD_ADVERSARY);
+              successes++;
               printf(AGREEN("Success!") "\n");
               should_die = true;
               return;
@@ -1199,7 +1211,8 @@ static void DoAdversary(int64_t num_points) {
         }
       });
 
-  printf("No nopert (adversarial) after %s\n", ANSI::Time(run_timer.Seconds()).c_str());
+  status->Printf("No nopert (adversarial) after %s\n",
+                 ANSI::Time(run_timer.Seconds()).c_str());
 
   // Record the attempt, but fail.
   SolutionDB db;
