@@ -12,6 +12,7 @@
 #include <memory>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -602,11 +603,11 @@ class ConvexHull {
         continue;
       } else {
         faceProcessed[top] = true;
-        auto halfEdges = mesh.getHalfEdgeIndicesOfFace(mesh.m_faces[top]);
+        auto half_edges = mesh.getHalfEdgeIndicesOfFace(mesh.m_faces[top]);
         size_t adjacent[] = {
-            mesh.m_halfEdges[mesh.m_halfEdges[halfEdges[0]].m_opp].m_face,
-            mesh.m_halfEdges[mesh.m_halfEdges[halfEdges[1]].m_opp].m_face,
-            mesh.m_halfEdges[mesh.m_halfEdges[halfEdges[2]].m_opp].m_face};
+            mesh.m_halfEdges[mesh.m_halfEdges[half_edges[0]].m_opp].m_face,
+            mesh.m_halfEdges[mesh.m_halfEdges[half_edges[1]].m_opp].m_face,
+            mesh.m_halfEdges[mesh.m_halfEdges[half_edges[2]].m_opp].m_face};
         for (auto a : adjacent) {
           if (!faceProcessed[a] && !mesh.m_faces[a].isDisabled()) {
             faceStack.push_back(a);
@@ -1487,5 +1488,21 @@ std::vector<std::tuple<int, int, int>> QuickHull3D::Hull(
     ret.emplace_back(triangles[i + 0], triangles[i + 1], triangles[i + 2]);
   }
 
+  return ret;
+}
+
+std::vector<int> QuickHull3D::HullPoints(
+    const std::vector<vec3> &points) {
+  QuickHull<double> qh;
+  auto triangles = Hull(points);
+  std::unordered_set<int> pts;
+  for (const auto &[a, b, c] : triangles) {
+    pts.insert(a);
+    pts.insert(b);
+    pts.insert(c);
+  }
+
+  std::vector<int> ret(pts.begin(), pts.end());
+  std::sort(ret.begin(), ret.end());
   return ret;
 }
