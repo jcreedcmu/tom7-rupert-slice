@@ -32,7 +32,7 @@ CODEC_OBJECTS=$(CODEC)/mov.o $(CODEC)/mov-recorder.o
 CL_OBJECTS=$(CC_LIB)/opencl/clutil.o
 SQLITE_OBJECTS=$(SQLITE)/database.o $(SQLITE)/sqlite3.o
 
-OBJECTS=$(CC_LIB_OBJECTS) $(CODEC_OBJECTS) $(SQLITE_OBJECTS) polyhedra.o rendering.o solutions.o hull.o big-polyhedra.o
+OBJECTS=$(CC_LIB_OBJECTS) $(CODEC_OBJECTS) $(SQLITE_OBJECTS) polyhedra.o rendering.o solutions.o hull.o hull3d.o big-polyhedra.o
 
 $(CC_LIB)/%.o : $(CC_LIB)/%.cc makefile
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -94,7 +94,7 @@ imperts.exe : imperts.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
-hull_test.exe : hull_test.o hull.o $(OBJECTS)
+hull_test.exe : hull_test.o hull.o hull3d.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

@@ -355,7 +355,12 @@ std::optional<double> GetRatio(const Polyhedron &poly,
 // vertices. The Faces pointer in the returned Polyhedron is owned
 // by the caller. Can fail if the points are not actually a convex
 // hull, returning nullopt.
-std::optional<Polyhedron> ConvexPolyhedronFromVertices(
+std::optional<Polyhedron> PolyhedronFromConvexVertices(
+    std::vector<vec3> vertices, const char *name = "");
+
+// First compute the convex hull and discard points outside it.
+// Then, the same as above. This only fails for degenerate point sets.
+std::optional<Polyhedron> PolyhedronFromVertices(
     std::vector<vec3> vertices, const char *name = "");
 
 // Return a newly constructed polyhedron (from below) by its name,

@@ -331,7 +331,7 @@ BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices,
   }
 
   std::optional<Polyhedron> opoly =
-    ConvexPolyhedronFromVertices(dvertices, "bigpoly");
+    PolyhedronFromConvexVertices(dvertices, "bigpoly");
   CHECK(opoly.has_value());
 
   // Now match up the vertices with the original poly.

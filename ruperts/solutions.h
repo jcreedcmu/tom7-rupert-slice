@@ -11,6 +11,7 @@
 
 #include "auto-histo.h"
 #include "base/logging.h"
+#include "base/stringprintf.h"
 #include "database.h"
 #include "polyhedra.h"
 #include "yocto_matht.h"
@@ -102,6 +103,11 @@ struct SolutionDB {
   Solution GetSolution(int id);
 
   std::vector<Solution> GetSolutionsFor(const std::string &name);
+  std::vector<Solution> GetAllNopertSolutions();
+
+  static std::string NopertName(int id) {
+    return StringPrintf("nopert_%d", id);
+  }
 
   void AddSolution(const std::string &polyhedron,
                    const frame3 &outer_frame,
@@ -135,6 +141,8 @@ struct SolutionDB {
                         int method);
 
   void AddNopert(const Polyhedron &poly, int method);
+  // Or abort.
+  Nopert GetNopert(int id);
 
   std::vector<Nopert> GetAllNoperts();
 

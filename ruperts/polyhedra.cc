@@ -3,6 +3,7 @@
 
 #include <limits>
 #include <string_view>
+#include <tuple>
 #include <unordered_set>
 #include <algorithm>
 #include <bit>
@@ -21,6 +22,7 @@
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "hashing.h"
+#include "hull3d.h"
 #include "randutil.h"
 #include "set-util.h"
 #include "util.h"
@@ -209,10 +211,18 @@ Faces *Faces::Create(int num_vertices, std::vector<std::vector<int>> v) {
 }
 
 bool Faces::Init(int num_vertices, std::vector<std::vector<int>> v_in) {
+  static constexpr int VERBOSE = 0;
   v = std::move(v_in);
 
   std::vector<std::unordered_set<int>> collated(num_vertices);
   for (const std::vector<int> &face : v) {
+    if (VERBOSE) {
+      printf("Face:");
+      for (int i = 0; i < (int)face.size(); i++) {
+        printf(" %d", face[i]);
+      }
+      printf("\n");
+    }
     // Add each edge forwards and backwards.
     for (int i = 0; i < (int)face.size(); i++) {
       int v0 = face[i];
@@ -232,7 +242,12 @@ bool Faces::Init(int num_vertices, std::vector<std::vector<int>> v_in) {
     // e.g. if there are points that are not on faces. One cause
     // of this would be if the convex hull and facetization disagree
     // on epsilon, and so there are disconnected points.
-    if (neighbors[i].empty()) return false;
+    if (neighbors[i].empty()) {
+      if (VERBOSE) {
+        printf("Point %d is not on any face\n", i);
+      }
+      return false;
+    }
   }
 
   // And triangulate. Since the faces are convex, we can
@@ -1584,7 +1599,6 @@ static bool InitPolyhedronInternal(
     fs.push_back(std::move(face));
   }
 
-
   out->faces = Faces::Create(vertices.size(), std::move(fs));
   if (out->faces == nullptr)
     return false;
@@ -1603,7 +1617,7 @@ static Polyhedron MakeConvexOrDie(
   return poly;
 }
 
-std::optional<Polyhedron> ConvexPolyhedronFromVertices(
+std::optional<Polyhedron> PolyhedronFromConvexVertices(
     std::vector<vec3> vertices, const char *name) {
   Polyhedron poly;
   if (!InitPolyhedronInternal<false>(vertices, name, &poly)) {
@@ -1612,6 +1626,20 @@ std::optional<Polyhedron> ConvexPolyhedronFromVertices(
   return std::make_optional<Polyhedron>(std::move(poly));
 }
 
+// PERF: We can do this much more efficiently by using the faces
+// that the hull code generates. We can fuse coplanar faces, or
+// in the internals I think it has an even better representation.
+std::optional<Polyhedron> PolyhedronFromVertices(
+    std::vector<vec3> vertices, const char *name) {
+  if (vertices.size() < 4) return {};
+  std::vector<int> hull = Hull3D::HullPoints(vertices);
+  std::vector<vec3> hull_vertices;
+  hull_vertices.reserve(hull.size());
+  for (int i : hull) {
+    hull_vertices.push_back(vertices[i]);
+  }
+  return PolyhedronFromConvexVertices(std::move(hull_vertices), name);
+}
 
 Polyhedron SnubCube() {
   const double tribonacci =

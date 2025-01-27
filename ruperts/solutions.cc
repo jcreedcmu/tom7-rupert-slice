@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <ctime>
+#include <format>
 #include <memory>
 #include <optional>
 #include <string>
@@ -196,6 +197,15 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
         "from solutions"));
 }
 
+std::vector<SolutionDB::Solution> SolutionDB::GetAllNopertSolutions() {
+  return GetSolutionsForQuery(
+    db->ExecuteString(
+        "select "
+        "id, polyhedron, method, outerframe, innerframe, "
+        "createdate, ratio, source "
+        "from solutions where polyhedron like 'nopert_%'"));
+}
+
 SolutionDB::Solution SolutionDB::GetSolution(int id) {
   std::vector<Solution> sols = GetSolutionsForQuery(
     db->ExecuteString(
@@ -307,4 +317,16 @@ std::vector<SolutionDB::Nopert> SolutionDB::GetAllNoperts() {
         "select "
         "id, vertices, method, createdate "
         "from noperts"));
+}
+
+SolutionDB::Nopert SolutionDB::GetNopert(int id) {
+  std::vector<Nopert> one = GetNopertsForQuery(
+    db->ExecuteString(
+        std::format(
+            "select "
+            "id, vertices, method, createdate "
+            "from noperts where id = {}",
+            id)));
+  CHECK(one.size() == 1) << "Couldn't find nopert " << id;
+  return std::move(one[0]);
 }

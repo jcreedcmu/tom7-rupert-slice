@@ -241,7 +241,7 @@ Polyhedron RandomPolyhedron(ArcFour *rc, int num_points) {
     }
 
     std::optional<Polyhedron> poly =
-      ConvexPolyhedronFromVertices(std::move(pts2), "random");
+      PolyhedronFromConvexVertices(std::move(pts2), "random");
     if (poly.has_value()) {
       return std::move(poly.value());
     } else {
@@ -261,7 +261,7 @@ static Polyhedron RandomCyclicPolyhedron(ArcFour *rc, int num_points) {
     }
 
     std::optional<Polyhedron> poly =
-      ConvexPolyhedronFromVertices(std::move(pts), "randomcyclic");
+      PolyhedronFromConvexVertices(std::move(pts), "randomcyclic");
     if (poly.has_value()) {
       return std::move(poly.value());
     } else {
@@ -581,7 +581,7 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
     }
 
     std::optional<Polyhedron> poly =
-      ConvexPolyhedronFromVertices(std::move(points), "randomsymmetric");
+      PolyhedronFromConvexVertices(std::move(points), "randomsymmetric");
     if (poly.has_value()) {
       CHECK(!poly.value().vertices.empty());
       return std::move(poly.value());
@@ -778,7 +778,7 @@ struct ReduceCandidateMaker : public CandidateMaker {
       // without holding the lock, but poly generation is
       // only a tiny fraction of the overall time.
       std::optional<Polyhedron> poly =
-        ConvexPolyhedronFromVertices(std::move(vertices), "reduced");
+        PolyhedronFromConvexVertices(std::move(vertices), "reduced");
       if (poly.has_value()) {
         next++;
         CHECK(!poly.value().vertices.empty());
@@ -1211,7 +1211,8 @@ static void DoAdversary(int64_t num_points) {
         }
       });
 
-  status->Printf("No nopert (adversarial) after %s\n",
+  status->Printf("No nopert (adversarial, %d pts) after %s\n",
+                 num_points,
                  ANSI::Time(run_timer.Seconds()).c_str());
 
   // Record the attempt, but fail.

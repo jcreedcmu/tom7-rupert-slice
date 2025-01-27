@@ -1,4 +1,5 @@
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -6,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <format>
 #include <functional>
 #include <limits>
 #include <mutex>
@@ -1126,6 +1128,72 @@ static void ReproduceEasySolutions(
   }
 }
 
+static void GrindNoperts() {
+  using Nopert = SolutionDB::Nopert;
+  using Solution = SolutionDB::Solution;
+  ArcFour rc(std::format("grind.noperts.{}", time(nullptr)));
+  SolutionDB db;
+  std::unordered_set<int> banned;
+
+  for (;;) {
+    std::vector<Nopert> all_noperts = db.GetAllNoperts();
+    std::vector<Nopert> noperts_unsolved;
+
+    for (Nopert &nopert : all_noperts) {
+      std::string name = SolutionDB::NopertName(nopert.id);
+      std::vector<Solution> sols = db.GetSolutionsFor(name);
+      if (sols.empty() && !banned.contains(nopert.id)) {
+        noperts_unsolved.push_back(std::move(nopert));
+      }
+    }
+
+    if (noperts_unsolved.empty()) {
+      printf("All the noperts are solved (or banned).\n");
+      return;
+    }
+
+    // Otherwise, pick one and grind it.
+    std::sort(noperts_unsolved.begin(),
+              noperts_unsolved.end(),
+              [](const auto &a, const auto &b) {
+                if (a.vertices.size() == b.vertices.size()) {
+                  return a.id < b.id;
+                } else {
+                  return a.vertices.size() < b.vertices.size();
+                }
+              });
+
+    const Nopert &nopert =
+      (rc.Byte() & 1) ?
+      // smallest unsolved
+      noperts_unsolved[0] :
+      // or randomly
+      noperts_unsolved[RandTo(&rc, noperts_unsolved.size())];
+
+    // Storage for name inside poly, which is just a char *.
+    std::string name = SolutionDB::NopertName(nopert.id);
+
+    std::optional<Polyhedron> opoly =
+      PolyhedronFromVertices(nopert.vertices, name.c_str());
+
+    if (!opoly.has_value()) {
+      printf("Error constructing nopert #%d\n", nopert.id);
+      banned.insert(nopert.id);
+      std::this_thread::sleep_for(std::chrono::seconds(30));
+      continue;
+    }
+
+    static constexpr int method = SolutionDB::METHOD_SIMUL;
+    StatusBar status(STATUS_LINES);
+    status.Printf("Try solving nopert #" APURPLE("%d") " with "
+                  ABLUE("%d") " vertices...\n",
+                  nopert.id, (int)nopert.vertices.size());
+    SolveWith(opoly.value(), method, &status, 3600.0);
+
+    delete opoly.value().faces;
+  }
+}
+
 static void GrindRandom(const std::unordered_set<std::string> &poly_filter) {
   std::vector<Polyhedron> all = {
     Tetrahedron(),
@@ -1228,6 +1296,10 @@ static void GrindRandom(const std::unordered_set<std::string> &poly_filter) {
 int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
+
+  if (true) {
+    GrindNoperts();
+  }
 
   // Grind every unsolved cell.
   if (true) {
