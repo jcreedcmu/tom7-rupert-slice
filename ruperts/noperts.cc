@@ -34,6 +34,7 @@
 #include "rendering.h"
 #include "solutions.h"
 #include "status-bar.h"
+#include "symmetry-groups.h"
 #include "threadutil.h"
 #include "timer.h"
 #include "util.h"
@@ -70,8 +71,9 @@ static vec3 RandomVec(ArcFour *rc) {
 // Return the number of iterations taken, or nullopt if we exceeded
 // the limit. If solved and the arguments are non-null, sets the outer
 // frame and inner frame to some solution.
-static constexpr int MAX_ITERS = 10000;
+static constexpr int MAX_ITERS = 20000;
 static constexpr int MIN_VERBOSE_ITERS = 500;
+static constexpr bool SAVE_HARD = false;
 static std::optional<int> TrySolve(int thread_idx,
                                    ArcFour *rc, const Polyhedron &poly,
                                    frame3 *outer_frame_out,
@@ -89,13 +91,15 @@ static std::optional<int> TrySolve(int thread_idx,
 
       if (iter == 2000) {
         hard++;
-        std::string filename = StringPrintf("hard.%lld.%d.stl",
-                                            time(nullptr), thread_idx);
-        SaveAsSTL(poly, filename);
-        status->Printf("[" APURPLE("%d") "] Hard %d-point polyhedron saved "
-                       "to " AGREEN("%s") "\n",
-                       thread_idx, (int)poly.vertices.size(),
-                       filename.c_str());
+        if (SAVE_HARD) {
+          std::string filename = StringPrintf("hard.%lld.%d.stl",
+                                              time(nullptr), thread_idx);
+          SaveAsSTL(poly, filename);
+          status->Printf("[" APURPLE("%d") "] Hard %d-point polyhedron saved "
+                         "to " AGREEN("%s") "\n",
+                         thread_idx, (int)poly.vertices.size(),
+                         filename.c_str());
+        }
       }
     }
 
@@ -182,9 +186,6 @@ static std::optional<int> TrySolve(int thread_idx,
 static Polyhedron RandomTetrahedron(ArcFour *rc) {
   Polyhedron tetra = Tetrahedron();
   for (;;) {
-    // TODO: We could maybe frame this as an optimization problem
-    // (an adversarial one). But to start, we just generate
-    // random tetrahedra.
     vec3 v0 = RandomVec(rc);
     vec3 v1 = RandomVec(rc);
     vec3 v2 = RandomVec(rc);
@@ -270,139 +271,12 @@ static Polyhedron RandomCyclicPolyhedron(ArcFour *rc, int num_points) {
   }
 }
 
-// The platonic solids are a nice way to get to their corresponding
-// symmetry groups. We normalize them and convert each vertex to
-// a rotation frame.
-struct SymmetryGroups {
-  struct Group {
-    std::vector<frame3> rots;
-    int points = 0;
-  };
-  Group tetrahedron, octahedron, icosahedron;
-  SymmetryGroups() {
-    {
-      Polyhedron t = Tetrahedron();
-      VertexRotationsTriangular(t, &tetrahedron.rots);
-      tetrahedron.points = 4;
-      delete t.faces;
-    }
-
-    {
-      Polyhedron o = Octahedron();
-      VertexRotationsQuadrilateral(o, &octahedron.rots);
-      EdgeRotations(o, &octahedron.rots);
-      octahedron.points = 6;
-      delete o.faces;
-    }
-
-    {
-      Polyhedron i = Icosahedron();
-      VertexRotationsPentagonal(i, &icosahedron.rots);
-      EdgeRotations(i, &icosahedron.rots);
-      icosahedron.points = 20;
-      delete i.faces;
-    }
-
-    status->Printf(
-        AYELLOW("tetrahedron") " has " ACYAN("%d") " rotations, %d pts\n",
-        (int)tetrahedron.rots.size(), tetrahedron.points);
-    status->Printf(
-        AYELLOW("octahedron") " has " ACYAN("%d") " rotations, %d pts\n",
-        (int)octahedron.rots.size(), octahedron.points);
-    status->Printf(
-        AYELLOW("icosahedron") " has " ACYAN("%d") " rotations, %d pts\n",
-        (int)icosahedron.rots.size(), icosahedron.points);
-  }
-
- private:
-
-  // For tetrahedron.
-  void VertexRotationsTriangular(const Polyhedron &poly,
-                                 std::vector<frame3> *rots) {
-    for (const vec3 &v : poly.vertices) {
-      vec3 axis = normalize(v);
-      rots->push_back(
-          yocto::rotation_frame(
-              yocto::rotation_quat(axis, 2.0 / 3.0 * std::numbers::pi)));
-      rots->push_back(
-          yocto::rotation_frame(
-              yocto::rotation_quat(axis, -2.0 / 3.0 * std::numbers::pi)));
-    }
-  }
-
-  // For octahedron.
-  void VertexRotationsQuadrilateral(const Polyhedron &poly,
-                                    std::vector<frame3> *rots) {
-    for (const vec3 &v : poly.vertices) {
-      vec3 axis = normalize(v);
-      for (int quarter_turn = 1; quarter_turn < 4; quarter_turn++) {
-        rots->push_back(
-            yocto::rotation_frame(
-                yocto::rotation_quat(
-                    axis, quarter_turn * std::numbers::pi / 2.0)));
-      }
-    }
-  }
-
-  // For icosahedron.
-  void VertexRotationsPentagonal(const Polyhedron &poly,
-                                 std::vector<frame3> *rots) {
-
-    for (const vec3 &v : poly.vertices) {
-      vec3 axis = normalize(v);
-      for (int fifth_turn = 1; fifth_turn < 5; fifth_turn++) {
-        rots->push_back(
-            yocto::rotation_frame(
-                yocto::rotation_quat(
-                    axis, fifth_turn / 5.0 * std::numbers::pi / 2.0)));
-      }
-    }
-  }
-
-
-  // Take an edge and rotate it 180 degrees, using the axis that runs
-  // from the origin to its midpoint. This flips the edge around (so it
-  // ends up the same).
-  void EdgeRotations(const Polyhedron &poly,
-                     std::vector<frame3> *rots) {
-    for (int i = 0; i < poly.vertices.size(); ++i) {
-      const vec3 &v0 = poly.vertices[i];
-      for (int j : poly.faces->neighbors[i]) {
-        CHECK(i != j);
-        // Only consider the edge in one orientation.
-        if (i < j) {
-          const vec3 &v1 = poly.vertices[j];
-          const vec3 mid = (v0 + v1) * 0.5;
-          const vec3 axis = normalize(mid);
-
-          // But also, we don't want to do this for both an edge and
-          // its opposite edge, because that gives us an equivalent
-          // rotation. So only do this when the axis is in one half
-          // space. We can check the dot product with an arbitrary
-          // reference axis. This only fails if the rotation axis is
-          // perpendicular to the reference axis, so use one that we
-          // know is not perpendicular to any of the rotation axes in
-          // these regular polyhedra.
-          constexpr vec3 half_space{1.23456789, 0.1133557799, 0.777555};
-
-          if (dot(half_space, axis) > 0.0) {
-            // Rotate 180 degrees about the axis.
-            rots->push_back(yocto::rotation_frame(
-                                yocto::rotation_quat(axis, std::numbers::pi)));
-          }
-        }
-      }
-    }
-  }
-};
-
-
 // Note that we can get more (because we require a minimum of
 // two random points so that they aren't just the platonic solids)
 // or fewer (because we deduplicate at the end) than NUM_POINTS,
 // but we try to get close.
 static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
-  static SymmetryGroups *symmetry = new SymmetryGroups;
+  static const SymmetryGroups *symmetry = new SymmetryGroups;
 
   static constexpr SymmetryGroup GROUPS_ENABLED = SYM_TETRAHEDRAL;
 
@@ -443,7 +317,7 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
         const SymmetryGroups::Group &group, int chance) -> bool {
         if (target_points >= group.points &&
             RandTo(rc, chance) == 0) {
-          PointMap3<char> pointset;
+          PointSet3 pointset;
 
           if (VERBOSE > 0) {
             status->Printf(
@@ -481,7 +355,7 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
 
               if (!pointset.Contains(v)) {
                 // identity is not included.
-                pointset.Add(v, '@');
+                pointset.Add(v);
               }
 
               for (const frame3 &rot : group.rots) {
@@ -489,7 +363,7 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
                 if (pointset.Contains(vr)) {
                   // Skip.
                 } else {
-                  pointset.Add(vr, '@');
+                  pointset.Add(vr);
                   todo.push_back(vr);
                 }
               }
@@ -594,6 +468,82 @@ static Polyhedron RandomSymmetricPolyhedron(ArcFour *rc, int num_points) {
   }
 }
 
+static Polyhedron RandomRhombicPolyhedron(ArcFour *rc, int num_points) {
+  static const SymmetryGroups *symmetry = new SymmetryGroups;
+
+  auto Rotate = [rc](const vec3 &v) {
+      switch (RandTo(rc, 4)) {
+      default:
+      case 0:
+        return v;
+      case 1:
+        return vec3(v.y, v.z, v.x);
+      case 2:
+        return vec3(v.z, v.x, v.y);
+      }
+    };
+
+  for (;;) {
+    // Rather than taking an arbitrary point set and inducing symmetry
+    // for it, this generates points in special positions (on the
+    // axes of symmetry.
+
+    PointSet3 points;
+
+    while (points.Size() < num_points) {
+      double dist = 0.5 + RandDouble(rc);
+
+      std::vector<vec3> todo;
+      auto MaybeAdd = [&](const vec3 &pt) {
+          if (!points.Contains(pt)) {
+            points.Add(pt);
+            todo.push_back(pt);
+          }
+        };
+
+
+      switch (RandTo(rc, 3)) {
+      default:
+      case 0: {
+        // 4-fold axis (z-axis)
+        MaybeAdd(Rotate(vec3{0.0, 0.0, dist}));
+        break;
+      }
+      case 1: {
+        // 3-fold axis (body diagonal)
+        MaybeAdd(Rotate(normalize(vec3{1.0, 1.0, 1.0}) * dist));
+        break;
+      }
+      case 2: {
+        // 2-fold axis (edge midpoint direction, e.g., (1, 1, 0))
+        MaybeAdd(Rotate(normalize(vec3{1.0, 1.0, 0.0}) * dist));
+        break;
+      }
+      }
+
+      // Add the full orbit of this point, and any points it generates.
+      while (!todo.empty()) {
+        vec3 p = todo.back();
+        todo.pop_back();
+
+        for (const frame3 &rot : symmetry->octahedron.rots) {
+          vec3 rotated_point = yocto::transform_point(rot, p);
+          MaybeAdd(rotated_point);
+        }
+      }
+    }
+
+    std::optional<Polyhedron> poly =
+      PolyhedronFromVertices(points.Points(), "randomrhombic");
+    if (poly.has_value()) {
+      CHECK(!poly.value().vertices.empty());
+      return std::move(poly.value());
+    } else {
+      degenerate++;
+    }
+  }
+}
+
 // Like a pointer to a polyhedron, but it should be explicitly
 // returned.
 struct LeasedPoly {
@@ -659,6 +609,8 @@ struct RandomCandidateMaker : public CandidateMaker {
       return LP(RandomCyclicPolyhedron(&rc, num_points));
     case SolutionDB::NOPERT_METHOD_SYMMETRIC:
       return LP(RandomSymmetricPolyhedron(&rc, num_points));
+    case SolutionDB::NOPERT_METHOD_RHOMBIC:
+      return LP(RandomRhombicPolyhedron(&rc, num_points));
     default:
       LOG(FATAL) << "Bad Nopert method";
       return LP(Cube());
@@ -1231,12 +1183,14 @@ static void Run(uint64_t parameter) {
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_REDUCE_SC;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
-  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_ADVERSARY;
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_ADVERSARY;
+  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RHOMBIC;
 
   switch (METHOD) {
   case SolutionDB::NOPERT_METHOD_RANDOM:
   case SolutionDB::NOPERT_METHOD_CYCLIC:
-  case SolutionDB::NOPERT_METHOD_SYMMETRIC: {
+  case SolutionDB::NOPERT_METHOD_SYMMETRIC:
+  case SolutionDB::NOPERT_METHOD_RHOMBIC: {
 
     CHECK(parameter >= 4) << "Must have at least four vertices.";
     for (;;) {
@@ -1302,6 +1256,7 @@ static void Run(uint64_t parameter) {
     for (;;) {
       DoAdversary(parameter);
       parameter++;
+      if (parameter > 24) parameter = 10;
     }
     break;
   default:

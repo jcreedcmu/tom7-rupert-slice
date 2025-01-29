@@ -9,6 +9,9 @@
 
 #include "yocto_matht.h"
 
+// Below there is also PointMap3, which is a simple wrapper for
+// the common case that you don't need interesting values.
+
 // SQDIST is the (squared) threshold below which two points are
 // considered the "same." Note that this kind of approach does not
 // actually yield an equivalence relation! I think better would
@@ -21,6 +24,8 @@ template<typename Value, double SQDIST = 0.000001>
 struct PointMap3 {
   using vec3 = yocto::vec<double, 3>;
 
+  // Note that this does *not* deduplicate points! It's just
+  // the number of elements that have been inserted.
   size_t Size() const {
     return pts.size();
   }
@@ -52,7 +57,7 @@ struct PointMap3 {
     pts.emplace_back(q, v);
   }
 
-  std::vector<vec3> Points() {
+  std::vector<vec3> Points() const {
     std::vector<vec3> ret;
     ret.reserve(pts.size());
     for (const auto &[p, v] : pts) ret.push_back(p);
@@ -97,7 +102,7 @@ struct PointMap2 {
     pts.emplace_back(q, v);
   }
 
-  std::vector<vec2> Points() {
+  std::vector<vec2> Points() const {
     std::vector<vec2> ret;
     ret.reserve(pts.size());
     for (const auto &[p, v] : pts) ret.push_back(p);
@@ -108,5 +113,32 @@ struct PointMap2 {
   std::vector<std::pair<vec2, Value>> pts;
 };
 
+template<double SQDIST = 0.000001>
+struct PointSet3 {
+  using vec3 = yocto::vec<double, 3>;
+
+  size_t Size() const {
+    return m.Size();
+  }
+
+  bool Contains(const vec3 &p) const {
+    return m.Contains(p);
+  }
+
+  // This allows points to overlap (or even be exactly coincident),
+  // so check Contains() before inserting if you do not want to insert
+  // such points. (But then the contents will be order-dependent!)
+  void Add(const vec3 &q) {
+    m.Add(q, Unit{});
+  }
+
+  std::vector<vec3> Points() const {
+    return m.Points();
+  }
+
+ private:
+  struct Unit { };
+  PointMap3<Unit, SQDIST> m;
+};
 
 #endif
