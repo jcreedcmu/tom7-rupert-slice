@@ -51,6 +51,11 @@ static void TestMacros() {
   printf(AFGCOLOR(50, 74, 168, "Blue FG") " "
          ABGCOLOR(50, 74, 168, "Blue BG") " "
          AFGCOLOR(226, 242, 136, ABGCOLOR(50, 74, 168, "Combined")) "\n");
+
+  printf(ABGCOLOR(200, 0, 200,
+                  ANSI_DARK_GREY "black on magenta "
+                  ANSI_YELLOW "yellow"
+                  ANSI_DARK_GREY " black again") "\n");
 }
 
 static void TestComposite() {

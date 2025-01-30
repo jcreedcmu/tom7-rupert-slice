@@ -340,10 +340,6 @@ std::string ANSI::Composite(
   return out + ANSI_RESET;
 }
 
-static bool FindAndRemove(int x, std::vector<int> *left) {
-  return std::erase_if(*left, [x](int y) { return x == y; }) != 0;
-}
-
 std::tuple<std::string,
            std::vector<uint32_t>,
            std::vector<uint32_t>>
@@ -364,6 +360,7 @@ ANSI::Decompose(const std::string &text_with_codes,
 
   uint32_t fg = default_fg;
   uint32_t bg = default_bg;
+  bool is_bright = false;
 
   std::span<uint32_t> s(codepoints.data(), codepoints.size());
 
@@ -409,21 +406,23 @@ ANSI::Decompose(const std::string &text_with_codes,
         // ANSI_RED = \x1B[1;31;40m
 
         // 1 means bold. 30-37 are foreground, 40-47 are background.
-        // 0 means reset.
-        std::vector<int> pleft = params;
-        bool is_reset = FindAndRemove(0, &pleft);
-        // bool is_bright = FindAndRemove(1, &pleft);
-        bool is_bright = false;
+        // 22 means not bold.
+        // 0 means reset everything.
 
-        if (is_reset) {
-          fg = default_fg;
-          bg = default_bg;
-        }
+        std::vector<int> pleft = params;
+        // Empty parameter list is equivalent to "0" (reset).
+        if (pleft.empty()) pleft = {0};
 
         for (int pidx = 0; pidx < (int)pleft.size(); pidx++) {
           const int p = pleft[pidx];
-          if (p == 1) {
+          if (p == 0) {
+            fg = default_fg;
+            bg = default_bg;
+            is_bright = false;
+          } else if (p == 1) {
             is_bright = true;
+          } else if (p == 22) {
+            is_bright = false;
           } else if (p >= 30 && p <= 37) {
             if (is_bright) {
               fg = (BRIGHT_RGB[p - 30] << 8) | 0xFF;

@@ -33,15 +33,16 @@
 #define ANSI_RESET "\x1B[m"
 
 // These are "regular" foreground colors.
-#define ANSI_DARK_RED "\x1B[31m"
+// They explicitly set the non-bright fg state.
+#define ANSI_DARK_RED "\x1B[22;31m"
 // dark grey = black
-#define ANSI_DARK_GREY "\x1B[30m"
-#define ANSI_DARK_BLUE "\x1B[34m"
-#define ANSI_DARK_CYAN "\x1B[36m"
-#define ANSI_DARK_YELLOW "\x1B[33m"
-#define ANSI_DARK_GREEN "\x1B[32m"
-#define ANSI_DARK_WHITE "\x1B[37m"
-#define ANSI_DARK_PURPLE "\x1B[35m"
+#define ANSI_DARK_GREY "\x1B[22;30m"
+#define ANSI_DARK_BLUE "\x1B[22;34m"
+#define ANSI_DARK_CYAN "\x1B[22;36m"
+#define ANSI_DARK_YELLOW "\x1B[22;33m"
+#define ANSI_DARK_GREEN "\x1B[22;32m"
+#define ANSI_DARK_WHITE "\x1B[22;37m"
+#define ANSI_DARK_PURPLE "\x1B[22;35m"
 
 #define ARED(s) ANSI_RED s ANSI_RESET
 #define AGREY(s) ANSI_GREY s ANSI_RESET
