@@ -31,13 +31,6 @@
 template<bool CACHE = true>
 struct LargeOptimizer {
 
-  // Convenience constant for inputs where the function cannot even be
-  // evaluated. However, optimization will be more efficient if you
-  // instead return a penalty that exceeds any feasible score, and has
-  // a gradient towards the feasible region.
-  static inline constexpr double LARGE_SCORE =
-    std::numeric_limits<double>::max();
-
   // The first component is the score; lower is better.
   // The second parameter is true if this argument is feasible;
   // GetBest will only consider such arguments.
@@ -48,6 +41,15 @@ struct LargeOptimizer {
   // function to optimize.
   using function_type =
     std::function<return_type(const std::vector<double> &)>;
+
+  // Convenience constants for inputs where the function cannot even be
+  // evaluated. However, optimization will be more efficient if you
+  // instead return a penalty that exceeds any feasible score, and has
+  // a gradient towards the feasible region.
+  static inline constexpr double LARGE_SCORE =
+    std::numeric_limits<double>::max();
+  static inline constexpr return_type INFEASIBLE =
+    std::make_pair(LARGE_SCORE, false);
 
   LargeOptimizer(function_type f,
                  // Number of arguments.

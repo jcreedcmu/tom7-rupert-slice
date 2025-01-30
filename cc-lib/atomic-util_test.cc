@@ -7,7 +7,12 @@
 #include "base/logging.h"
 #include "ansi.h"
 
-DECLARE_COUNTERS(bytes, lines, errors, u1_, u2_, u3_, u4_, last);
+// Always group 8 counters together, as this is much more efficient.
+// But here I want to test different arities of the macros.
+DECLARE_COUNTERS(bytes, lines, errors);
+DECLARE_COUNTERS(last);
+
+DECLARE_COUNTERS(one, two, three, four, five, six, seven, eight);
 
 // Must go first!
 static void TestCountersSimple() {
@@ -50,6 +55,8 @@ static void TestCountersSimple() {
   CHECK(bytes.Read() == 3);
   CHECK(lines.Read() == 1);
   CHECK(errors.Read() == 1);
+
+  CHECK(one.Read() == eight.Read());
 }
 
 static void TestThreaded() {

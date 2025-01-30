@@ -20,17 +20,9 @@
 // Only incrementing is efficient here, but it should be a lot
 // faster than std::atomic<uint64_t> (or using a mutex) when there
 // is a lot of contention.
-
-#define DECLARE_COUNTERS(a, b, c, d, e, f, g, h) \
-  [[maybe_unused]] static internal::EightCounters ec_ ## a;        \
-  [[maybe_unused]] static AtomicCounter a(&ec_ ## a, 0);           \
-  [[maybe_unused]] static AtomicCounter b(&ec_ ## a, 1);           \
-  [[maybe_unused]] static AtomicCounter c(&ec_ ## a, 2);           \
-  [[maybe_unused]] static AtomicCounter d(&ec_ ## a, 3);           \
-  [[maybe_unused]] static AtomicCounter e(&ec_ ## a, 4);           \
-  [[maybe_unused]] static AtomicCounter f(&ec_ ## a, 5);           \
-  [[maybe_unused]] static AtomicCounter g(&ec_ ## a, 6);           \
-  [[maybe_unused]] static AtomicCounter h(&ec_ ## a, 7)
+//
+// You can also DECLARE_COUNTERS(a, b, c); with fewer than 8. This
+// does the same thing as leaving some unused ones in the argument list.
 
 namespace internal {
 // Based on a great article by Travis Downs.
@@ -149,5 +141,56 @@ class AtomicCounter {
   // 0-7
   uint8_t offset = 0;
 };
+
+#define DECLARE_COUNTERS_8(a, b, c, d, e, f, g, h) \
+  [[maybe_unused]] static internal::EightCounters ec_ ## a;        \
+  [[maybe_unused]] static AtomicCounter a(&ec_ ## a, 0);           \
+  [[maybe_unused]] static AtomicCounter b(&ec_ ## a, 1);           \
+  [[maybe_unused]] static AtomicCounter c(&ec_ ## a, 2);           \
+  [[maybe_unused]] static AtomicCounter d(&ec_ ## a, 3);           \
+  [[maybe_unused]] static AtomicCounter e(&ec_ ## a, 4);           \
+  [[maybe_unused]] static AtomicCounter f(&ec_ ## a, 5);           \
+  [[maybe_unused]] static AtomicCounter g(&ec_ ## a, 6);           \
+  [[maybe_unused]] static AtomicCounter h(&ec_ ## a, 7)
+
+#define DECLARE_COUNTERS_7(a, b, c, d, e, f, g) \
+  DECLARE_COUNTERS_8(a, b, c, d, e, f, g, a ## unused_8)
+
+#define DECLARE_COUNTERS_6(a, b, c, d, e, f) \
+  DECLARE_COUNTERS_8(a, b, c, d, e, f, a ## unused_7, a ## unused_8)
+
+#define DECLARE_COUNTERS_5(a, b, c, d, e) \
+  DECLARE_COUNTERS_8(a, b, c, d, e, a ## unused_6, a ## unused_7, a ## unused_8)
+
+#define DECLARE_COUNTERS_4(a, b, c, d) \
+  DECLARE_COUNTERS_8(a, b, c, d, a ## unused_5, a ## unused_6, a ## unused_7, \
+                     a ## unused_8)
+
+#define DECLARE_COUNTERS_3(a, b, c) \
+  DECLARE_COUNTERS_8(a, b, c, a ## unused_4, a ## unused_5, a ## unused_6, \
+                     a ## unused_7, a ## unused_8)
+
+#define DECLARE_COUNTERS_2(a, b) \
+  DECLARE_COUNTERS_8(a, b, a ## unused_3, a ## unused_4, a ## unused_5, \
+                     a ## unused_6, a ## unused_7, a ## unused_8)
+
+#define DECLARE_COUNTERS_1(a) \
+  DECLARE_COUNTERS_8(a, a ## unused_2, a ## unused_3, a ## unused_4, \
+                     a ## unused_5, a ## unused_6, a ## unused_7, \
+                     unused_8)
+
+// Trick for counting the number of arguments. When VA_NARGS_IMPL is
+// applied, the actual arguments displace the constant (counting down)
+// arguments, so that we can extract the number.
+#define VA_NARGS(...) VA_NARGS_IMPL(__VA_ARGS__, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+#define VA_NARGS_IMPL(_1, _2, _3, _4, _5, _6, _7, _8, _9, N, ...) N
+
+// Then call the version of the macro with the number of args.
+#define DECLARE_COUNTERS_DISPATCH_INNER(N, ...) DECLARE_COUNTERS_ ## N(__VA_ARGS__)
+#define DECLARE_COUNTERS_DISPATCH(N, ...)       \
+  DECLARE_COUNTERS_DISPATCH_INNER(N, __VA_ARGS__)
+
+#define DECLARE_COUNTERS(...) \
+  DECLARE_COUNTERS_DISPATCH(VA_NARGS(__VA_ARGS__), __VA_ARGS__)
 
 #endif
