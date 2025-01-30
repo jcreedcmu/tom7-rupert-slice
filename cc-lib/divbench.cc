@@ -133,7 +133,7 @@ static double Bench() {
 }
 
 int main(int argc, char **argv) {
-  AnsiInit();
+  ANSI::Init();
   printf("Begin.\n");
   Bench();
 

@@ -195,16 +195,4 @@ struct ANSI {
             uint32_t default_bg = 0x000000FF);
 };
 
-// Deprecated. Use ANSI:: versions.
-inline std::string AnsiForegroundRGB(uint8_t r, uint8_t g, uint8_t b) {
-  return ANSI::ForegroundRGB(r, g, b);
-}
-inline std::string AnsiBackgroundRGB(uint8_t r, uint8_t g, uint8_t b) {
-  return ANSI::BackgroundRGB(r, g, b);
-}
-
-// Deprecated. Use ANSI::Init.
-inline void AnsiInit() { return ANSI::Init(); }
-
-
 #endif
