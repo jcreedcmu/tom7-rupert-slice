@@ -47,7 +47,8 @@
 
 #define ABLOOD(s) AFGCOLOR(148, 0, 0, s)
 
-DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped, hard, successes);
+DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped, hard, successes,
+                 infeasible);
 
 static constexpr int VERBOSE = 0;
 static constexpr bool SAVE_EVERY_IMAGE = false;
@@ -1001,8 +1002,6 @@ static bool Nopert(CandidateMaker *candidates) {
 }
 
 static void UnOpt(int64_t num_points) {
-  attempts.Reset();
-
   constexpr double MAX_SECONDS = 60.0 * 60.0;
 
   Timer run_timer;
@@ -1031,7 +1030,13 @@ static void UnOpt(int64_t num_points) {
 
         auto ToPoints = [num_points](const std::vector<double> &args) {
             std::vector<vec3> points;
-            CHECK(args.size() == num_points * 3);
+            // Without loss of generality, we always place one point
+            // at 0, 0, 1. This reduces the number of parameters to
+            // search, but still covers all polyhedra (up to
+            // scaling/rotation).
+            points.emplace_back(0.0, 0.0, 1.0);
+
+            CHECK(args.size() == (num_points - 1) * 3);
             for (int i = 0; i < args.size(); i += 3) {
               double theta = args[i + 0];
               double phi = args[i + 1];
@@ -1051,6 +1056,10 @@ static void UnOpt(int64_t num_points) {
             const std::vector<double> &args) -> LargeOpt::return_type {
             std::vector<vec3> points = ToPoints(args);
             CHECK(points.size() == num_points);
+
+            // It would also be nice to reject polyhedra that do not
+            // contain the origin, especially if we could do that cheaply
+            // before computing the hull. But it's not that easy?
 
             // Insist that it be convex.
             std::vector<int> hull = Hull3D::HullPoints(points);
@@ -1077,6 +1086,7 @@ static void UnOpt(int64_t num_points) {
                 }
               }
 
+              infeasible++;
               // Not feasible.
               /*
               status->Printf("Infeasible (%d pts; %d hull) with badness %f",
@@ -1105,7 +1115,7 @@ static void UnOpt(int64_t num_points) {
 
             if (!oiters.has_value()) {
               // Success!
-               return std::make_pair(0.0, true);
+              return std::make_pair(0.0, true);
             } else {
               int iters = oiters.value();
               {
@@ -1122,24 +1132,42 @@ static void UnOpt(int64_t num_points) {
 
         // θ, φ, ρ triples
         std::vector<LargeOpt::arginfo> arginfos;
-        for (int i = 0; i < num_points; i++) {
-          // polar angle
-          arginfos.push_back(LargeOpt::Double(0.0, std::numbers::pi));
-          // azimuth angle
+        for (int i = 0; i < num_points - 1; i++) {
+          // polar angle (theta)
+          if (i == 0) {
+            // we only care about polyhedra that contain the origin,
+            // so we know at least one vertex is on the bottom hemisphere
+            // (the fixed vertex is in the upper hemisphere at (0, 0, 1)).
+            // So we say that the first parameterized point has reduced
+            // range.
+            arginfos.push_back(LargeOpt::Double(std::numbers::pi * 0.5,
+                                                std::numbers::pi));
+          } else {
+            arginfos.push_back(LargeOpt::Double(0.0, std::numbers::pi));
+          }
+
+          // azimuth angle (phi)
           arginfos.push_back(LargeOpt::Double(0.0, 2.0 * std::numbers::pi));
           // length
           arginfos.push_back(LargeOpt::Double(0.000001, std::numbers::sqrt2));
         }
 
-        LargeOpt lopt(OuterLoss, num_points * 3, Rand64(&rc));
+        LargeOpt lopt(OuterLoss, (num_points - 1) * 3, Rand64(&rc));
 
         // Need a feasible input to start. Anything is feasible as long as
         // it's a convex polyhedron, so use a random cyclic one.
+        // (Note that this can still generate degenerate polyhedra; maybe
+        // we should use a more regular one?)
         std::vector<double> start;
-        for (int i = 0; i < num_points; i++) {
+        for (int i = 0; i < num_points - 1; i++) {
           // We can easily generate such polyhedra using spherical coordinates,
           // by just setting length = 1.
-          start.push_back(RandDouble(&rc) * std::numbers::pi);
+          if (i == 0) {
+            start.push_back(RandDouble(&rc) * std::numbers::pi * 0.5 +
+                            std::numbers::pi * 0.5);
+          } else {
+            start.push_back(RandDouble(&rc) * std::numbers::pi);
+          }
           start.push_back(RandDouble(&rc) * std::numbers::pi * 2.0);
           start.push_back(1.0);
         }
@@ -1164,11 +1192,13 @@ static void UnOpt(int64_t num_points) {
                 std::string msg =
                   StringPrintf(
                       ACYAN("unopt") " " AWHITE("%d") " " AGREY("|") " "
+                      AORANGE("%s") ABLOOD("∞") " "
                       ARED("%s") ABLOOD("×") " "
                       ABLUE("%s") AWHITE("∎") " "
                       AGREEN("%s") AWHITE("♚") " "
                       APURPLE("%s") AWHITE("∳"),
                       num_points,
+                      FormatNum(infeasible.Read()).c_str(),
                       FormatNum(degenerate.Read()).c_str(),
                       FormatNum(polyhedra.Read()).c_str(),
                       FormatNum(successes.Read()).c_str(),
