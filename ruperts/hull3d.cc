@@ -14,9 +14,13 @@
 
 #include "yocto_matht.h"
 
+#include "base/logging.h"
+
 #define CONVHULL_3D_ENABLE
 
 #undef CONVHULL_3D_USE_SINGLE_PRECISION
+
+#define NDEBUG 1
 
 /*
  Copyright (c) 2017-2021 Leo McCormack
@@ -974,7 +978,8 @@ void convhull_3d_build_alloc
                 detA = 0.0;
 
                 /* While new point is coplanar, choose another point */
-                while(detA==0.0){
+                // tom7 had this bail if we try all the points
+                while (detA==0.0 && index < num_p) {
                     for(j=0;j<d; j++)
                         for(l=0; l<d+1; l++)
                             A[j*(d+1)+l] = points[(faces[k*d+j])*(d+1) + l];
@@ -983,6 +988,13 @@ void convhull_3d_build_alloc
                             A[j*(d+1)+l] = points[pp[index]*(d+1)+l];
                     index++;
                     detA = det_4x4(A);
+                }
+
+                // CHECK(index < num_p) << index << " " << num_p;
+                // tom7 added this too
+                if (index >= num_p) {
+                  FUCKED = true;
+                  break;
                 }
 
                 /* Orient faces so that each point on the original simplex can't see the opposite face */
@@ -1899,26 +1911,6 @@ void delaunay_nd_mesh_alloc
 
 // ------------------ end convhull_3d.h
 
-#if 0
-  typedef struct _ch_vertex {
-    union {
-        CH_FLOAT v[3];
-        struct{
-             CH_FLOAT x, y, z;
-        };
-    };
-} ch_vertex;
-typedef ch_vertex ch_vec3;
-
-
-void convhull_3d_build(/* input arguments */
-                       ch_vertex* const in_vertices,            /* vector of input vertices; nVert x 1 */
-                       const int nVert,                         /* number of vertices */
-                       /* output arguments */
-                       int** out_faces,                         /* & of empty int*, output face indices; flat: nOut_faces x 3 */
-                       int* nOut_faces);                        /* & of int, number of output face indices */
-#endif
-
 std::vector<int> Hull3D::HullPoints(const std::vector<vec3> &pts) {
   std::vector<ch_vec3> ch_pts;
   ch_pts.reserve(pts.size());
@@ -1946,4 +1938,12 @@ std::vector<int> Hull3D::HullPoints(const std::vector<vec3> &pts) {
   std::vector<int> hull(hull_set.begin(), hull_set.end());
   std::sort(hull.begin(), hull.end());
   return hull;
+}
+
+std::vector<Hull3D::vec3> Hull3D::ReduceToHull(const std::vector<vec3> &v) {
+  std::vector<int> hull = HullPoints(v);
+  std::vector<vec3> out;
+  out.reserve(hull.size());
+  for (int i : hull) out.push_back(v[i]);
+  return out;
 }

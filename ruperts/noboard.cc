@@ -18,6 +18,8 @@ using Nopert = SolutionDB::Nopert;
 static void PrintAll() {
   SolutionDB db;
 
+  int ok = 0;
+  int smallest = 99999;
   std::vector<Solution> solutions = db.GetAllNopertSolutions();
   std::unordered_map<int, int> solved;
   for (const Solution &sol : solutions) {
@@ -47,11 +49,17 @@ static void PrintAll() {
     int nsol = solved[nopert.id];
     if (nsol > 0) {
       printf("  " ARED("✘") " solved");
+    } else {
+      ok++;
+      smallest = std::min(smallest, (int)nopert.vertices.size());
     }
     printf("\n");
   }
 
-  printf("\n" ABLUE("%d") " noperts.\n", (int)noperts.size());
+  printf("\n" ABLUE("%d") " noperts; " AGREEN("%d") " not rejected.\n"
+         "Smallest: " AWHITE("%d") " verts.\n",
+         (int)noperts.size(), ok,
+         smallest);
 }
 
 int main(int argc, char **argv) {

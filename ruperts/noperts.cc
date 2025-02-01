@@ -2,6 +2,7 @@
 #include <array>
 #include <bit>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -24,8 +25,10 @@
 #include "auto-histo.h"
 #include "base/stringprintf.h"
 #include "hull.h"
+#include "hull3d.h"
 #include "interval-cover-util.h"
 #include "interval-cover.h"
+#include "opt/large-optimizer.h"
 #include "opt/opt.h"
 #include "periodically.h"
 #include "point-map.h"
@@ -44,8 +47,7 @@
 
 #define ABLOOD(s) AFGCOLOR(148, 0, 0, s)
 
-DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped,
-                 hard, successes, u1_, u_2);
+DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped, hard, successes);
 
 static constexpr int VERBOSE = 0;
 static constexpr bool SAVE_EVERY_IMAGE = false;
@@ -71,8 +73,10 @@ static vec3 RandomVec(ArcFour *rc) {
 // Return the number of iterations taken, or nullopt if we exceeded
 // the limit. If solved and the arguments are non-null, sets the outer
 // frame and inner frame to some solution.
-static constexpr int MAX_ITERS = 20000;
-static constexpr int MIN_VERBOSE_ITERS = 500;
+//
+// Note:
+static constexpr int NOPERT_ITERS = 200000;
+static constexpr int MIN_VERBOSE_ITERS = 5000;
 static constexpr bool SAVE_HARD = false;
 static std::optional<int> TrySolve(int thread_idx,
                                    ArcFour *rc, const Polyhedron &poly,
@@ -80,16 +84,16 @@ static std::optional<int> TrySolve(int thread_idx,
                                    frame3 *inner_frame_out) {
   CHECK(!poly.faces->v.empty());
 
-  for (int iter = 0; iter < MAX_ITERS; iter++) {
+  for (int iter = 0; iter < NOPERT_ITERS; iter++) {
 
-    if (iter > 0 && (iter % 500) == 0) {
+    if (iter > 0 && (iter % 5000) == 0) {
       status->Printf("[" APURPLE("%d") "] %d-point polyhedron "
                      AFGCOLOR(190, 220, 190, "not solved")
                      " after " AWHITE("%d") " iters...\n",
                      thread_idx,
                      (int)poly.vertices.size(), iter);
 
-      if (iter == 2000) {
+      if (iter == 20000) {
         hard++;
         if (SAVE_HARD) {
           std::string filename = StringPrintf("hard.%lld.%d.stl",
@@ -160,7 +164,7 @@ static std::optional<int> TrySolve(int thread_idx,
 
     const int seed = RandTo(rc, 0x7FFFFFFE);
     const auto &[args, error] =
-      Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 10, seed);
+      Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 1, seed);
 
     if (error == 0.0) {
       if (outer_frame_out != nullptr) {
@@ -483,26 +487,46 @@ static Polyhedron RandomRhombicPolyhedron(ArcFour *rc, int num_points) {
       }
     };
 
+  auto Permute = [rc](const vec3 &v) {
+      switch (RandTo(rc, 6)) {
+      default:
+      case 0:
+        return v;
+      case 1:
+        return vec3(v.y, v.z, v.x);
+      case 2:
+        return vec3(v.z, v.x, v.y);
+      case 3:
+        return vec3(v.x, v.z, v.y);
+      case 4:
+        return vec3(v.y, v.x, v.z);
+      case 5:
+        return vec3(v.z, v.y, v.x);
+      }
+    };
+
   for (;;) {
     // Rather than taking an arbitrary point set and inducing symmetry
     // for it, this generates points in special positions (on the
     // axes of symmetry.
 
-    PointSet3 points;
+    // All points that have ever been added.
+    PointSet3 point_set;
+    std::vector<vec3> points;
 
-    while (points.Size() < num_points) {
+    while (points.size() < num_points) {
       double dist = 0.5 + RandDouble(rc);
 
       std::vector<vec3> todo;
       auto MaybeAdd = [&](const vec3 &pt) {
-          if (!points.Contains(pt)) {
-            points.Add(pt);
+          if (!point_set.Contains(pt)) {
+            point_set.Add(pt);
             todo.push_back(pt);
+            points.push_back(pt);
           }
         };
 
-
-      switch (RandTo(rc, 3)) {
+      switch (RandTo(rc, 4)) {
       default:
       case 0: {
         // 4-fold axis (z-axis)
@@ -519,6 +543,13 @@ static Polyhedron RandomRhombicPolyhedron(ArcFour *rc, int num_points) {
         MaybeAdd(Rotate(normalize(vec3{1.0, 1.0, 0.0}) * dist));
         break;
       }
+
+      case 3: {
+        double d2 = RandDouble(rc);
+        MaybeAdd(Permute(normalize(vec3{1.0, d2, 0.0}) * dist));
+        break;
+      }
+
       }
 
       // Add the full orbit of this point, and any points it generates.
@@ -531,10 +562,12 @@ static Polyhedron RandomRhombicPolyhedron(ArcFour *rc, int num_points) {
           MaybeAdd(rotated_point);
         }
       }
+
+      points = Hull3D::ReduceToHull(points);
     }
 
     std::optional<Polyhedron> poly =
-      PolyhedronFromVertices(points.Points(), "randomrhombic");
+      PolyhedronFromVertices(points, "randomrhombic");
     if (poly.has_value()) {
       CHECK(!poly.value().vertices.empty());
       return std::move(poly.value());
@@ -967,7 +1000,253 @@ static bool Nopert(CandidateMaker *candidates) {
   return success;
 }
 
-// TODO: Opt/Unopt nesting
+static void UnOpt(int64_t num_points) {
+  attempts.Reset();
+
+  constexpr double MAX_SECONDS = 60.0 * 60.0;
+
+  Timer run_timer;
+  std::mutex m;
+  bool should_die = false;
+  int64_t run_calls = 0;
+  AutoHisto iter_histo;
+  iter_histo.AddFlag(0.0);
+  iter_histo.AddFlag(500.0);
+  static constexpr int NUM_THREADS = 8;
+  // static constexpr int NUM_THREADS = 1;
+  Periodically status_per(5.0);
+  ParallelFan(
+      NUM_THREADS,
+      [&](int thread_idx) {
+        ArcFour rc(std::format("adv.{}.{}.{}", thread_idx,
+                               num_points, time(nullptr)));
+
+        // Here we have nested optimization. The outer optimizer is trying to
+        // set vertices such that the inner optimizer takes many iterations to
+        // find solutions.
+
+        // Each point is *three* parameters so we use the large optimizer
+        // for this. No need for a cache since everything is a double.
+        using LargeOpt = LargeOptimizer<false>;
+
+        auto ToPoints = [num_points](const std::vector<double> &args) {
+            std::vector<vec3> points;
+            CHECK(args.size() == num_points * 3);
+            for (int i = 0; i < args.size(); i += 3) {
+              double theta = args[i + 0];
+              double phi = args[i + 1];
+              double len = args[i + 2];
+
+              // Convert to Cartesian.
+              double sin_theta = std::sin(theta);
+              points.emplace_back(
+                  len * sin_theta * std::cos(phi),
+                  len * sin_theta * std::sin(phi),
+                  len * cos(theta));
+            }
+            return points;
+          };
+
+        auto OuterLoss = [num_points, &ToPoints, &rc, &m, &iter_histo](
+            const std::vector<double> &args) -> LargeOpt::return_type {
+            std::vector<vec3> points = ToPoints(args);
+            CHECK(points.size() == num_points);
+
+            // Insist that it be convex.
+            std::vector<int> hull = Hull3D::HullPoints(points);
+            if (hull.size() != num_points) {
+              std::unordered_set<int> hull_set(hull.begin(), hull.end());
+              double badness = 100000.0;
+
+              for (int i = 0; i < num_points; i++) {
+                if (!hull_set.contains(i)) {
+                  // This point is not in the hull, which means it's
+                  // inside it. Don't allow this, and provide some
+                  // gradient.
+                  //
+                  // Best would be to compute the distance from the
+                  // point to the hull itself, but this is
+                  // computationally expensive (need to compute the
+                  // faces, do various distance checks). We know that
+                  // making the length longer will always move it
+                  // towards the hull (since we are inside), so we
+                  // penalize it for being short, simply by negating
+                  // the length.
+                  double len = args[i * 3 + 2];
+                  badness += -len;
+                }
+              }
+
+              // Not feasible.
+              /*
+              status->Printf("Infeasible (%d pts; %d hull) with badness %f",
+                             (int)points.size(), (int)hull.size(),
+                             badness);
+              */
+              return std::pair(badness, false);
+            }
+
+            // Otherwise, we have a convex polyhedron.
+            std::optional<Polyhedron> opoly = PolyhedronFromConvexVertices(
+                std::move(points), "unopt");
+
+            if (!opoly.has_value()) {
+              // This can happen if the hull has degenerate faces (colinear points?).
+              // status->Printf("wasn't convex??");
+              degenerate++;
+              return LargeOpt::INFEASIBLE;
+            }
+
+            const Polyhedron &poly = opoly.value();
+            polyhedra++;
+            std::optional<int> oiters = TrySolve(0, &rc, poly,
+                                                 nullptr, nullptr);
+            delete poly.faces;
+
+            if (!oiters.has_value()) {
+              // Success!
+               return std::make_pair(0.0, true);
+            } else {
+              int iters = oiters.value();
+              {
+                MutexLock ml(&m);
+                iter_histo.Observe(iters);
+              }
+              CHECK(iters <= NOPERT_ITERS);
+              /*
+              status->Printf("Feasible! %d iters\n", iters);
+              */
+              return std::make_pair(NOPERT_ITERS - iters, true);
+            }
+          };
+
+        // θ, φ, ρ triples
+        std::vector<LargeOpt::arginfo> arginfos;
+        for (int i = 0; i < num_points; i++) {
+          // polar angle
+          arginfos.push_back(LargeOpt::Double(0.0, std::numbers::pi));
+          // azimuth angle
+          arginfos.push_back(LargeOpt::Double(0.0, 2.0 * std::numbers::pi));
+          // length
+          arginfos.push_back(LargeOpt::Double(0.000001, std::numbers::sqrt2));
+        }
+
+        LargeOpt lopt(OuterLoss, num_points * 3, Rand64(&rc));
+
+        // Need a feasible input to start. Anything is feasible as long as
+        // it's a convex polyhedron, so use a random cyclic one.
+        std::vector<double> start;
+        for (int i = 0; i < num_points; i++) {
+          // We can easily generate such polyhedra using spherical coordinates,
+          // by just setting length = 1.
+          start.push_back(RandDouble(&rc) * std::numbers::pi);
+          start.push_back(RandDouble(&rc) * std::numbers::pi * 2.0);
+          start.push_back(1.0);
+        }
+
+        lopt.Sample(start);
+
+        for (;;) {
+          {
+            MutexLock ml(&m);
+            if (should_die) return;
+            const double total_time = run_timer.Seconds();
+            if (total_time > MAX_SECONDS) {
+              should_die = true;
+              return;
+            }
+
+            status_per.RunIf([&]{
+                std::string timing = "TODO: Timing";
+                double numer = total_time;
+                double denom = MAX_SECONDS;
+
+                std::string msg =
+                  StringPrintf(
+                      ACYAN("unopt") " " AWHITE("%d") " " AGREY("|") " "
+                      ARED("%s") ABLOOD("×") " "
+                      ABLUE("%s") AWHITE("∎") " "
+                      AGREEN("%s") AWHITE("♚") " "
+                      APURPLE("%s") AWHITE("∳"),
+                      num_points,
+                      FormatNum(degenerate.Read()).c_str(),
+                      FormatNum(polyhedra.Read()).c_str(),
+                      FormatNum(successes.Read()).c_str(),
+                      FormatNum(run_calls).c_str());
+
+                ANSI::ProgressBarOptions options;
+                options.include_frac = false;
+                options.include_percent = true;
+
+                std::string bar =
+                  ANSI::ProgressBar(numer, denom, msg, total_time, options);
+
+                status->Statusf(
+                    "%s\n"
+                    "%s\n"
+                    "%s\n",
+                    iter_histo.SimpleANSI(HISTO_LINES).c_str(),
+                    timing.c_str(),
+                    bar.c_str());
+              });
+          }
+
+          lopt.Run(arginfos,
+                   // number of calls
+                   std::nullopt, std::nullopt,
+                   // optimize for a minute at a time
+                   {60.0},
+                   // Stop if we succeed
+                   {0});
+
+          {
+            MutexLock ml(&m);
+            run_calls++;
+          }
+
+          const auto besto = lopt.GetBest();
+          CHECK(besto.has_value()) << "We sampled a feasible arg to start.";
+          const auto &[args, outer_loss] = besto.value();
+          if (outer_loss == 0.0) {
+            status->Printf("Success!");
+            // Success!
+            MutexLock ml(&m);
+            // If multiple threads finish at the same time, we save all
+            // of them.
+            should_die = true;
+
+            // Convert to
+            std::optional<Polyhedron> opoly =
+              PolyhedronFromConvexVertices(ToPoints(args), "unopt");
+            CHECK(opoly.has_value()) << "Bug: These should be convex point sets "
+              "by construction!";
+            const Polyhedron &poly = opoly.value();
+
+            successes++;
+
+            status->Printf(
+                "\n\n" ABGCOLOR(200, 0, 200,
+                                ANSI_DARK_GREY "***** "
+                                ANSI_YELLOW "NOPERT"
+                                ANSI_DARK_GREY " with "
+                                ANSI_WHITE "%d"
+                                ANSI_DARK_GREY " vertices *****")
+                "\n", (int)poly.vertices.size());
+
+
+            SolutionDB db;
+            db.AddNopert(poly, SolutionDB::NOPERT_METHOD_UNOPT);
+            return;
+          }
+        }
+      });
+
+  status->Printf("Failed " ACYAN("unopt") " after %s\n",
+                 ANSI::Time(run_timer.Seconds()).c_str());
+  SolutionDB db;
+  db.AddNopertAttempt(num_points, attempts.Read(), iter_histo,
+                      SolutionDB::NOPERT_METHOD_UNOPT);
+}
 
 static void DoAdversary(int64_t num_points) {
   const double TIME_LIMIT = 60.0 * 60.0;
@@ -1184,7 +1463,8 @@ static void Run(uint64_t parameter) {
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_ADVERSARY;
-  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RHOMBIC;
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RHOMBIC;
+  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_UNOPT;
 
   switch (METHOD) {
   case SolutionDB::NOPERT_METHOD_RANDOM:
@@ -1255,6 +1535,13 @@ static void Run(uint64_t parameter) {
   case SolutionDB::NOPERT_METHOD_ADVERSARY:
     for (;;) {
       DoAdversary(parameter);
+      parameter++;
+      if (parameter > 24) parameter = 10;
+    }
+    break;
+  case SolutionDB::NOPERT_METHOD_UNOPT:
+    for (;;) {
+      UnOpt(parameter);
       parameter++;
       if (parameter > 24) parameter = 10;
     }

@@ -126,6 +126,7 @@ struct SolutionDB {
   static constexpr int NOPERT_METHOD_REDUCE_SC = 4;
   static constexpr int NOPERT_METHOD_ADVERSARY = 5;
   static constexpr int NOPERT_METHOD_RHOMBIC = 6;
+  static constexpr int NOPERT_METHOD_UNOPT = 7;
   static const char *NopertMethodName(int m) {
     switch (m) {
     case NOPERT_METHOD_RANDOM: return "NOPERT_METHOD_RANDOM";
@@ -134,6 +135,7 @@ struct SolutionDB {
     case NOPERT_METHOD_REDUCE_SC: return "NOPERT_METHOD_REDUCE_SC";
     case NOPERT_METHOD_ADVERSARY: return "NOPERT_METHOD_ADVERSARY";
     case NOPERT_METHOD_RHOMBIC: return "NOPERT_METHOD_RHOMBIC";
+    case NOPERT_METHOD_UNOPT: return "NOPERT_METHOD_UNOPT";
     default: return "UNKNOWN";
     }
   }

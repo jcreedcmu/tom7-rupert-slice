@@ -35,7 +35,7 @@
 
 #define ABLOOD(s) AFGCOLOR(148, 0, 0, s)
 
-DECLARE_COUNTERS(polyhedra, total_evals, u1_, u2_, u3_, u4_, u5_, u6_);
+DECLARE_COUNTERS(polyhedra, total_evals);
 
 static StatusBar *status = nullptr;
 

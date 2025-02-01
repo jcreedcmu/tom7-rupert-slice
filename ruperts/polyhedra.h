@@ -100,6 +100,7 @@ inline quat4 QuatFromVec(const vec4 &q) {
 
 std::string VecString(const vec3 &v);
 std::string VecString(const vec2 &v);
+std::string Points2DString(const std::vector<vec2> &v);
 std::string QuatString(const quat4 &q);
 std::string FrameString(const frame3 &f);
 std::string FormatNum(uint64_t n);
@@ -255,7 +256,7 @@ struct HullCircumscribedCircle {
 struct HullInscribedCircle {
   HullInscribedCircle(const std::vector<vec2> &vertices,
                       const std::vector<int> &hull) {
-    CHECK(hull.size() >= 3);
+    CHECK(hull.size() >= 3) << Points2DString(vertices);
 
     for (int i = 0; i < hull.size(); ++i) {
       const vec2 &v0 = vertices[hull[i]];

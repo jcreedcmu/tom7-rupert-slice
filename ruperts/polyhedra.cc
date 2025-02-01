@@ -1,6 +1,7 @@
 
 #include "polyhedra.h"
 
+#include <format>
 #include <limits>
 #include <string_view>
 #include <tuple>
@@ -127,6 +128,12 @@ std::string VecString(const vec2 &v) {
   return StringPrintf(
       "(" ARED("%.4f") "," AGREEN("%.4f") ")",
       v.x, v.y);
+}
+
+std::string Points2DString(const std::vector<vec2> &v) {
+  std::vector<std::string> s;
+  for (const vec2 &pt : v) s.push_back(VecString(pt));
+  return std::format("[{}]", Util::Join(s, ", "));
 }
 
 std::string QuatString(const quat4 &q) {
@@ -1042,6 +1049,13 @@ double LossFunction(const Polyhedron &poly,
   // below are O(n*m), so it is helpful to significantly reduce
   // one of the factors.
   const std::vector<int> outer_hull = GrahamScan(souter.vertices);
+  if (outer_hull.size() < 3) {
+    // If the outer hull is degenerate, then the inner hull
+    // cannot be strictly within it. We don't have a good
+    // way to measure the gradient here, though.
+    return 1'000'000.0;
+  }
+
   HullInscribedCircle circle(souter.vertices, outer_hull);
 
   // Does every vertex in inner fall inside the outer shadow?

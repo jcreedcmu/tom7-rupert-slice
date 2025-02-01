@@ -117,6 +117,8 @@ template<double SQDIST = 0.000001>
 struct PointSet3 {
   using vec3 = yocto::vec<double, 3>;
 
+  // Note that this does *not* deduplicate points! It's just
+  // the number of elements that have been inserted.
   size_t Size() const {
     return m.Size();
   }
