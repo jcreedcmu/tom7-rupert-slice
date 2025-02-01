@@ -2442,7 +2442,7 @@ tinfl_status tinfl_decompress(tinfl_decompressor *r, const mz_uint8 *pIn_buf_nex
       if (DEBUG_MINIZ) {
         printf("%p - %p + %zu - 1\n",
                pOut_buf_next, pOut_buf_start, (size_t)*pOut_buf_size);
-        printf("%zu + %zu - 1\n", (size_t)(pOut_buf_next - pOut_buf_start),
+        printf("%zu + %lld - 1\n", (size_t)(pOut_buf_next - pOut_buf_start),
                (int64_t)*pOut_buf_size);
         printf("%zu, %p < %p\n",
                (size_t)out_buf_size_mask, pOut_buf_next, pOut_buf_start);

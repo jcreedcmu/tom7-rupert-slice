@@ -56,12 +56,12 @@ static ImageRGB RandomRGB(ArcFour *rc, int width, int height) {
 static void SpaceLine() {
   PDF pdf(PDF::PDF_LETTER_WIDTH, PDF::PDF_LETTER_HEIGHT);
   PDF::Info info;
-  sprintf(info.creator, "pdf_test.cc");
-  sprintf(info.producer, "Tom 7");
-  sprintf(info.title, "It is a test");
-  sprintf(info.author, "None");
-  sprintf(info.author, "No subject");
-  sprintf(info.date, "30 Dec 2023");
+  snprintf(info.creator, 63, "pdf_test.cc");
+  snprintf(info.producer, 63, "Tom 7");
+  snprintf(info.title, 63, "It is a test");
+  snprintf(info.author, 63, "None");
+  snprintf(info.author, 63, "No subject");
+  snprintf(info.date, 63, "30 Dec 2023");
   pdf.SetInfo(info);
 
   const FontObj *times = pdf.GetBuiltInFont(PDF::TIMES_ROMAN);
@@ -112,12 +112,12 @@ static void MakeSimplePDF() {
           PDF::Options{.use_compression = COMPRESS_TEST_PDF});
 
   PDF::Info info;
-  sprintf(info.creator, "pdf_test.cc");
-  sprintf(info.producer, "Tom 7");
-  sprintf(info.title, "It is a test");
-  sprintf(info.author, "None");
-  sprintf(info.author, "No subject");
-  sprintf(info.date, "30 Dec 2023");
+  snprintf(info.creator, 63, "pdf_test.cc");
+  snprintf(info.producer, 63, "Tom 7");
+  snprintf(info.title, 63, "It is a test");
+  snprintf(info.author, 63, "None");
+  snprintf(info.author, 63, "No subject");
+  snprintf(info.date, 63, "30 Dec 2023");
   pdf.SetInfo(info);
 
   std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf");
@@ -440,12 +440,12 @@ static void MakeMinimalPDF() {
   [[maybe_unused]]
   PDF::Page *page = pdf.AppendNewPage();
   PDF::Info info;
-  sprintf(info.creator, "pdf_test.cc");
-  sprintf(info.producer, "Tom 7");
-  sprintf(info.title, "Minimal PDF");
-  sprintf(info.author, "None");
-  sprintf(info.author, "No subject");
-  sprintf(info.date, "8 Jun 2024");
+  snprintf(info.creator, 63, "pdf_test.cc");
+  snprintf(info.producer, 63, "Tom 7");
+  snprintf(info.title, 63, "Minimal PDF");
+  snprintf(info.author, 63, "None");
+  snprintf(info.author, 63, "No subject");
+  snprintf(info.date, 63, "8 Jun 2024");
   pdf.SetInfo(info);
 
   std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf");

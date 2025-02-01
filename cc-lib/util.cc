@@ -1465,6 +1465,9 @@ static void LocalTimeTo(int64_t unix_timestamp, std::tm *tm) {
   #elif _POSIX_C_SOURCE >= 1 || _POSIX_SOURCE
   // POSIX
   localtime_r(&tt, tm);
+  #elif defined(__APPLE__)
+  // Also on OS X.
+  localtime_r(&tt, tm);
   #else
   #error "I don't know how to get localtime on this platform?"
   #endif
