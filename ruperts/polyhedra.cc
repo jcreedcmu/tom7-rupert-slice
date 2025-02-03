@@ -230,6 +230,48 @@ bool InTriangle(const vec2 &a, const vec2 &b, const vec2 &c,
     SameSide(c, a, b, pt);
 }
 
+// Project the point pt along z to the triangle (plane)
+// defined by (a, b, c). The returned point has the same x,y position
+// as pt, but a z coordinate that places it on that plane.
+//
+// This returns a result even if the point is not in the triangle.
+// It returns nullopt when the plane is perpendicular to xy.
+static std::optional<vec3> PointToPlane(
+    const vec3 &a, const vec3 &b, const vec3 &c,
+    const vec2 &pt) {
+  vec2 a2 = {a.x, a.y};
+  vec2 b2 = {b.x, b.y};
+  vec2 c2 = {c.x, c.y};
+
+  // Barycentric coordinates in 2D.
+  vec2 v0 = b2 - a2;
+  vec2 v1 = c2 - a2;
+  vec2 v2 = pt - a2;
+
+  double d00 = yocto::dot(v0, v0);
+  double d01 = yocto::dot(v0, v1);
+  double d11 = yocto::dot(v1, v1);
+  double d20 = yocto::dot(v2, v0);
+  double d21 = yocto::dot(v2, v1);
+
+  double denom = d00 * d11 - d01 * d01;
+
+  // If denom is zero (or close) then the triangle is degenerate in 2D.
+  if (std::abs(denom) < 1.0e-10) {
+    return std::nullopt;
+  }
+
+  double v = (d11 * d20 - d01 * d21) / denom;
+  double w = (d00 * d21 - d01 * d20) / denom;
+  double u = 1.0 - v - w;
+
+  // The weights u, v, w can also be used to interpolate in 3D, since
+  // these are linear interpolations and the projection from 3D to 2D
+  // is also linear.
+  double z = u * a.z + v * b.z + w * c.z;
+
+  return {vec3{pt.x, pt.y, z}};
+}
 
 Faces *Faces::Create(int num_vertices, std::vector<std::vector<int>> v) {
 
@@ -1512,7 +1554,6 @@ bool TriangleAndPolygonIntersect(
   return false;
 }
 
-#if 0
 Mesh3D MakeHole(const Polyhedron &polyhedron,
                 const std::vector<vec2> &polygon) {
   // We will add to this when we split some triangles.
@@ -1589,16 +1630,37 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
   // indices in the in_points. To do this, we'll add points when a
   // vertex is inside a triangle, or when it intersects a triangle
   // edge. At the same time, we'll split triangles accordingly.
-  auto SplitTrianglesAtPoint = [&](const vec2 &pt) {
-      // XXX need to get 3d point on triangular face.
-      const int p = AddPoint(pt);
+  //
+  // Returns all the intersection points (as integer indices into in_points),
+  // sorted from lowest z coordinate to highest.
+  auto SplitTrianglesAtPoint = [&](const vec2 &pt) -> std::vector<int> {
       std::vector<std::tuple<int, int, int>> new_triangles;
       new_triangles.reserve(work_triangles.size());
+
+      std::vector<int> new_points;
+
       for (const auto &[a, b, c] : work_triangles) {
-        const vec2 &va = in_points[a];
-        const vec2 &vb = in_points[b];
-        const vec2 &vc = in_points[c];
-        if (InTriangle(va, vb, vc, pt)) {
+        const vec3 &va = in_points[a];
+        const vec3 &vb = in_points[b];
+        const vec3 &vc = in_points[c];
+
+        const vec2 &va2 = {va.x, va.y};
+        const vec2 &vb2 = {vb.x, vb.y};
+        const vec2 &vc2 = {vc.x, vc.y};
+
+        // There should only be two triangles that the point lands
+        // within (top and bottom). We might want to check them. This
+        // also might be the right place to add an edge, or at least
+        // record the correspondence.
+        if (InTriangle(va2, vb2, vc2, pt)) {
+
+          auto p3o = PointToPlane(va, vb, vc, pt);
+          CHECK(p3o.has_value()) << "If the point is strictly within "
+            "the triangle, we should be able to project it to 3D. "
+            "But this could happen due to a disagreement about 'epsilon'.";
+
+          const int p = AddPoint(p3o.value());
+          new_points.push_back(p);
 
           //
           //     a-------------b
@@ -1618,21 +1680,33 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
           new_triangles.emplace_back(a, b, c);
         }
       }
+
       work_triangles = std::move(new_triangles);
-      return p;
+      std::sort(new_points.begin(), new_points.end(),
+                [&in_points](int a, int b) {
+                  return in_points[a].z < in_points[b].z;
+                });
+      return new_points;
     };
 
   // First, no need to deal with general points for this. Split
   // triangles so that all the polygon points land on triangle
   // vertices.
-  std::vector<int> hole;
-  hole.reserve(polygon.size());
+  std::vector<int> top_hole, bot_hole;
+  top_hole.reserve(polygon.size());
+  bot_hole.reserve(polygon.size());
   for (const vec2 &v : polygon) {
     // XXX should check that it's not the same as the previous
     // point
-    hole.push_back(SplitTrianglesAtPoint(v));
+    std::vector<int> ps = SplitTrianglesAtPoint(v);
+    CHECK(ps.size() == 2) << "Expecting exactly one intersection on "
+      "the top and one on the bottom. Maybe this is not a proper "
+      "hole, or maybe it is not in general position.";
+    top_hole.push_back(ps[0]);
+    bot_hole.push_back(ps[1]);
   }
 
+  #if 0
   // But edges of the polygon might now intersect edges of
   // triangles. Process each edge in the hole until this
   // is no longer the case.
@@ -1650,6 +1724,7 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
     // Maybe instead of HasEdge, we're just looping until there are
     // no more triangles to split?
     while (p != q && !HasEdge(p, q)) {
+
       // Now, repeatedly, find some intersection
       // the path from p to q.
       // HERE!
@@ -1660,13 +1735,13 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
     // is on a triangle edge.
 
   }
+  #endif
 
   // TODO: Use the hole to create internal faces. Delete triangles
   // that have a vertex inside the hole.
 
   // TODO: Build mesh3d and return.
 }
-#endif
 
 std::pair<quat4, vec3> UnpackFrame(const frame3 &f) {
   using mat3 = yocto::mat<double, 3>;
