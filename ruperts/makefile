@@ -54,7 +54,7 @@ gpuperts.exe : gpuperts.o $(OBJECTS) $(CL_OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS) $(CL_LFLAGS)
 	@echo -n "!"
 
-tosvg.exe : tosvg.o $(OBJECTS)
+topng.exe : topng.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

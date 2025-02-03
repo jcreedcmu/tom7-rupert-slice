@@ -1,6 +1,5 @@
 
-// Even though this is called "tosvg", it just generates PNGs.
-// That was enough for me to debug my problem!
+// Generates PNG for a solution.
 
 #include "ansi.h"
 
@@ -44,7 +43,7 @@ static void RenderAny(std::string_view name) {
     rendering.RenderMesh(sinner);
     rendering.RenderBadPoints(sinner, souter);
 
-    rendering.Save(StringPrintf("tosvg-%s.png", std::string(name).c_str()));
+    rendering.Save(StringPrintf("topng-%s.png", std::string(name).c_str()));
   }
 
   std::vector<int> outer_hull = QuickHull(souter.vertices);
@@ -55,16 +54,15 @@ static void RenderAny(std::string_view name) {
     rendering.RenderHullDistance(souter, outer_hull);
     rendering.RenderHull(souter, outer_hull, 0x0000FFFF);
     rendering.RenderHull(sinner, inner_hull, 0x00FF0077);
-    rendering.Save(StringPrintf("tosvg-%s-hulls.png",
+    rendering.Save(StringPrintf("topng-%s-hulls.png",
                                 std::string(name).c_str()));
   }
 }
 
-
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  CHECK(argc == 2) << "./tosvg.exe polyhedronname";
+  CHECK(argc == 2) << "./topng.exe polyhedronname";
 
   RenderAny(argv[1]);
 
