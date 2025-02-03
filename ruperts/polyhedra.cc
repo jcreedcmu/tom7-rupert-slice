@@ -27,6 +27,7 @@
 #include "randutil.h"
 #include "set-util.h"
 #include "util.h"
+#include "point-map.h"
 
 #include "yocto_matht.h"
 
@@ -205,6 +206,30 @@ double TriangleSignedDistance(vec2 p0, vec2 p1, vec2 p2, vec2 p) {
 
   return -sqrt(d.x) * sgn(d.y);
 }
+
+bool InTriangle(const vec2 &a, const vec2 &b, const vec2 &c,
+                const vec2 &pt) {
+  // The idea behind this test is that for each edge, we check
+  // to see if the test point is on the same side as a reference
+  // point, which is the third point of the triangle.
+  auto SameSide = [](const vec2 &u, const vec2 &v,
+                     const vec2 &p1, const vec2 &p2) {
+      vec2 edge = v - u;
+      double c1 = cross(edge, p1 - u);
+      double c2 = cross(edge, p2 - u);
+
+      int s1 = sgn(c1);
+      int s2 = sgn(c2);
+
+      // Note that this excludes the edge itself.
+      return s1 != 0 && s2 != 0 && s1 == s2;
+    };
+
+  return SameSide(a, b, c, pt) &&
+    SameSide(b, c, a, pt) &&
+    SameSide(c, a, b, pt);
+}
+
 
 Faces *Faces::Create(int num_vertices, std::vector<std::vector<int>> v) {
 
@@ -955,14 +980,14 @@ bool IsConvex(const std::vector<vec2> &vertices,
   return true;
 }
 
-
-bool PointInPolygon(const vec2 &point,
-                    const std::vector<vec2> &vertices,
-                    const std::vector<int> &polygon) {
+template<class GetPt>
+inline static bool PointInPolygonT(const vec2 &point,
+                                   int size,
+                                   const GetPt &get_pt) {
   int winding_number = 0;
-  for (int i = 0; i < polygon.size(); i++) {
-    const vec2 &p0 = vertices[polygon[i]];
-    const vec2 &p1 = vertices[polygon[(i + 1) % polygon.size()]];
+  for (int i = 0; i < size; i++) {
+    const vec2 p0 = get_pt(i);
+    const vec2 p1 = get_pt((i + 1) % size);
 
     // Check if the ray from the point to infinity intersects the edge
     if (point.y > std::min(p0.y, p1.y)) {
@@ -981,6 +1006,23 @@ bool PointInPolygon(const vec2 &point,
 
   // Point is inside if the winding number is odd
   return !!(winding_number & 1);
+}
+
+bool PointInPolygon(const vec2 &point,
+                    const std::vector<vec2> &vertices,
+                    const std::vector<int> &polygon) {
+  return PointInPolygonT(point, polygon.size(),
+                         [&](int idx) {
+                           return vertices[polygon[idx]];
+                         });
+}
+
+bool PointInPolygon(const vec2 &point,
+                    const std::vector<vec2> &polygon) {
+  return PointInPolygonT(point, polygon.size(),
+                         [&](int idx) {
+                           return polygon[idx];
+                         });
 }
 
 // via https://en.wikipedia.org/wiki/Shoelace_formula
@@ -1425,6 +1467,206 @@ quat4 RotationFromAToB(const vec3 &a, const vec3 &b) {
                          s * 0.5));
 #endif
 }
+
+
+static std::optional<vec2> LineIntersection(
+    // First segment
+    const vec2 &p0, const vec2 &p1,
+    // Second segment
+    const vec2 &p2, const vec2 &p3) {
+
+  const vec2 s1 = p1 - p0;
+  const vec2 s2 = p3 - p2;
+  const vec2 m = p0 - p2;
+
+  const double denom = s1.x * s2.y - s2.x * s1.y;
+  // Note if denom is 0 or close to it, we will just
+  // get an enormous (or maybe nan) s. This will not
+  // fall into the interval [0, 1].
+
+  const double s = (s1.x * m.y - s1.y * m.x) / denom;
+
+  if (s >= 0.0 && s <= 1.0) {
+    const double t = (s2.x * m.y - s2.y * m.x) / denom;
+
+    if (t >= 0.0 && t <= 1.0) {
+      return {vec2{p0 + (t * s1)}};
+    }
+  }
+  return std::nullopt;
+}
+
+bool TriangleAndPolygonIntersect(
+    const vec2 &a, const vec2 &b, const vec2&c,
+    const std::vector<vec2> &polygon) {
+  for (int i = 0; i < polygon.size(); i++) {
+    const vec2 &v0 = polygon[i];
+    const vec2 &v1 = polygon[(i + 1) % polygon.size()];
+
+    if (LineIntersection(a, b, v0, v1).has_value() ||
+        LineIntersection(b, c, v0, v1).has_value() ||
+        LineIntersection(c, a, v0, v1).has_value()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+#if 0
+Mesh3D MakeHole(const Polyhedron &polyhedron,
+                const std::vector<vec2> &polygon) {
+  // We will add to this when we split some triangles.
+  std::vector<vec3> in_points = polyhedron.vertices;
+
+  // Out vertices with indices already assigned.
+  std::vector<vec3> out_points;
+  // Point map so that we can get the index of a vertex
+  // that's already been added. This also merges points
+  // that are less than some epsilon from the first
+  // one inserted in the vicinity.
+  PointMap3<int> out_point_index;
+  std::vector<std::tuple<int, int, int>> out_triangles;
+  auto AddPoint = [&](const vec3 &pt) {
+      if (auto io = out_point_index.Get(pt)) {
+        return io.value();
+      }
+
+      int idx = out_points.size();
+      out_points.push_back(pt);
+      out_point_index.Add(pt, idx);
+      return idx;
+    };
+
+  // Add a triangle as indices of its vertices. We insert them in
+  // sorted order so that it's easy to deduplicate.
+  auto AddTriangle = [&](const vec3 &a, const vec3 &b, const vec3 &c) {
+      std::vector<int> v;
+      v.push_back(AddPoint(a));
+      v.push_back(AddPoint(b));
+      v.push_back(AddPoint(c));
+      std::sort(v.begin(), v.end());
+      CHECK(v.size() == 3);
+      out_triangles.emplace_back(v[0], v[1], v[2]);
+    };
+
+  // Triangles that intersect or abut the hole polygon. These
+  // vertices are indexes into in_points.
+  std::vector<std::tuple<int, int, int>> work_triangles;
+
+  auto HasEdge = [](int a, int b) {
+      LOG(FATAL) << "unimplemented";
+      return false;
+    };
+
+  // First, classify each triangle as entirely inside, entirely outside,
+  // or intersecting. The intersecting triangles will be handled in
+  // the next loop.
+  for (const auto &[a, b, c] : polyhedron.faces->triangulation) {
+    vec2 v0 = vec2(polyhedron.vertices[a].x, polyhedron.vertices[a].y);
+    vec2 v1 = vec2(polyhedron.vertices[b].x, polyhedron.vertices[b].y);
+    vec2 v2 = vec2(polyhedron.vertices[c].x, polyhedron.vertices[c].y);
+
+    int count = 0;
+    for (const vec2 &v : {v0, v1, v2}) {
+      count += PointInPolygon(v, polygon);
+    }
+
+    if (count == 3) {
+      // If all are inside, then it cannot intersect the hole (convexity).
+      // We just discard these.
+    } else if (TriangleAndPolygonIntersect(v0, v1, v2, polygon)) {
+      work_triangles.emplace_back(a, b, c);
+    } else {
+      // If the triangle is entirely outside, then we persist it untouched.
+      // (Although the vertices will get renumbered.)
+      AddTriangle(polyhedron.vertices[a],
+                  polyhedron.vertices[b],
+                  polyhedron.vertices[c]);
+    }
+  }
+
+  // Next, create a new hole polygon whose vertices are represented by
+  // indices in the in_points. To do this, we'll add points when a
+  // vertex is inside a triangle, or when it intersects a triangle
+  // edge. At the same time, we'll split triangles accordingly.
+  auto SplitTrianglesAtPoint = [&](const vec2 &pt) {
+      // XXX need to get 3d point on triangular face.
+      const int p = AddPoint(pt);
+      std::vector<std::tuple<int, int, int>> new_triangles;
+      new_triangles.reserve(work_triangles.size());
+      for (const auto &[a, b, c] : work_triangles) {
+        const vec2 &va = in_points[a];
+        const vec2 &vb = in_points[b];
+        const vec2 &vc = in_points[c];
+        if (InTriangle(va, vb, vc, pt)) {
+
+          //
+          //     a-------------b
+          //      \`.       .'/
+          //       \ `.  .'  /
+          //        \   p   /
+          //         \  |  /
+          //          \ | /
+          //           \|/
+          //            c
+
+          new_triangles.emplace_back(a, p, c);
+          new_triangles.emplace_back(p, b, c);
+          new_triangles.emplace_back(a, b, p);
+        } else {
+          // Not split.
+          new_triangles.emplace_back(a, b, c);
+        }
+      }
+      work_triangles = std::move(new_triangles);
+      return p;
+    };
+
+  // First, no need to deal with general points for this. Split
+  // triangles so that all the polygon points land on triangle
+  // vertices.
+  std::vector<int> hole;
+  hole.reserve(polygon.size());
+  for (const vec2 &v : polygon) {
+    // XXX should check that it's not the same as the previous
+    // point
+    hole.push_back(SplitTrianglesAtPoint(v));
+  }
+
+  // But edges of the polygon might now intersect edges of
+  // triangles. Process each edge in the hole until this
+  // is no longer the case.
+  std::vector<int> new_hole;
+  for (int idx = 0; idx < hole.size(); idx++) {
+    int p = polygon[idx];
+    const int q = polygon[(idx + 1) % polygon.size()];
+
+    CHECK(p != q) << "Fix this above";
+
+    // We know both p and q are not strictly inside any triangles, and
+    // moreover, each is a vertex of at least one triangle.
+    new_hole.push_back(p);
+
+    // Maybe instead of HasEdge, we're just looping until there are
+    // no more triangles to split?
+    while (p != q && !HasEdge(p, q)) {
+      // Now, repeatedly, find some intersection
+      // the path from p to q.
+      // HERE!
+    }
+
+    // A polygon edge could intersect multiple triangles, or none!
+    // For the loop, we want to be in a position where the point
+    // is on a triangle edge.
+
+  }
+
+  // TODO: Use the hole to create internal faces. Delete triangles
+  // that have a vertex inside the hole.
+
+  // TODO: Build mesh3d and return.
+}
+#endif
 
 std::pair<quat4, vec3> UnpackFrame(const frame3 &f) {
   using mat3 = yocto::mat<double, 3>;

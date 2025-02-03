@@ -296,10 +296,20 @@ inline vec2 Project(const vec3 &point, const mat4 &proj) {
   return vec2{.x = pp.x / pp.w, .y = pp.y / pp.w};
 }
 
-// Point-in-polygon test using the winding number algorithm
+// Point-in-polygon test using the winding number algorithm.
+// Takes a vertex buffer and indices into that set.
 bool PointInPolygon(const vec2 &point,
                     const std::vector<vec2> &vertices,
                     const std::vector<int> &polygon);
+
+// Takes the polygon directly as vertices.
+bool PointInPolygon(const vec2 &point,
+                    const std::vector<vec2> &polygon);
+
+// Is pt strictly within the triangle a-b-c? Exact. Works with both
+// winding orders.
+bool InTriangle(const vec2 &a, const vec2 &b, const vec2 &c,
+                const vec2 &pt);
 
 inline bool InMesh(const Mesh2D &mesh, const vec2 &pt) {
   for (const std::vector<int> &face : mesh.faces->v)
@@ -318,6 +328,20 @@ void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
 // Generate little tetrahedra at the points, for debugging.
 void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
                           std::string_view filename);
+
+// A 3D mesh; not necessarily convex (or even connected).
+struct Mesh3D {
+  std::vector<vec3> vertices;
+  std::vector<std::tuple<int, int, int>> triangles;
+};
+
+// Polyhedron should be a convex polyhedron that contains the origin.
+// Polygon should be a simple convex polygon that contains the origin.
+// The polygon represents an infinitely tall extrusion along the
+// z axis. The result is the solid that results from making a hole
+// in the polyhedron with the extrusion (CSG subtraction).
+Mesh3D MakeHole(const Polyhedron &polyhedron,
+                const std::vector<vec2> &polygon);
 
 // Unpack a rigid frame into a rotation (as a normalized quaternion)
 // and a translation vector. If the matrix is not actually a rigid

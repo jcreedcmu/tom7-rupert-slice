@@ -12,6 +12,9 @@
 // Below there is also PointMap3, which is a simple wrapper for
 // the common case that you don't need interesting values.
 
+// XXX clang 16 doesn't support double template args; fix??
+inline constexpr double SQDIST = 0.000001;
+
 // SQDIST is the (squared) threshold below which two points are
 // considered the "same." Note that this kind of approach does not
 // actually yield an equivalence relation! I think better would
@@ -20,7 +23,7 @@
 //
 // Value is copied willy-nilly, so it should be something cheap
 // like an int.
-template<typename Value, double SQDIST = 0.000001>
+template<typename Value>
 struct PointMap3 {
   using vec3 = yocto::vec<double, 3>;
 
@@ -70,7 +73,7 @@ struct PointMap3 {
 };
 
 // As in the 3D version.
-template<typename Value, double SQDIST = 0.000001>
+template<typename Value>
 struct PointMap2 {
   using vec2 = yocto::vec<double, 2>;
 
@@ -113,7 +116,6 @@ struct PointMap2 {
   std::vector<std::pair<vec2, Value>> pts;
 };
 
-template<double SQDIST = 0.000001>
 struct PointSet3 {
   using vec3 = yocto::vec<double, 3>;
 
@@ -140,7 +142,7 @@ struct PointSet3 {
 
  private:
   struct Unit { };
-  PointMap3<Unit, SQDIST> m;
+  PointMap3<Unit> m;
 };
 
 #endif
