@@ -1554,6 +1554,20 @@ bool TriangleAndPolygonIntersect(
   return false;
 }
 
+// Input triangle must have a < b < c.
+// If the triangle has the edge, returns the vertex that's not on that
+// edge.
+static std::optional<int>
+TriangleWithEdge(const std::tuple<int, int, int> &tri,
+                 int aa, int bb) {
+  if (aa > bb) std::swap(aa, bb);
+  const auto &[a, b, c] = tri;
+  if (aa == a && bb == b) return {c};
+  if (aa == a && bb == c) return {b};
+  if (aa == b && bb == c) return {a};
+  return std::nullopt;
+}
+
 Mesh3D MakeHole(const Polyhedron &polyhedron,
                 const std::vector<vec2> &polygon) {
   // We will add to this when we split some triangles.
@@ -1594,8 +1608,14 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
   // vertices are indexes into in_points.
   std::vector<std::tuple<int, int, int>> work_triangles;
 
-  auto HasEdge = [](int a, int b) {
-      LOG(FATAL) << "unimplemented";
+  auto HasEdge = [&](int u, int v) {
+      if (u == v) return false;
+      // Triangles are stored with a < b < c.
+      if (u > v) std::swap(u, v);
+      for (const auto &[a, b, c] : work_triangles) {
+        if (a == u && (b == v || c == v)) return true;
+        if (b == u && c == v) return true;
+      }
       return false;
     };
 
@@ -1649,7 +1669,7 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
         const vec2 &vc2 = {vc.x, vc.y};
 
         // There should only be two triangles that the point lands
-        // within (top and bottom). We might want to check them. This
+        // within (top and bottom). We might want to check that. This
         // also might be the right place to add an edge, or at least
         // record the correspondence.
         if (InTriangle(va2, vb2, vc2, pt)) {
@@ -1691,10 +1711,11 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
 
   // First, no need to deal with general points for this. Split
   // triangles so that all the polygon points land on triangle
-  // vertices.
-  std::vector<int> top_hole, bot_hole;
-  top_hole.reserve(polygon.size());
-  bot_hole.reserve(polygon.size());
+  // vertices. We get a hole as a series of point indices. There
+  // is a top and bottom of the hole; this vector keeps them
+  // in correspondence.
+  std::vector<std::pair<int, int>> hole;
+  hole.reserve(polygon.size());
   for (const vec2 &v : polygon) {
     // XXX should check that it's not the same as the previous
     // point
@@ -1702,40 +1723,106 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
     CHECK(ps.size() == 2) << "Expecting exactly one intersection on "
       "the top and one on the bottom. Maybe this is not a proper "
       "hole, or maybe it is not in general position.";
-    top_hole.push_back(ps[0]);
-    bot_hole.push_back(ps[1]);
+    hole.emplace_back(ps[0], ps[1]);
   }
 
-  #if 0
   // But edges of the polygon might now intersect edges of
   // triangles. Process each edge in the hole until this
   // is no longer the case.
-  std::vector<int> new_hole;
+  std::vector<std::pair<int, int>> new_hole;
   for (int idx = 0; idx < hole.size(); idx++) {
-    int p = polygon[idx];
-    const int q = polygon[(idx + 1) % polygon.size()];
+    int pt, pb, qt, qb;
+    std::tie(pt, pb) = hole[idx];
+    std::tie(qt, qb) = hole[(idx + 1) % hole.size()];
 
-    CHECK(p != q) << "Fix this above";
+    CHECK(pt != qt && pb != qb) << "Fix this above";
 
     // We know both p and q are not strictly inside any triangles, and
     // moreover, each is a vertex of at least one triangle.
-    new_hole.push_back(p);
+    new_hole.emplace_back(pt, pb);
 
-    // Maybe instead of HasEdge, we're just looping until there are
-    // no more triangles to split?
-    while (p != q && !HasEdge(p, q)) {
+    while (pt != qt) {
+      // The top edge and bottom edge are the same in 2D. So just get
+      // them from the top. (Note that we may have snapped differently,
+      // but we ignore this issue, perhaps to our peril?)
+      const vec2 &pv = {in_points[pt].x, in_points[pt].y};
+      const vec2 &qv = {in_points[qt].x, in_points[pt].y};
 
-      // Now, repeatedly, find some intersection
-      // the path from p to q.
-      // HERE!
+      // Get the closest intersection from pv->qv.
+      // The first two indices are the edge, and the third is the
+      // other vertex in the triangle.
+      std::optional<std::tuple<vec2, int, int, int>> closest;
+      double closest_dist = std::numeric_limits<double>::infinity();
+      auto Try = [&](int u, int v, int w) {
+          const vec2 &uv = {in_points[u].x, in_points[u].y};
+          const vec2 &vv = {in_points[v].x, in_points[v].y};
+
+          if (auto lo = LineIntersection(uv, vv, pv, qv)) {
+            double dist = length(lo.value() - pv);
+            if (!closest.has_value() || dist < closest_dist) {
+              closest = {std::make_tuple(lo.value(), u, v, w)};
+            }
+          }
+        };
+
+      for (const auto &[a, b, c] : work_triangles) {
+        Try(a, b, c);
+        Try(b, c, a);
+        Try(c, a, b);
+      }
+
+      if (!closest.has_value()) {
+        // If there was no intersection, then since p and q
+        // are on vertices of triangles, they must already
+        // be connected by an edge. So we just advance.
+        CHECK(HasEdge(pt, qt));
+        CHECK(HasEdge(pb, qb));
+
+        pt = qt;
+        pb = qb;
+        break;
+      }
+
+      // Otherwise, split the triangle.
+      // XXX HERE
+
+      const auto &[pt2, edge_a, edge_b, c_] = closest.value();
+      CHECK(edge_a < edge_b);
+      // pt2 is an intersection on the edge a-b. c is one of
+      // the triangles with this edge. But we will split them
+      // all:
+      {
+        std::vector<std::tuple<int, int, int>> new_triangles;
+        new_triangles.reserve(work_triangles.size());
+
+        for (const auto &tri : work_triangles) {
+          if (auto co = TriangleWithEdge(tri, edge_a, edge_b)) {
+            const int c = co.value();
+            // HERE
+
+            // Project 2d pt to the triangle.
+            // Add a new point.
+            // Insert split triangles.
+            // How to know whether the new point is on the
+            // top or bottom of the hole, though?
+          }
+        }
+      }
+
+
+
     }
+
+    CHECK(pb == qb) << "This should be the case when the top segment "
+      "becomes degenerate, but I guess it's possible that one snaps "
+      "when the other doesn't.";
+
 
     // A polygon edge could intersect multiple triangles, or none!
     // For the loop, we want to be in a position where the point
     // is on a triangle edge.
 
   }
-  #endif
 
   // TODO: Use the hole to create internal faces. Delete triangles
   // that have a vertex inside the hole.
