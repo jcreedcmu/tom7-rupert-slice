@@ -93,6 +93,27 @@ static std::optional<vec3> PointToPlane(
   return {vec3{pt.x, pt.y, z}};
 }
 
+static std::optional<vec3> PointOnSegment(
+    // First segment
+    const vec3 &a, const vec3 &b,
+    // Test point
+    const vec3 &p) {
+  vec3 ab = b - a;
+  vec3 ap = p - a;
+
+  vec3 cx = cross(ab, ap);
+  // We need the cross product to be approximately
+  // zero for them to be considered colinear.
+  if (length(cx) > 0.00001) {
+    return std::nullopt;
+  }
+
+  // parameter interpolating from a to b.
+  double t = dot(ap, ab) / length_squared(ab);
+  if (t < 0.0 || t > 1.0) return std::nullopt;
+  return (a + t * ab);
+}
+
 static std::optional<vec2> LineIntersection(
     // First segment
     const vec2 &p0, const vec2 &p1,
@@ -166,8 +187,14 @@ struct HoleMaker {
   PointMap3<int> point_index;
   std::vector<std::tuple<int, int, int>> out_triangles;
 
+  // Return the point's index if we already have it (or a point
+  // very close to it).
+  std::optional<int> GetPoint(const vec3 &pt) {
+    return point_index.Get(pt);
+  }
+
   int AddPoint(const vec3 &pt) {
-    if (auto io = point_index.Get(pt)) {
+    if (auto io = GetPoint(pt)) {
       return io.value();
     }
 
@@ -264,17 +291,20 @@ struct HoleMaker {
     }
   }
 
-  // Loops over all triangles that contain the point, and splits them
-  // so that this point always lands on a vertex. Returns those vertex
-  // ids, sorted from lowest z coordinate to highest.
-  std::vector<int> SplitTrianglesAtPoint(const vec2 &pt) {
+  // Project a 2D point through the mesh. It can intersect the interior
+  // of a triangle, or an existing vertex, or an existing edge. In each
+  // case, alter the mesh as appropriate so that the intersection is an
+  // actual vertex. Returns the vector of vertex indices, sorted by
+  // their z coordinate.
+
+  std::vector<int> ProjectThroughMesh(const vec2 &pt) {
     std::vector<std::tuple<int, int, int>> new_triangles;
     new_triangles.reserve(work_triangles.size());
 
-    std::vector<int> new_points;
+    // The intersection points. This is a set because when we hit
+    // a vertex or edge, multiple triangles are typically implicated.
+    std::set<int> new_points;
 
-    // XXX: Need to handle the case that we're really close to an
-    // existing vertex or edge.
     for (const auto &[a, b, c] : work_triangles) {
       const vec3 &va = points[a];
       const vec3 &vb = points[b];
@@ -283,6 +313,52 @@ struct HoleMaker {
       const vec2 &va2 = {va.x, va.y};
       const vec2 &vb2 = {vb.x, vb.y};
       const vec2 &vc2 = {vc.x, vc.y};
+
+      // The location where the point would intersect this
+      // triangle (but it may be outside it).
+      auto p3o = PointToPlane(va, vb, vc, pt);
+
+      if (!p3o.has_value()) {
+        // This means that the triangle is perpendicular to the
+        // xy plane. We can't create intersections with such
+        // triangles, because they would be edges, not vertices.
+        //
+        // TODO: We could check here that the point is not on the
+        // resulting edge (and error out).
+        continue;
+      }
+
+      const vec3 p3 = p3o.value();
+
+      // If we already have this point, then that's going to be
+      // the result (and we don't need to check anything below).
+      if (std::optional<int> p = GetPoint(p3)) {
+        // The typical case here would be that we intersected
+        // the vertex of a triangle, but it's also possible that
+        // we just coincidentally ended up at a vertex (the
+        // point p3 is not necessarily in or on the triangle;
+        // it's just on the plane). In any case that will be an
+        // intersection with the surface, and we don't need to
+        // do anything except record it.
+        new_points.insert(p.value());
+        continue;
+      }
+
+      // Now the point cannot be one of the vertices, but it
+      // could lie on the triangle's edge.
+      // HERE: Use PointOnSegment to test against each edge
+      // in the triangle. Make sure that the intersection is
+      // not actually a vertex (this is not obviously guaranteed
+      // by the test above). If it's there, then we need to split
+      // the triangle. We should probably also record that the
+      // pair of vertices (a,b) needs to be split (with this
+      // new point) every time we see it; this "should" happen
+      // but we might get a slightly different answer when we look
+      // at the edge using a different triangle.
+
+      // Otherwise, we can do the existing triangle splitting for
+      // the inside.
+
 
       // There should only be two triangles that the point lands
       // within (top and bottom). We might want to check that. This
@@ -296,7 +372,7 @@ struct HoleMaker {
           "But this could happen due to a disagreement about 'epsilon'.";
 
         const int p = AddPoint(p3o.value());
-        new_points.push_back(p);
+        new_points.insert(p);
 
         //
         //     a-------------b
@@ -322,11 +398,13 @@ struct HoleMaker {
     }
 
     work_triangles = std::move(new_triangles);
-    SortPointIndicesByZ(&new_points);
-    return new_points;
+    std::vector<int> np(new_points.begin(), new_points.end());
+    SortPointIndicesByZ(&np);
+    return np;
   }
 
   void Step2() {
+    // TODO: Update comment with new strategy.
     // Next, create a new hole polygon whose vertices are represented by
     // indices in the points. To do this, we'll add points when a
     // vertex is inside a triangle, or when it intersects a triangle
@@ -341,7 +419,7 @@ struct HoleMaker {
     for (const vec2 &v : input_polygon) {
       // XXX should check that it's not the same as the previous
       // point
-      std::vector<int> ps = SplitTrianglesAtPoint(v);
+      std::vector<int> ps = ProjectThroughMesh(v);
       CHECK(ps.size() == 2) << "Expecting exactly one intersection on "
         "the top and one on the bottom. Maybe this is not a proper "
         "hole, or maybe it is not in general position. (" << ps.size() <<
