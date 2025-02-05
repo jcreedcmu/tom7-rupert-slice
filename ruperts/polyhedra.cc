@@ -247,7 +247,7 @@ static std::optional<vec3> PointToLine(const vec3 &a, const vec3 &b,
   }
 
   double f = numer / denom;
-  return {a + f * b};
+  return {a + f * (b - a)};
 }
 
 // Project the point pt along z to the triangle (plane)
@@ -1813,8 +1813,13 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       CHECK(edge_a < edge_b);
 
       // i2 is an intersection on the edge a-b. c is one of
-      // the triangles with this edge. But we will split them
-      // all:
+      // the triangles with this edge. Find that point in 3D.
+      const vec3 &va = in_points[edge_a];
+      const vec3 &vb = in_points[edge_b];
+      const std::optional<vec3> io = PointToLine(va, vb, i2);
+      CHECK(io.has_value()) << "We intersected a perpendicular line?";
+      const int i = AddPoint(io.value());
+
       {
         std::set<int> new_points;
 
