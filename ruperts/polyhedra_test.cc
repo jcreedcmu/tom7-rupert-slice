@@ -551,35 +551,10 @@ static void TestUnpackFull() {
   }
 }
 
-static void TestMakeHole() {
-  Polyhedron polyhedron = Cube();
-
-  // A small triangular hole, not in any special
-  // position (e.g. not on the cube's face diagonal).
-  std::vector<vec2> hole = {
-    {-0.23, -0.27},
-    {+0.27, -0.24},
-    {0.0, 0.26},
-  };
-
-  Mesh3D mesh = MakeHole(polyhedron, hole);
-  // XXX check properties
-  printf("Mesh vertices:\n");
-  for (int i = 0; i < mesh.vertices.size(); i++) {
-    const vec3 &v = mesh.vertices[i];
-    printf("  #%d. %s\n", i, VecString(v).c_str());
-  }
-  printf("Triangles:\n");
-  for (const auto &[a, b, c] : mesh.triangles) {
-    printf("  %d %d %d\n", a, b, c);
-  }
-}
-
 int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
 
-  #if 0
   TestHullRegression3("graham", GrahamScan);
   TestHullRegression2("graham", GrahamScan);
   TestHullRegression1("graham", GrahamScan);
@@ -602,9 +577,6 @@ int main(int argc, char **argv) {
   TestSignedDistance();
   TestUnpackRot();
   TestUnpackFull();
-  #endif
-
-  TestMakeHole();
 
   printf("OK\n");
   return 0;

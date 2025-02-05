@@ -90,6 +90,12 @@ struct Mesh2D {
   const Faces *faces = nullptr;
 };
 
+// A 3D triangle mesh; not necessarily convex (or even connected).
+struct Mesh3D {
+  std::vector<vec3> vertices;
+  std::vector<std::tuple<int, int, int>> triangles;
+};
+
 inline vec4 VecFromQuat(const quat4 &q) {
   return vec4{.x = q.x, .y = q.y, .z = q.z, .w = q.w};
 }
@@ -325,15 +331,12 @@ inline bool InHull(const Mesh2D &mesh, const std::vector<int> &hull,
 }
 
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
+void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
+               std::string_view name = "");
+
 // Generate little tetrahedra at the points, for debugging.
 void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
                           std::string_view filename);
-
-// A 3D triangle mesh; not necessarily convex (or even connected).
-struct Mesh3D {
-  std::vector<vec3> vertices;
-  std::vector<std::tuple<int, int, int>> triangles;
-};
 
 // Polyhedron should be a convex polyhedron that contains the origin.
 // Polygon should be a simple convex polygon that contains the origin.
