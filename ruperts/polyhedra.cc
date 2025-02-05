@@ -1,6 +1,7 @@
 
 #include "polyhedra.h"
 
+#include <set>
 #include <format>
 #include <limits>
 #include <string_view>
@@ -228,6 +229,25 @@ bool InTriangle(const vec2 &a, const vec2 &b, const vec2 &c,
   return SameSide(a, b, c, pt) &&
     SameSide(b, c, a, pt) &&
     SameSide(c, a, b, pt);
+}
+
+// Project the point pt, which should like on the 2D segment (a, b)
+// in the xy plane, such that it lies on the 3D segment (a, b).
+static std::optional<vec3> PointToLine(const vec3 &a, const vec3 &b,
+                                       const vec2 &pt2) {
+  vec2 a2 = {a.x, a.y};
+  vec2 b2 = {b.x, b.y};
+
+  double numer = length(pt2 - a2);
+  double denom = length(b2 - a2);
+
+  // This would mean that (a, b) is basically perpendicular to xy.
+  if (std::abs(denom) < 1.0e-10) {
+    return std::nullopt;
+  }
+
+  double f = numer / denom;
+  return {a + f * b};
 }
 
 // Project the point pt along z to the triangle (plane)
@@ -1593,15 +1613,16 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
     };
 
   // Add a triangle as indices of its vertices. We insert them in
-  // sorted order so that it's easy to deduplicate.
-  auto AddTriangle = [&](const vec3 &a, const vec3 &b, const vec3 &c) {
+  // sorted order so that it's easier to find edges and so on.
+  auto AddTriangleTo = [&](std::vector<std::tuple<int, int, int>> *out,
+                           int a, int b, int c) {
       std::vector<int> v;
-      v.push_back(AddPoint(a));
-      v.push_back(AddPoint(b));
-      v.push_back(AddPoint(c));
+      v.push_back(a);
+      v.push_back(b);
+      v.push_back(c);
       std::sort(v.begin(), v.end());
       CHECK(v.size() == 3);
-      out_triangles.emplace_back(v[0], v[1], v[2]);
+      out->emplace_back(v[0], v[1], v[2]);
     };
 
   // Triangles that intersect or abut the hole polygon. These
@@ -1636,13 +1657,15 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       // If all are inside, then it cannot intersect the hole (convexity).
       // We just discard these.
     } else if (TriangleAndPolygonIntersect(v0, v1, v2, polygon)) {
-      work_triangles.emplace_back(a, b, c);
+      // Might need to be bisected below.
+      AddTriangleTo(&work_triangles, a, b, c);
     } else {
       // If the triangle is entirely outside, then we persist it untouched.
       // (Although the vertices will get renumbered.)
-      AddTriangle(polyhedron.vertices[a],
-                  polyhedron.vertices[b],
-                  polyhedron.vertices[c]);
+      AddTriangleTo(&out_triangles,
+                    AddPoint(polyhedron.vertices[a]),
+                    AddPoint(polyhedron.vertices[b]),
+                    AddPoint(polyhedron.vertices[c]));
     }
   }
 
@@ -1692,12 +1715,12 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
           //           \|/
           //            c
 
-          new_triangles.emplace_back(a, p, c);
-          new_triangles.emplace_back(p, b, c);
-          new_triangles.emplace_back(a, b, p);
+          AddTriangleTo(&new_triangles, a, p, c);
+          AddTriangleTo(&new_triangles, p, b, c);
+          AddTriangleTo(&new_triangles, a, b, p);
         } else {
           // Not split.
-          new_triangles.emplace_back(a, b, c);
+          AddTriangleTo(&new_triangles, a, b, c);
         }
       }
 
@@ -1786,25 +1809,93 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       // Otherwise, split the triangle.
       // XXX HERE
 
-      const auto &[pt2, edge_a, edge_b, c_] = closest.value();
+      const auto &[i2, edge_a, edge_b, c_] = closest.value();
       CHECK(edge_a < edge_b);
-      // pt2 is an intersection on the edge a-b. c is one of
+
+      // i2 is an intersection on the edge a-b. c is one of
       // the triangles with this edge. But we will split them
       // all:
       {
+        std::set<int> new_points;
+
         std::vector<std::tuple<int, int, int>> new_triangles;
         new_triangles.reserve(work_triangles.size());
 
         for (const auto &tri : work_triangles) {
+          // FIXME: We need to find all the triangles with this edge
+          // so that we can insert the intersection point i on that
+          // edge.
+
+
           if (auto co = TriangleWithEdge(tri, edge_a, edge_b)) {
             const int c = co.value();
-            // HERE
+
+            if (c == pt) {
+              // Then we are exiting this triangle along
+              // the opposite edge, like this:
+              //
+              //     d      //
+              //    / \     //
+              //   /   \    //
+              //  /  :  \   //
+              // a---i---b  //
+              //  \  ^  /   //
+              //   \ : /    //
+              //    \:/     //
+              //    c=p     //
+
+              // Get the position of the intersection point in 3d.
+              const vec3 &va = in_points[edge_a];
+              const vec3 &vb = in_points[edge_b];
+              const vec3 &vc = in_points[c];
+              auto i3o = PointToPlane(va, vb, vc, i2);
+              CHECK(i3o.has_value()) << "Interior edges should not be "
+                "perpendicular to xy?";
+
+              const int i = AddPoint(i3o.value());
+              new_points.insert(i);
+
+              // Split to the two triangles at the bottom of that diagram.
+              AddTriangleTo(&new_triangles, edge_a, i, c);
+              AddTriangleTo(&new_triangles, i, edge_b, c);
+            }
+            // else ...
+
+            // If p is not inside the triangle, then
+            // we have a situation like this:
+
+            //     c      //
+            //    / \     //
+            //   /   \    //
+            //  /  :  \   //
+            // a---*---b  //
+            //     |      //
+            //     p
+
+            //
+            // or
+            //
+            //     d      //
+            //    / \     //
+            // \ /   \ /  //
+            //  X  :  X   //
+            // a-+-*-+-b  //
+            //  \ \|/ /   //
+            //   \ p /    //
+            //    \ /     //
+            //     c      //
+            //
+            // In the second case, we'll split the triangle a
 
             // Project 2d pt to the triangle.
             // Add a new point.
             // Insert split triangles.
             // How to know whether the new point is on the
-            // top or bottom of the hole, though?
+            // top or bottom of the hole, though? I guess
+            // we can just sort by z coordinate.
+            // There will be more than 2 triangles (because
+            // each edge is on two triangles) but only
+            // two distinct points.
           }
         }
       }
