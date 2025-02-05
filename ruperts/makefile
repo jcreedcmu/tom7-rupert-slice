@@ -9,8 +9,8 @@ CL_LFLAGS=-lOpenCL
 
 # This is optional; if you want to use plain C++ code, just
 # comment it out. But GMP is much faster.
-GMP_LFLAGS=-lgmp
-GMP_CFLAGS=-DBIG_USE_GMP
+# GMP_LFLAGS=-lgmp
+# GMP_CFLAGS=-DBIG_USE_GMP
 
 CC_LIB=../cc-lib
 CODEC=../codec

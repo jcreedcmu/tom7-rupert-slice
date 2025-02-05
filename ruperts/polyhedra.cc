@@ -1590,27 +1590,31 @@ TriangleWithEdge(const std::tuple<int, int, int> &tri,
 
 Mesh3D MakeHole(const Polyhedron &polyhedron,
                 const std::vector<vec2> &polygon) {
-  // We will add to this when we split some triangles.
-  std::vector<vec3> in_points = polyhedron.vertices;
-
-  // Out vertices with indices already assigned.
-  std::vector<vec3> out_points;
+  // Indexed set of points.
+  std::vector<vec3> points;
   // Point map so that we can get the index of a vertex
   // that's already been added. This also merges points
   // that are less than some epsilon from the first
   // one inserted in the vicinity.
-  PointMap3<int> out_point_index;
+  PointMap3<int> point_index;
   std::vector<std::tuple<int, int, int>> out_triangles;
   auto AddPoint = [&](const vec3 &pt) {
-      if (auto io = out_point_index.Get(pt)) {
+      if (auto io = point_index.Get(pt)) {
         return io.value();
       }
 
-      int idx = out_points.size();
-      out_points.push_back(pt);
-      out_point_index.Add(pt, idx);
+      int idx = points.size();
+      points.push_back(pt);
+      point_index.Add(pt, idx);
       return idx;
     };
+
+  for (int idx = 0; idx < polyhedron.vertices.size(); idx++) {
+    const vec3 &v = polyhedron.vertices[idx];
+    // We would just need to remap the triangles.
+    CHECK(AddPoint(v) == idx) << "Points from the input polyhedron "
+      "were merged. This can be handled, but isn't handled yet.";
+  }
 
   // Add a triangle as indices of its vertices. We insert them in
   // sorted order so that it's easier to find edges and so on.
@@ -1622,11 +1626,15 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       v.push_back(c);
       std::sort(v.begin(), v.end());
       CHECK(v.size() == 3);
-      out->emplace_back(v[0], v[1], v[2]);
+      a = v[0];
+      b = v[1];
+      c = v[2];
+      CHECK(a < b && b < c) << std::format("{} {} {}", a, b, c);
+      out->emplace_back(a, b, c);
     };
 
   // Triangles that intersect or abut the hole polygon. These
-  // vertices are indexes into in_points.
+  // vertices are indexes into points.
   std::vector<std::tuple<int, int, int>> work_triangles;
 
   auto HasEdge = [&](int u, int v) {
@@ -1640,6 +1648,18 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       return false;
     };
 
+  auto SortPointIndicesByZ = [&points](std::vector<int> *indices) {
+      std::sort(indices->begin(), indices->end(),
+                [&points](int a, int b) {
+                  CHECK(a >= 0 && b >= 0 &&
+                        a < points.size() &&
+                        b < points.size()) <<
+                    std::format("a: {}, b: {}, points.size: {}",
+                                a, b, points.size());
+                  return points[a].z < points[b].z;
+                });
+    };
+
   // First, classify each triangle as entirely inside, entirely outside,
   // or intersecting. The intersecting triangles will be handled in
   // the next loop.
@@ -1650,7 +1670,7 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
 
     int count = 0;
     for (const vec2 &v : {v0, v1, v2}) {
-      count += PointInPolygon(v, polygon);
+      count += PointInPolygon(v, polygon) ? 1 : 0;
     }
 
     if (count == 3) {
@@ -1661,7 +1681,7 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       AddTriangleTo(&work_triangles, a, b, c);
     } else {
       // If the triangle is entirely outside, then we persist it untouched.
-      // (Although the vertices will get renumbered.)
+      // (Although the vertices may get renumbered.)
       AddTriangleTo(&out_triangles,
                     AddPoint(polyhedron.vertices[a]),
                     AddPoint(polyhedron.vertices[b]),
@@ -1670,11 +1690,11 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
   }
 
   // Next, create a new hole polygon whose vertices are represented by
-  // indices in the in_points. To do this, we'll add points when a
+  // indices in the points. To do this, we'll add points when a
   // vertex is inside a triangle, or when it intersects a triangle
   // edge. At the same time, we'll split triangles accordingly.
   //
-  // Returns all the intersection points (as integer indices into in_points),
+  // Returns all the intersection points (as integer indices into points),
   // sorted from lowest z coordinate to highest.
   auto SplitTrianglesAtPoint = [&](const vec2 &pt) -> std::vector<int> {
       std::vector<std::tuple<int, int, int>> new_triangles;
@@ -1683,9 +1703,9 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       std::vector<int> new_points;
 
       for (const auto &[a, b, c] : work_triangles) {
-        const vec3 &va = in_points[a];
-        const vec3 &vb = in_points[b];
-        const vec3 &vc = in_points[c];
+        const vec3 &va = points[a];
+        const vec3 &vb = points[b];
+        const vec3 &vc = points[c];
 
         const vec2 &va2 = {va.x, va.y};
         const vec2 &vb2 = {vb.x, vb.y};
@@ -1725,10 +1745,7 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       }
 
       work_triangles = std::move(new_triangles);
-      std::sort(new_points.begin(), new_points.end(),
-                [&in_points](int a, int b) {
-                  return in_points[a].z < in_points[b].z;
-                });
+      SortPointIndicesByZ(&new_points);
       return new_points;
     };
 
@@ -1745,7 +1762,8 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
     std::vector<int> ps = SplitTrianglesAtPoint(v);
     CHECK(ps.size() == 2) << "Expecting exactly one intersection on "
       "the top and one on the bottom. Maybe this is not a proper "
-      "hole, or maybe it is not in general position.";
+      "hole, or maybe it is not in general position. (" << ps.size() <<
+      ")";
     hole.emplace_back(ps[0], ps[1]);
   }
 
@@ -1768,17 +1786,19 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       // The top edge and bottom edge are the same in 2D. So just get
       // them from the top. (Note that we may have snapped differently,
       // but we ignore this issue, perhaps to our peril?)
-      const vec2 &pv = {in_points[pt].x, in_points[pt].y};
-      const vec2 &qv = {in_points[qt].x, in_points[pt].y};
+      const vec2 &pv = {points[pt].x, points[pt].y};
+      const vec2 &qv = {points[qt].x, points[pt].y};
 
       // Get the closest intersection from pv->qv.
       // The first two indices are the edge, and the third is the
-      // other vertex in the triangle.
+      // other vertex in the triangle. Edges are ordered a < b.
       std::optional<std::tuple<vec2, int, int, int>> closest;
       double closest_dist = std::numeric_limits<double>::infinity();
       auto Try = [&](int u, int v, int w) {
-          const vec2 &uv = {in_points[u].x, in_points[u].y};
-          const vec2 &vv = {in_points[v].x, in_points[v].y};
+          // So that the output edge is ordered.
+          CHECK(u < v);
+          const vec2 &uv = {points[u].x, points[u].y};
+          const vec2 &vv = {points[v].x, points[v].y};
 
           if (auto lo = LineIntersection(uv, vv, pv, qv)) {
             double dist = length(lo.value() - pv);
@@ -1789,9 +1809,10 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
         };
 
       for (const auto &[a, b, c] : work_triangles) {
+        CHECK(a < b && b < c) << std::format("{} {} {}", a, b, c);
         Try(a, b, c);
         Try(b, c, a);
-        Try(c, a, b);
+        Try(a, c, b);
       }
 
       if (!closest.has_value()) {
@@ -1807,117 +1828,89 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
       }
 
       // Otherwise, split the triangle.
-      // XXX HERE
 
       const auto &[i2, edge_a, edge_b, c_] = closest.value();
-      CHECK(edge_a < edge_b);
+      CHECK(edge_a < edge_b) << edge_a << " " << edge_b;
 
       // i2 is an intersection on the edge a-b. c is one of
       // the triangles with this edge. Find that point in 3D.
-      const vec3 &va = in_points[edge_a];
-      const vec3 &vb = in_points[edge_b];
+      const vec3 &va = points[edge_a];
+      const vec3 &vb = points[edge_b];
       const std::optional<vec3> io = PointToLine(va, vb, i2);
       CHECK(io.has_value()) << "We intersected a perpendicular line?";
       const int i = AddPoint(io.value());
 
-      {
-        std::set<int> new_points;
+      // We expect to intersect a face on the other side as well.
+      std::vector<int> new_points = {i};
 
+      // Now add it to every triangle with an edge (a, b).
+      {
         std::vector<std::tuple<int, int, int>> new_triangles;
         new_triangles.reserve(work_triangles.size());
 
         for (const auto &tri : work_triangles) {
-          // FIXME: We need to find all the triangles with this edge
-          // so that we can insert the intersection point i on that
-          // edge.
-
-
           if (auto co = TriangleWithEdge(tri, edge_a, edge_b)) {
             const int c = co.value();
 
-            if (c == pt) {
-              // Then we are exiting this triangle along
-              // the opposite edge, like this:
-              //
-              //     d      //
-              //    / \     //
-              //   /   \    //
-              //  /  :  \   //
-              // a---i---b  //
-              //  \  ^  /   //
-              //   \ : /    //
-              //    \:/     //
-              //    c=p     //
+            // e.g.
+            // a---i---b  //
+            //  \  |  /   //
+            //   \ | /    //
+            //    \|/     //
+            //     c      //
 
-              // Get the position of the intersection point in 3d.
-              const vec3 &va = in_points[edge_a];
-              const vec3 &vb = in_points[edge_b];
-              const vec3 &vc = in_points[c];
+            AddTriangleTo(&new_triangles, edge_a, i, c);
+            AddTriangleTo(&new_triangles, i, edge_b, c);
+          } else {
+            const auto &[a, b, c] = tri;
+            const vec3 &va = points[a];
+            const vec3 &vb = points[b];
+            const vec3 &vc = points[c];
+            const vec2 a2 = {va.x, va.y};
+            const vec2 b2 = {vb.x, vb.y};
+            const vec2 c2 = {vc.x, vc.y};
+
+            if (InTriangle(a2, b2, c2, i2)) {
+
+              // Split like in SplitTrianglesAtPoint.
               auto i3o = PointToPlane(va, vb, vc, i2);
-              CHECK(i3o.has_value()) << "Interior edges should not be "
-                "perpendicular to xy?";
+              CHECK(i3o.has_value()) << "If the point is strictly within "
+                "the triangle, we should be able to project it to 3D. "
+                "But this could happen due to a disagreement about 'epsilon'.";
 
               const int i = AddPoint(i3o.value());
-              new_points.insert(i);
+              new_points.push_back(i);
 
-              // Split to the two triangles at the bottom of that diagram.
-              AddTriangleTo(&new_triangles, edge_a, i, c);
-              AddTriangleTo(&new_triangles, i, edge_b, c);
+              AddTriangleTo(&new_triangles, a, i, c);
+              AddTriangleTo(&new_triangles, i, b, c);
+              AddTriangleTo(&new_triangles, a, b, i);
+
+            } else {
+              // Keep as-is.
+              new_triangles.push_back(tri);
             }
-            // else ...
-
-            // If p is not inside the triangle, then
-            // we have a situation like this:
-
-            //     c      //
-            //    / \     //
-            //   /   \    //
-            //  /  :  \   //
-            // a---*---b  //
-            //     |      //
-            //     p
-
-            //
-            // or
-            //
-            //     d      //
-            //    / \     //
-            // \ /   \ /  //
-            //  X  :  X   //
-            // a-+-*-+-b  //
-            //  \ \|/ /   //
-            //   \ p /    //
-            //    \ /     //
-            //     c      //
-            //
-            // In the second case, we'll split the triangle a
-
-            // Project 2d pt to the triangle.
-            // Add a new point.
-            // Insert split triangles.
-            // How to know whether the new point is on the
-            // top or bottom of the hole, though? I guess
-            // we can just sort by z coordinate.
-            // There will be more than 2 triangles (because
-            // each edge is on two triangles) but only
-            // two distinct points.
           }
         }
+
+        work_triangles = std::move(new_triangles);
+
+        SortPointIndicesByZ(&new_points);
+        CHECK(new_points.size() == 2) << "We should always enter "
+          "in the top and exit on the bottom, creating two points.";
+
+        pt = new_points[0];
+        pb = new_points[1];
+        new_hole.emplace_back(pt, pb);
       }
-
-
-
     }
 
     CHECK(pb == qb) << "This should be the case when the top segment "
       "becomes degenerate, but I guess it's possible that one snaps "
       "when the other doesn't.";
 
-
     // A polygon edge could intersect multiple triangles, or none!
     // For the loop, we want to be in a position where the point
     // is on a triangle edge.
-
   }
 
   // TODO: Use the hole to create internal faces. Delete triangles

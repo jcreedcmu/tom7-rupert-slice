@@ -329,7 +329,7 @@ void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
 void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
                           std::string_view filename);
 
-// A 3D mesh; not necessarily convex (or even connected).
+// A 3D triangle mesh; not necessarily convex (or even connected).
 struct Mesh3D {
   std::vector<vec3> vertices;
   std::vector<std::tuple<int, int, int>> triangles;

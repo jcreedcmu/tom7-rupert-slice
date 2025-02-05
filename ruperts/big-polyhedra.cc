@@ -321,7 +321,7 @@ BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices,
   dvertices.reserve(vertices.size());
   for (const BigVec3 &v : vertices) {
     #ifndef BIG_USE_GMP
-    #error ToDouble only really works with GMP mode
+    LOG(FATAL) << "ToDouble only really works with GMP mode";
     #endif
     double x = v.x.ToDouble();
     double y = v.y.ToDouble();
