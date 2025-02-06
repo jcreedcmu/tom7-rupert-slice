@@ -31,12 +31,17 @@
 #include "yocto_matht.h"
 
 namespace {
+// TODO: Use this throughout.
+static inline vec2 Two(const vec3 &v) {
+  return vec2{v.x, v.y};
+}
+
 // Project the point pt, which should like on the 2D segment (a, b)
 // in the xy plane, such that it lies on the 3D segment (a, b).
 static std::optional<vec3> PointToLine(const vec3 &a, const vec3 &b,
                                        const vec2 &pt2) {
-  vec2 a2 = {a.x, a.y};
-  vec2 b2 = {b.x, b.y};
+  vec2 a2 = Two(a);
+  vec2 b2 = Two(b);
 
   double numer = length(pt2 - a2);
   double denom = length(b2 - a2);
@@ -469,22 +474,16 @@ struct HoleMaker {
     return np;
   }
 
+  // XXX deprecated?
   void Step2() {
-    // TODO: Update comment with new strategy.
     // Next, create a new hole polygon whose vertices are represented by
     // indices in the points. To do this, we'll add points when a
     // vertex is inside a triangle, or when it intersects a triangle
-    // edge. At the same time, we'll split triangles accordingly.
+    // edge, or use an existing point when it lands on one. At the same
+    // time, we'll split triangles accordingly.
 
-    // First, no need to deal with general points for this. Split
-    // triangles so that all the polygon points land on triangle
-    // vertices. We get a hole as a series of point indices. There
-    // is a top and bottom of the hole; this vector keeps them
-    // in correspondence.
     hole.reserve(input_polygon.size());
     for (const vec2 &v : input_polygon) {
-      // XXX should check that it's not the same as the previous
-      // point
       std::vector<int> ps = ProjectThroughMesh(v);
       CHECK(ps.size() == 2) << "Expecting exactly one intersection on "
         "the top and one on the bottom. Maybe this is not a proper "
@@ -493,6 +492,7 @@ struct HoleMaker {
       hole.emplace_back(ps[0], ps[1]);
     }
 
+    #if 0
     printf("After splitting on points, work triangles:\n");
     for (const auto &[a, b, c] : work_triangles) {
       auto P = [&](int i) {
@@ -505,7 +505,7 @@ struct HoleMaker {
       P(c);
     }
     printf("  ----\n");
-
+    #endif
   }
 
   void SaveMesh(std::string_view filename) {
@@ -517,10 +517,114 @@ struct HoleMaker {
     SaveAsSTL(tmp, filename, "makehole");
   }
 
+  // On the edge from p to q, get the closest intersection
+  // with an edge (or vertex). The point must be strictly
+  // closer to q than p.
+  std::optional<vec2> GetClosestIntersection(const vec2 &p,
+                                             const vec2 &q) {
+    const double dist_p_to_q = distance(p, q);
+
+    // The closest point matching the criteria.
+    std::optional<vec2> closest;
+    double closest_dist = std::numeric_limits<double>::infinity();
+
+    auto TryPoint = [&](const vec2 &v) {
+        const double qdist = distance(v, q);
+        // Must be strictly closer to q.
+        if (qdist < dist_p_to_q) {
+          double dist = length(v - p);
+          if (!closest.has_value() || dist < closest_dist) {
+            closest = {v};
+          }
+        }
+      };
+
+    auto TryEdge = [&](int u, int v) {
+        CHECK(u < v);
+        const vec2 &uv = {points[u].x, points[u].y};
+        const vec2 &vv = {points[v].x, points[v].y};
+
+        if (auto lo = LineIntersection(uv, vv, p, q)) {
+          TryPoint(lo.value());
+        }
+      };
+
+    // PERF: This could of course be faster with a spatial data
+    // structure!
+    for (const auto &[a, b, c] : work_triangles) {
+      CHECK(a < b && b < c) << std::format("{} {} {}", a, b, c);
+      TryPoint(Two(points[a]));
+      TryPoint(Two(points[b]));
+      TryPoint(Two(points[c]));
+      TryEdge(a, b);
+      TryEdge(b, c);
+      TryEdge(a, c);
+    }
+
+    return closest;
+  }
+
+  void Split() {
+    // Walk the polygon (in 2D) and project to vertices wherever
+    // it has a vertex, or where there is an intersection with
+    // an existing triangle. We expect two vertices each time:
+    // One for the top and one for the bottom.
+
+    CHECK(hole.empty());
+    hole.reserve(input_polygon.size());
+
+    // Project the point through the polyhedron (splitting it as
+    // necessary), expecting two intersections.
+    auto Sample = [this](const vec2 &v2) -> std::pair<int, int> {
+        std::vector<int> ps = ProjectThroughMesh(v2);
+        CHECK(ps.size() == 2) << "We expect every projected point to "
+          "have both a top and bottom intersection, but got: " << ps.size();
+        return {ps[0], ps[1]};
+      };
+
+    for (int idx = 0; idx < input_polygon.size(); idx++) {
+      vec2 p = input_polygon[idx];
+      const vec2 &q = input_polygon[(idx + 1) % input_polygon.size()];
+
+      // Repeatedly find intersections between p and q.
+
+      std::pair<int, int> pp = Sample(p);
+      std::pair<int, int> qq = Sample(q);
+
+      hole.push_back(pp);
+
+      while (pp != qq) {
+        auto io = GetClosestIntersection(p, q);
+        if (!io.has_value()) {
+          // No more intersections. Then we are done.
+          break;
+        }
+
+        const vec2 &i2 = io.value();
+        // i2 is a point between p and q.
+        // TODO: Could assert this, since we require it for
+        // termination.
+        CHECK(i2 != p);
+
+        auto rr = Sample(i2);
+        CHECK(rr != pp) << "This might ok, but might also result "
+          "in degenerate triangles?";
+
+        pp = rr;
+        p = i2;
+      }
+
+      // qq might already be in the hole.
+      CHECK(!hole.empty());
+      if (hole.back() != qq)
+        hole.push_back(qq);
+    }
+
+  }
+
   void Step3() {
-    // But edges of the polygon might now intersect edges of
-    // triangles. Process each edge in the hole until this
-    // is no longer the case.
+    // Now walk the edges of the hole and make sure that we have
+    // vertices at every intersection.
     std::vector<std::pair<int, int>> new_hole;
     for (int idx = 0; idx < hole.size(); idx++) {
       int pt, pb, qt, qb;
@@ -529,10 +633,10 @@ struct HoleMaker {
 
       CHECK(pt != qt && pb != qb) << "Fix this above";
 
-      // We know both p and q are not strictly inside any triangles, and
-      // moreover, each is a vertex of at least one triangle.
+      // Starting pair remains in the hole.
       new_hole.emplace_back(pt, pb);
 
+      // Find intersections from p->q.
       while (pt != qt) {
         // The top edge and bottom edge are the same in 2D. So just get
         // them from the top. (Note that we may have snapped differently,
@@ -695,9 +799,50 @@ struct HoleMaker {
     }
   }
 
-  void Step4() {
+  // Remove triangles that have a vertex inside the hole.
+  void RemoveHole() {
+    std::vector<std::tuple<int, int, int>> new_triangles;
+    new_triangles.reserve(work_triangles.size());
+
+    std::unordered_set<int> hole_vertices;
+    for (const auto &[t, b] : hole) {
+      hole_vertices.insert(t);
+      hole_vertices.insert(b);
+    }
+
+    int dropped = 0;
+    for (const auto &tri : work_triangles) {
+      const auto &[a, b, c] = tri;
+
+      // If we did the previous splitting correctly, then
+      // a triangle with any vertex strictly inside the
+      // hole should be removed.
+      bool inside = false;
+      for (int v : {a, b, c}) {
+        if (!hole_vertices.contains(v) &&
+            PointInPolygon(Two(points[v]), input_polygon)) {
+          inside = true;
+          break;
+        }
+      }
+
+      // Only keep it if it's on the outside.
+      if (!inside) {
+        new_triangles.push_back(tri);
+      } else {
+        dropped++;
+      }
+    }
+
+    work_triangles = std::move(new_triangles);
+    printf("Removed %d triangles in hole.\n", dropped);
+  }
+
+  void RepairHole() {
+
     // TODO: Use the hole to create internal faces. Delete triangles
     // that have a vertex inside the hole.
+
   }
 
   Mesh3D GetMesh() {
@@ -712,10 +857,10 @@ struct HoleMaker {
 Mesh3D MakeHole(const Polyhedron &polyhedron,
                 const std::vector<vec2> &polygon) {
   HoleMaker maker(polyhedron, polygon);
-  maker.Step2();
+  maker.Split();
   maker.SaveMesh("makehole.stl");
-  maker.Step3();
-  maker.Step4();
+  maker.RemoveHole();
+  maker.SaveMesh("removehole.stl");
 
   return maker.GetMesh();
 }
