@@ -102,7 +102,9 @@ struct SolutionDB {
   // Or abort.
   Solution GetSolution(int id);
 
-  std::vector<Solution> GetSolutionsFor(const std::string &name);
+  std::vector<Solution> GetSolutionsFor(std::string_view name);
+  // Or abort.
+  Solution GetBestSolutionFor(std::string_view name);
   std::vector<Solution> GetAllNopertSolutions();
 
   static std::string NopertName(int id) {

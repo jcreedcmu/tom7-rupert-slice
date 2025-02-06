@@ -1297,12 +1297,12 @@ int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
 
-  if (true) {
+  if (false) {
     GrindNoperts();
   }
 
   // Grind every unsolved cell.
-  if (true) {
+  if (false) {
     std::unordered_set<std::string> poly_filter;
     for (int i = 1; i < argc; i++) {
       poly_filter.insert(argv[i]);
@@ -1312,7 +1312,7 @@ int main(int argc, char **argv) {
   }
 
   // Grind unsolved polyhedra for an hour at a time.
-  if (true) {
+  if (false) {
     for (;;) {
       constexpr auto sec = std::chrono::seconds(1);
       ReproduceEasySolutions(SolutionDB::METHOD_PARALLEL, true, 3600.0);
@@ -1328,7 +1328,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (false) {
+  if (true) {
     // ReproduceEasySolutions(SolutionDB::METHOD_SPECIAL, 3600.0);
     ReproduceEasySolutions(SolutionDB::METHOD_SIMUL, false, 60.0);
     printf("OK\n");

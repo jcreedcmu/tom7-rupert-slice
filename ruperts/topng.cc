@@ -18,11 +18,10 @@ using frame3 = yocto::frame<double, 3>;
 
 using Solution = SolutionDB::Solution;
 
-std::pair<frame3, frame3> GetSolution(std::string_view name) {
+static std::pair<frame3, frame3> GetSolution(std::string_view name) {
   SolutionDB db;
-  std::vector<Solution> sols = db.GetSolutionsFor(std::string(name));
-  CHECK(!sols.empty()) << "There are no solutions for " << name;
-  return std::make_pair(sols[0].outer_frame, sols[0].inner_frame);
+  Solution sol = db.GetBestSolutionFor(name);
+  return std::make_pair(sol.outer_frame, sols.inner_frame);
 }
 
 static void RenderAny(std::string_view name) {

@@ -20,6 +20,7 @@
 #include "rendering.h"
 #include "yocto_matht.h"
 #include "polyhedra.h"
+#include "periodically.h"
 
 using vec2 = yocto::vec<double, 2>;
 
@@ -36,24 +37,57 @@ static inline double IsNear(double a, double b) {
     StringPrintf("%.17g and %.17g, with err %.17g", fv, gv, e);         \
   } while (0)
 
+static void StressTest() {
+  Polyhedron poly = Cube();
+  ArcFour rc("stress");
+  Periodically status_per(1.0);
+  for (int iters = 0; true; iters++) {
+    std::vector<vec2> vertices;
+    for (int i = 0; i < 3; i++) {
+      vec2 p{RandDouble(&rc) * 1.8 - 0.90, RandDouble(&rc) * 1.8 - 0.90};
+      vertices.push_back(p);
+    }
+
+    std::vector<int> hull = QuickHull(vertices);
+
+    std::vector<vec2> polygon;
+    for (int i : hull) polygon.push_back(vertices[i]);
+
+    Mesh3D mesh = MakeHole(poly, polygon);
+    if (status_per.ShouldRun()) {
+      printf("%d iters\n", iters);
+    }
+  }
+}
+
+/*
+  regression TODO:
+  (-0.6368,0.2133)
+  (-0.3222,-0.0660)
+  (-0.2862,-0.1969)
+  (-0.3380,-0.5656)
+  (-0.6061,-0.0610)
+*/
+
 static void TestMakeHole() {
   Polyhedron polyhedron = Cube();
 
-  // A small triangular hole, not in any special
+  // A small rectangular hole, not in any special
   // position (e.g. not on the cube's face diagonal).
-  /*
-  std::vector<vec2> hole = {
-    {-0.11, -0.44},
-    {+0.33, -0.20},
-    {0.0, 0.25},
-  };
-  */
 
+  /*
   std::vector<vec2> hole = {
     {-0.22, -0.33},
     {-0.27, 0.36},
     {0.34, 0.31},
     {0.29, -0.35},
+  };
+  */
+
+  std::vector<vec2> hole = {
+    {-0.5983,0.6050},
+    {0.5934,0.2455},
+    {0.8957,-0.7372},
   };
 
   Mesh3D mesh = MakeHole(polyhedron, hole);
@@ -74,6 +108,7 @@ int main(int argc, char **argv) {
   printf("\n");
 
   TestMakeHole();
+  // StressTest();
 
   printf("OK\n");
   return 0;

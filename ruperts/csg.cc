@@ -32,6 +32,9 @@
 
 #include "yocto_matht.h"
 
+static constexpr bool DEBUG = false;
+static constexpr bool VERBOSE = false;
+
 namespace {
 // TODO: Use this throughout.
 static inline vec2 Two(const vec3 &v) {
@@ -41,6 +44,7 @@ static inline vec2 Two(const vec3 &v) {
 // Draw triangles where all the vertices have z < 0.
 static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
   auto Filter = [&mesh](int i) {
+      (void)mesh;
       return mesh.vertices[i].z < 0.0;
     };
 
@@ -351,14 +355,32 @@ struct HoleMaker {
       if (count == 3) {
         // If all are inside, then it cannot intersect the hole (convexity).
         // We just discard these.
-      } else if (TriangleAndPolygonIntersect(v0, v1, v2, polygon)) {
+        if (VERBOSE) {
+          printf("[%d] Triangle %d-%d-%d is inside the hole.\n",
+                 count, a, b, c);
+        }
+
+        // TODO: Not correct to ignore triangles outside, since we might
+        // still need to split them. If the hole has vertices in the
+        // triangle it still needs to be considered. We could do this
+        // by fixing the behavior of TriangleAndPolygonIntersect.
+      } else if (true || TriangleAndPolygonIntersect(v0, v1, v2, polygon)) {
         // Might need to be bisected below.
         CHECK(a != b && b != c && a != c);
         AddTriangleTo(&work_triangles, a, b, c);
+        if (VERBOSE) {
+          printf("[%d] Triangle %d-%d-%d is intersects the hole.\n",
+                 count, a, b, c);
+        }
+
       } else {
         // If the triangle is entirely outside, then we persist it untouched.
         CHECK(a != b && b != c && a != c);
         AddTriangleTo(&out_triangles, a, b, c);
+        if (VERBOSE) {
+          printf("[%d] Triangle %d-%d-%d is entirely outside the hole.\n",
+                 count, a, b, c);
+        }
       }
     }
   }
@@ -370,9 +392,10 @@ struct HoleMaker {
   // their z coordinate.
 
   std::vector<int> ProjectThroughMesh(const vec2 &pt) {
-    const bool VERBOSE = false;
     if (VERBOSE) {
-      printf(ACYAN("proj") " at %s\n", VecString(pt).c_str());
+      printf(ACYAN("proj") " at %s (%d triangles)\n",
+             VecString(pt).c_str(),
+             (int)work_triangles.size());
     }
     std::vector<std::tuple<int, int, int>> new_triangles;
     new_triangles.reserve(work_triangles.size());
@@ -594,8 +617,10 @@ struct HoleMaker {
   std::optional<vec2> GetClosestIntersection(const vec2 &p,
                                              const vec2 &q,
                                              bool verbose = false) {
-    printf("From %s -> %s\n", VecString(p).c_str(),
-           VecString(q).c_str());
+    if (VERBOSE) {
+      printf("From %s -> %s\n", VecString(p).c_str(),
+             VecString(q).c_str());
+    }
     const double dist_p_to_q = distance(p, q);
 
     // The closest point matching the criteria.
@@ -667,14 +692,18 @@ struct HoleMaker {
     auto Sample = [this](const vec2 &v2) -> std::pair<int, int> {
         std::vector<int> ps = ProjectThroughMesh(v2);
         CHECK(ps.size() == 2) << "We expect every projected point to "
-          "have both a top and bottom intersection, but got: " << ps.size();
+          "have both a top and bottom intersection, but got: " << ps.size()
+        << "\nProjecting point: " << VecString(v2)
+        << "\n" << Error();
         return {ps[0], ps[1]};
       };
 
     for (int idx = 0; idx < input_polygon.size(); idx++) {
-      printf(ABGCOLOR(0, 255, 255,
-                      ADARKGREY("    --- in poly %d ---    ")) "\n",
-             idx);
+      if (VERBOSE) {
+        printf(ABGCOLOR(0, 255, 255,
+                        ADARKGREY("    --- in poly %d ---    ")) "\n",
+               idx);
+      }
       vec2 p = input_polygon[idx];
       const vec2 &q = input_polygon[(idx + 1) % input_polygon.size()];
 
@@ -682,23 +711,31 @@ struct HoleMaker {
 
       std::pair<int, int> pp = Sample(p);
       std::pair<int, int> qq = Sample(q);
-      printf("Top cut: %d->%d\n", pp.first, qq.first);
+      if (VERBOSE) {
+        printf("Top cut: %d->%d\n", pp.first, qq.first);
+      }
 
       hole.push_back(pp);
 
       while (pp != qq) {
-        SaveMesh(std::format("split{}", filename_index));
+        if (DEBUG) {
+          SaveMesh(std::format("split{}", filename_index));
+        }
         filename_index++;
 
         // Split0 lgtm.
 
         // Split1 looks probably good now.
 
-        printf("Top vertex " AWHITE("%d") " to " AWHITE("%d") "\n",
-               pp.first, qq.first);
-        auto io = GetClosestIntersection(p, q, pp.first == 14);
+        if (VERBOSE) {
+          printf("Top vertex " AWHITE("%d") " to " AWHITE("%d") "\n",
+                 pp.first, qq.first);
+        }
+        auto io = GetClosestIntersection(p, q);
         if (!io.has_value()) {
-          printf("No more intersections.\n");
+          if (VERBOSE) {
+            printf("No more intersections.\n");
+          }
           // No more intersections. Then we are done.
           // MaybeAddEdge(pp.first, qq.first);
           // MaybeAddEdge(pp.second, qq.second);
@@ -713,8 +750,10 @@ struct HoleMaker {
 
         // It could snap to the same point, though.
         auto rr = Sample(i2);
-        printf("Intersection at %s. top = %d\n", VecString(i2).c_str(),
-               rr.first);
+        if (VERBOSE) {
+          printf("Intersection at %s. top = %d\n", VecString(i2).c_str(),
+                 rr.first);
+        }
         if (rr != pp) {
           hole.push_back(rr);
           pp = rr;
@@ -761,7 +800,7 @@ struct HoleMaker {
     if (VERBOSE) {
       printf("Missing %d edges.\n", missing);
     }
-    CHECK(missing == 0);
+    CHECK(missing == 0) << Error();
   }
 
   // Now we have a vertex at every point and intersection on the
@@ -819,7 +858,9 @@ struct HoleMaker {
     }
 
     work_triangles = std::move(new_triangles);
-    printf("Removed %d triangles in hole.\n", dropped);
+    if (VERBOSE) {
+      printf("Removed %d triangles in hole.\n", dropped);
+    }
   }
 
   void RepairHole() {
@@ -853,10 +894,24 @@ struct HoleMaker {
   }
 
   Mesh3D GetMesh() {
-    // TODO: Build mesh3d and return.
+    // TODO: Improve mesh.
+    // TODO: Garbage collect.
+    Mesh3D ret;
+    ret.vertices = points;
+    ret.triangles = out_triangles;
+    for (const auto &tri : work_triangles)
+      ret.triangles.push_back(tri);
 
-    LOG(FATAL) << "Unimplemented";
-    return Mesh3D{};
+    return ret;
+  }
+
+  std::string Error() const {
+    std::string out;
+    AppendFormat(&out, "Input poly:\n");
+    for (const vec2 &v : input_polygon) {
+      AppendFormat(&out, "  {}\n", VecString(v));
+    }
+    return out;
   }
 };
 }  // namespace
@@ -865,12 +920,12 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
                 const std::vector<vec2> &polygon) {
   HoleMaker maker(polyhedron, polygon);
   maker.Split();
-  maker.SaveMesh("split");
+  if (DEBUG) maker.SaveMesh("split");
   maker.CheckEdgeLoops();
   maker.RemoveHole();
-  maker.SaveMesh("removehole");
+  if (DEBUG) maker.SaveMesh("removehole");
   maker.RepairHole();
-  maker.SaveMesh("repairhole");
+  if (DEBUG) maker.SaveMesh("repairhole");
 
   return maker.GetMesh();
 }

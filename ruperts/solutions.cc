@@ -197,6 +197,22 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
         "from solutions"));
 }
 
+SolutionDB::Solution SolutionDB::GetBestSolutionFor(std::string_view name) {
+  std::vector<Solution> sols = GetSolutionsForQuery(
+    db->ExecuteString(
+        std::format(
+            "select "
+            "id, polyhedron, method, outerframe, innerframe, "
+            "createdate, ratio, source "
+            "from solutions "
+            "where polyhedron = '{}' "
+            "order by ratio "
+            "limit 1",
+            name)));
+  CHECK(!sols.empty()) << "No solution for " << name;
+  return sols[0];
+}
+
 std::vector<SolutionDB::Solution> SolutionDB::GetAllNopertSolutions() {
   return GetSolutionsForQuery(
     db->ExecuteString(
@@ -220,16 +236,16 @@ SolutionDB::Solution SolutionDB::GetSolution(int id) {
 }
 
 std::vector<SolutionDB::Solution> SolutionDB::GetSolutionsFor(
-    const std::string &name) {
+    std::string_view name) {
   return GetSolutionsForQuery(
     db->ExecuteString(
-        StringPrintf(
+        std::format(
             "select "
             "id, polyhedron, method, outerframe, innerframe, "
             "createdate, ratio, source "
             "from solutions "
-            "where polyhedron = '%s'",
-            name.c_str())));
+            "where polyhedron = '{}'",
+            name)));
 }
 
 std::vector<SolutionDB::Attempt> SolutionDB::GetAllAttempts() {
