@@ -305,7 +305,34 @@ struct HoleMaker {
     // a vertex or edge, multiple triangles are typically implicated.
     std::set<int> new_points;
 
-    for (const auto &[a, b, c] : work_triangles) {
+    // If an edge is already split, this gives the vertex index that
+    // should be inserted along that edge on other triangles.
+    std::unordered_map<std::pair<int, int>, int,
+      Hashing<std::pair<int, int>>> already_split;
+
+    // Returns (a, b, c, d) where a-b is the edge to be split, c
+    // is the other vertex in the existing triangle, and d is the
+    // new point to add.
+    auto GetAlreadySplit = [&](int a, int b, int c) ->
+      std::optional<std::tuple<int, int, int, int>> {
+        CHECK(a < b && b < c && a < c);
+        {
+          auto it = already_split.find(std::make_pair(a, b));
+          if (it != already_split.end()) return {{a, b, c, it->second}};
+        }
+        {
+          auto it = already_split.find(std::make_pair(b, c));
+          if (it != already_split.end()) return {{b, c, a, it->second}};
+        }
+        {
+          auto it = already_split.find(std::make_pair(a, c));
+          if (it != already_split.end()) return {{a, c, b, it->second}};
+        }
+        return std::nullopt;
+      };
+
+    for (const auto &tri : work_triangles) {
+      const auto &[a, b, c] = tri;
       const vec3 &va = points[a];
       const vec3 &vb = points[b];
       const vec3 &vc = points[c];
@@ -325,6 +352,7 @@ struct HoleMaker {
         //
         // TODO: We could check here that the point is not on the
         // resulting edge (and error out).
+        new_triangles.push_back(tri);
         continue;
       }
 
@@ -341,60 +369,98 @@ struct HoleMaker {
         // intersection with the surface, and we don't need to
         // do anything except record it.
         new_points.insert(p.value());
+        new_triangles.push_back(tri);
         continue;
       }
 
-      // Now the point cannot be one of the vertices, but it
-      // could lie on the triangle's edge.
-      // HERE: Use PointOnSegment to test against each edge
-      // in the triangle. Make sure that the intersection is
-      // not actually a vertex (this is not obviously guaranteed
-      // by the test above). If it's there, then we need to split
-      // the triangle. We should probably also record that the
-      // pair of vertices (a,b) needs to be split (with this
-      // new point) every time we see it; this "should" happen
-      // but we might get a slightly different answer when we look
-      // at the edge using a different triangle.
+      // Does this triangle have an edge that has already been
+      // split? If so, we need to do the same split.
+      if (const auto so = GetAlreadySplit(a, b, c)) {
+        // a-b is the edge to split, c the existing other point;
+        // d the point to insert.
+        const auto &[a, b, c, d] = so.value();
+        AddTriangleTo(&new_triangles, a, c, d);
+        AddTriangleTo(&new_triangles, b, c, d);
+        // (and discard the original triangle)
+        // But that's all we need to do to deal with this triangle.
+        continue;
+      }
 
-      // Otherwise, we can do the existing triangle splitting for
-      // the inside.
+      // Record a new intersection on the edge a-b, with a<b,
+      // and the other existing vertex c, at the point p3.
+      auto IntersectsEdge =
+        [this, &already_split, &new_triangles, &tri, &new_points](
+            int a, int b, int c, const vec3 &p3) {
+          CHECK(a < b);
+          const int d = AddPoint(p3);
+          // If it's actually one of the vertices, we're
+          // already done.
+          if (d == a || d == b) {
+            new_points.insert(d);
+            new_triangles.push_back(tri);
+            return;
+          }
+          // This may be possible. Just do as above?
+          CHECK(d != c) << "Degenerate triangle.";
+          // Split the triangle.
+          AddTriangleTo(&new_triangles, a, c, d);
+          AddTriangleTo(&new_triangles, b, c, d);
+          new_points.insert(d);
+          CHECK(!already_split.contains({a, b}));
+          already_split[{a, b}] = d;
+          return;
+        };
 
+      // Does the point lie on an edge of the triangle?
+      // Note: We recompute the intersection point, which is
+      // logically the same but will be numerically closer
+      // to the actual edge (doesn't depend on other vertex,
+      // for example). But currently using the original
+      // projected point here, since we already checked that
+      // it is not a vertex.
+      if (PointOnSegment(va, vb, p3).has_value()) {
+        IntersectsEdge(a, b, c, p3);
+        continue;
+      } else if (PointOnSegment(vb, vc, p3).has_value()) {
+        IntersectsEdge(b, c, a, p3);
+        continue;
+      } else if (PointOnSegment(va, vc, p3).has_value()) {
+        IntersectsEdge(a, c, b, p3);
+        continue;
+      }
 
-      // There should only be two triangles that the point lands
-      // within (top and bottom). We might want to check that. This
-      // also might be the right place to add an edge, or at least
-      // record the correspondence.
-      if (InTriangle(va2, vb2, vc2, pt)) {
-
-        auto p3o = PointToPlane(va, vb, vc, pt);
-        CHECK(p3o.has_value()) << "If the point is strictly within "
-          "the triangle, we should be able to project it to 3D. "
-          "But this could happen due to a disagreement about 'epsilon'.";
-
-        const int p = AddPoint(p3o.value());
-        new_points.insert(p);
+      // Now, the point is either outside the triangle completely,
+      // or properly inside it.
+      const vec2 p2 = {p3.x, p3.y};
+      if (InTriangle(va2, vb2, vc2, p2)) {
+        const int d = AddPoint(p3);
+        new_points.insert(d);
 
         //
         //     a-------------b
         //      \`.       .'/
         //       \ `.  .'  /
-        //        \   p   /
+        //        \   d   /
         //         \  |  /
         //          \ | /
         //           \|/
         //            c
 
-        CHECK(a != b && a != p && a != c &&
-              b != p && b != c &&
-              p != c);
-        AddTriangleTo(&new_triangles, a, p, c);
-        AddTriangleTo(&new_triangles, p, b, c);
-        AddTriangleTo(&new_triangles, a, b, p);
-      } else {
-        // Not split.
-        CHECK(a != b && b != c && a != c);
-        AddTriangleTo(&new_triangles, a, b, c);
+        CHECK(a != b && a != d && a != c &&
+              b != d && b != c &&
+              d != c) << "We should have handled this with the "
+          "edge and vertex tests above!";
+        AddTriangleTo(&new_triangles, a, d, c);
+        AddTriangleTo(&new_triangles, d, b, c);
+        AddTriangleTo(&new_triangles, a, b, d);
+        // And discard the existing triangle.
+        continue;
       }
+
+      // Otherwise, the common case that this point is just
+      // not in the triangle at all. Preserve the triangle
+      // as-is.
+      new_triangles.push_back(tri);
     }
 
     work_triangles = std::move(new_triangles);
