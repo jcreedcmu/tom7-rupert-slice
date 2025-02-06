@@ -370,7 +370,10 @@ struct HoleMaker {
   // their z coordinate.
 
   std::vector<int> ProjectThroughMesh(const vec2 &pt) {
-    printf(ACYAN("proj") " at %s\n", VecString(pt).c_str());
+    const bool VERBOSE = false;
+    if (VERBOSE) {
+      printf(ACYAN("proj") " at %s\n", VecString(pt).c_str());
+    }
     std::vector<std::tuple<int, int, int>> new_triangles;
     new_triangles.reserve(work_triangles.size());
 
@@ -410,13 +413,15 @@ struct HoleMaker {
       const vec3 &vb = points[b];
       const vec3 &vc = points[c];
 
-      printf("For triangle\n"
-             "  %d. %s\n"
-             "  %d. %s\n"
-             "  %d. %s\n",
-             a, VecString(va).c_str(),
-             b, VecString(vb).c_str(),
-             c, VecString(vc).c_str());
+      if (VERBOSE) {
+        printf("For triangle\n"
+               "  %d. %s\n"
+               "  %d. %s\n"
+               "  %d. %s\n",
+               a, VecString(va).c_str(),
+               b, VecString(vb).c_str(),
+               c, VecString(vc).c_str());
+      }
 
       // Does this triangle have an edge that has already been
       // split? If so, we need to do the same split.
@@ -428,8 +433,10 @@ struct HoleMaker {
         AddTriangleTo(&new_triangles, b, c, d);
         // (and discard the original triangle)
         // But that's all we need to do to deal with this triangle.
-        printf("  " ABLUE("already split") " %d-%d (other %d). add %d\n",
-               a, b, c, d);
+        if (VERBOSE) {
+          printf("  " ABLUE("already split") " %d-%d (other %d). add %d\n",
+                 a, b, c, d);
+        }
         continue;
       }
 
@@ -449,7 +456,9 @@ struct HoleMaker {
         // TODO: We could check here that the point is not on the
         // resulting edge (and error out).
         new_triangles.push_back(tri);
-        printf("  " AORANGE("perp") "\n");
+        if (VERBOSE) {
+          printf("  " AORANGE("perp") "\n");
+        }
         continue;
       }
 
@@ -467,8 +476,10 @@ struct HoleMaker {
         // do anything except record it.
         new_points.insert(p.value());
         new_triangles.push_back(tri);
-        printf("  " AGREEN("already have vertex") " %d\n",
-               p.value());
+        if (VERBOSE) {
+          printf("  " AGREEN("already have vertex") " %d\n",
+                 p.value());
+        }
         continue;
       }
 
@@ -494,9 +505,10 @@ struct HoleMaker {
           new_points.insert(d);
           CHECK(!already_split.contains({a, b}));
           already_split[{a, b}] = d;
-
-          printf("  " APURPLE("new split") " %d-%d (other %d). add %d\n",
-                 a, b, c, d);
+          if (VERBOSE) {
+            printf("  " APURPLE("new split") " %d-%d (other %d). add %d\n",
+                   a, b, c, d);
+          }
           return;
         };
 
@@ -543,15 +555,19 @@ struct HoleMaker {
         AddTriangleTo(&new_triangles, d, b, c);
         AddTriangleTo(&new_triangles, a, b, d);
         // And discard the existing triangle.
-        printf("  " ARED("split inside") " %d-%d-%d +%d\n",
-               a, b, c, d);
+        if (VERBOSE) {
+          printf("  " ARED("split inside") " %d-%d-%d +%d\n",
+                 a, b, c, d);
+        }
         continue;
       }
 
       // Otherwise, the common case that this point is just
       // not in the triangle at all. Preserve the triangle
       // as-is.
-      printf("  " AGREY("nothing") "\n");
+      if (VERBOSE) {
+        printf("  " AGREY("nothing") "\n");
+      }
       new_triangles.push_back(tri);
     }
 
@@ -576,7 +592,8 @@ struct HoleMaker {
   // with an edge (or vertex). The point must be strictly
   // closer to q than p.
   std::optional<vec2> GetClosestIntersection(const vec2 &p,
-                                             const vec2 &q) {
+                                             const vec2 &q,
+                                             bool verbose = false) {
     printf("From %s -> %s\n", VecString(p).c_str(),
            VecString(q).c_str());
     const double dist_p_to_q = distance(p, q);
@@ -591,7 +608,11 @@ struct HoleMaker {
         if (qdist < dist_p_to_q) {
           double dist = length(v - p);
           if (!closest.has_value() || dist < closest_dist) {
+            if (verbose) {
+              printf("    " AYELLOW("(new best)") "\n");
+            }
             closest = {v};
+            closest_dist = dist;
           }
         }
       };
@@ -600,8 +621,14 @@ struct HoleMaker {
         CHECK(u < v);
         const vec2 &uv = {points[u].x, points[u].y};
         const vec2 &vv = {points[v].x, points[v].y};
-
+        if (verbose) {
+          printf("  Try edge %d-%d:\n", u, v);
+        }
         if (auto lo = LineIntersection(uv, vv, p, q)) {
+          if (verbose) {
+            printf("   Intersection at %s\n",
+                   VecString(lo.value()).c_str());
+          }
           TryPoint(lo.value());
         }
       };
@@ -610,9 +637,13 @@ struct HoleMaker {
     // structure!
     for (const auto &[a, b, c] : work_triangles) {
       CHECK(a < b && b < c) << std::format("{} {} {}", a, b, c);
-      TryPoint(Two(points[a]));
-      TryPoint(Two(points[b]));
-      TryPoint(Two(points[c]));
+
+      // We might want to try very close points. But it doesn't
+      // make sense to check points that aren't actually on the
+      // way there!
+      // TryPoint(Two(points[a]));
+      // TryPoint(Two(points[b]));
+      // TryPoint(Two(points[c]));
       TryEdge(a, b);
       TryEdge(b, c);
       TryEdge(a, c);
@@ -620,23 +651,6 @@ struct HoleMaker {
 
     return closest;
   }
-
-  #if 0
-  // Add an edge from p to q if one does not already exist.
-  // Assumes that there are no other edges that would intersect
-  // this one.
-  void MaybeAddEdge(int p, int q) {
-    if (p == q) return;
-    if (HasEdge(p, q)) return;
-
-    std::vector<std::tuple<int, int, int>> new_triangles;
-    new_triangles.reserve(work_triangles.size());
-
-    for (const auto ) {}
-
-    work_triangles = std::move(new_triangles);
-  }
-  #endif
 
   void Split() {
     // Walk the polygon (in 2D) and project to vertices wherever
@@ -658,6 +672,9 @@ struct HoleMaker {
       };
 
     for (int idx = 0; idx < input_polygon.size(); idx++) {
+      printf(ABGCOLOR(0, 255, 255,
+                      ADARKGREY("    --- in poly %d ---    ")) "\n",
+             idx);
       vec2 p = input_polygon[idx];
       const vec2 &q = input_polygon[(idx + 1) % input_polygon.size()];
 
@@ -665,6 +682,7 @@ struct HoleMaker {
 
       std::pair<int, int> pp = Sample(p);
       std::pair<int, int> qq = Sample(q);
+      printf("Top cut: %d->%d\n", pp.first, qq.first);
 
       hole.push_back(pp);
 
@@ -676,7 +694,9 @@ struct HoleMaker {
 
         // Split1 looks probably good now.
 
-        auto io = GetClosestIntersection(p, q);
+        printf("Top vertex " AWHITE("%d") " to " AWHITE("%d") "\n",
+               pp.first, qq.first);
+        auto io = GetClosestIntersection(p, q, pp.first == 14);
         if (!io.has_value()) {
           printf("No more intersections.\n");
           // No more intersections. Then we are done.
@@ -686,7 +706,6 @@ struct HoleMaker {
         }
 
         const vec2 &i2 = io.value();
-        printf("Intersection at %s\n", VecString(i2).c_str());
         // i2 is a point between p and q.
         // TODO: Could assert this, since we require it for
         // termination.
@@ -694,6 +713,8 @@ struct HoleMaker {
 
         // It could snap to the same point, though.
         auto rr = Sample(i2);
+        printf("Intersection at %s. top = %d\n", VecString(i2).c_str(),
+               rr.first);
         if (rr != pp) {
           hole.push_back(rr);
           pp = rr;
@@ -708,17 +729,6 @@ struct HoleMaker {
         hole.push_back(qq);
     }
   }
-
-  void AddEdge(int a, int b) {
-#if 0
-    std::vector<std::tuple<int, int, int>> new_triangles;
-    new_triangles.reserve(work_triangles.size());
-
-    // XXX HERE
-    work_triangles = std::move(new_triangles);
-#endif
-  }
-
 
   void AddEdgeLoop(const std::vector<int> &loop) {
     printf("Loop:\n");
@@ -736,7 +746,7 @@ struct HoleMaker {
       }
       if (!HasEdge(a, b)) {
         printf("    (missing)\n");
-        AddEdge(a, b);
+        // (XXX not actually adding)
         added++;
       }
     }
@@ -776,19 +786,24 @@ struct HoleMaker {
       // a triangle with any vertex strictly inside the
       // hole should be removed.
       bool inside = false;
+      // If a triangle has all its vertices on its hole,
+      // then it should also be removed (it is part of a
+      // face that spans the entire hole).
+      bool on = true;
       for (int v : {a, b, c}) {
-        if (!hole_vertices.contains(v) &&
+        bool on_hole = hole_vertices.contains(v);
+        if (!on_hole) on = false;
+        if (!on_hole &&
             PointInPolygon(Two(points[v]), input_polygon)) {
           inside = true;
-          break;
         }
       }
 
       // Only keep it if it's on the outside.
-      if (!inside) {
-        new_triangles.push_back(tri);
-      } else {
+      if (on || inside) {
         dropped++;
+      } else {
+        new_triangles.push_back(tri);
       }
     }
 
