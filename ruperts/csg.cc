@@ -27,6 +27,8 @@
 #include "set-util.h"
 #include "util.h"
 #include "point-map.h"
+#include "bounds.h"
+#include "image.h"
 
 #include "yocto_matht.h"
 
@@ -34,6 +36,71 @@ namespace {
 // TODO: Use this throughout.
 static inline vec2 Two(const vec3 &v) {
   return vec2{v.x, v.y};
+}
+
+// Draw triangles where all the vertices have z < 0.
+static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
+  auto Filter = [&mesh](int i) {
+      return mesh.vertices[i].z < 0.0;
+    };
+
+  Bounds bounds;
+  for (int i = 0; i < mesh.vertices.size(); i++) {
+    if (Filter(i)) {
+      const vec3 &v = mesh.vertices[i];
+      bounds.Bound(v.x, v.y);
+    }
+  }
+
+  bounds.AddMarginFrac(0.10);
+
+  // ImageRGBA img(1920, 1080);
+  ImageRGBA img(1024, 768);
+  img.Clear32(0x000000FF);
+
+  Bounds::Scaler scaler =
+    bounds.ScaleToFit(img.Width(), img.Height()).FlipY();
+
+  auto ToScreen = [&](int i) {
+      CHECK(i >= 0 && i < mesh.vertices.size());
+      const vec3 &v = mesh.vertices[i];
+      return std::make_pair((int)scaler.ScaleX(v.x),
+                            (int)scaler.ScaleY(v.y));
+    };
+
+  // First draw the triangles.
+  for (const auto &[a, b, c] : mesh.triangles) {
+    if (Filter(a) && Filter(b) && Filter(c)) {
+      const auto &[ax, ay] = ToScreen(a);
+      const auto &[bx, by] = ToScreen(b);
+      const auto &[cx, cy] = ToScreen(c);
+      img.BlendThickLine32(ax, ay, bx, by, 3.0, 0xFFFFFF77);
+      img.BlendThickLine32(bx, by, cx, cy, 3.0, 0xFFFFFF77);
+      img.BlendThickLine32(cx, cy, ax, ay, 3.0, 0xFFFFFF77);
+    }
+  }
+
+  // Now draw vertices.
+  for (int i = 0; i < mesh.vertices.size(); i++) {
+    if (Filter(i)) {
+      const auto &[x, y] = ToScreen(i);
+      img.BlendThickCircle32(x, y, 6.0f, 3.0f, 0xFF888877);
+    }
+  }
+
+  // And labels.
+  for (int i = 0; i < mesh.vertices.size(); i++) {
+    if (Filter(i)) {
+      const auto &[x, y] = ToScreen(i);
+      img.BlendTextOutline32(x + 8, y + 8,
+                             0x00000044,
+                             0x88FF88FF,
+                             std::format("{}", i));
+    }
+  }
+
+  img.Save(filename);
+  printf("Saved %s\n", std::string(filename).c_str());
 }
 
 // Project the point pt, which should like on the 2D segment (a, b)
@@ -351,6 +418,21 @@ struct HoleMaker {
              b, VecString(vb).c_str(),
              c, VecString(vc).c_str());
 
+      // Does this triangle have an edge that has already been
+      // split? If so, we need to do the same split.
+      if (const auto so = GetAlreadySplit(a, b, c)) {
+        // a-b is the edge to split, c the existing other point;
+        // d the point to insert.
+        const auto &[a, b, c, d] = so.value();
+        AddTriangleTo(&new_triangles, a, c, d);
+        AddTriangleTo(&new_triangles, b, c, d);
+        // (and discard the original triangle)
+        // But that's all we need to do to deal with this triangle.
+        printf("  " ABLUE("already split") " %d-%d (other %d). add %d\n",
+               a, b, c, d);
+        continue;
+      }
+
       const vec2 &va2 = {va.x, va.y};
       const vec2 &vb2 = {vb.x, vb.y};
       const vec2 &vc2 = {vc.x, vc.y};
@@ -385,24 +467,8 @@ struct HoleMaker {
         // do anything except record it.
         new_points.insert(p.value());
         new_triangles.push_back(tri);
-        // FIXME We should check the already split first!!
         printf("  " AGREEN("already have vertex") " %d\n",
                p.value());
-        continue;
-      }
-
-      // Does this triangle have an edge that has already been
-      // split? If so, we need to do the same split.
-      if (const auto so = GetAlreadySplit(a, b, c)) {
-        // a-b is the edge to split, c the existing other point;
-        // d the point to insert.
-        const auto &[a, b, c, d] = so.value();
-        AddTriangleTo(&new_triangles, a, c, d);
-        AddTriangleTo(&new_triangles, b, c, d);
-        // (and discard the original triangle)
-        // But that's all we need to do to deal with this triangle.
-        printf("  " ABLUE("already split") " %d-%d (other %d). add %d\n",
-               a, b, c, d);
         continue;
       }
 
@@ -501,7 +567,9 @@ struct HoleMaker {
     tmp.triangles = out_triangles;
     for (const auto &tri : work_triangles)
       tmp.triangles.push_back(tri);
-    SaveAsSTL(tmp, filename, "makehole");
+    SaveAsSTL(tmp, std::format("{}.stl", filename), "makehole");
+
+    DrawTop(tmp, std::format("{}.png", filename));
   }
 
   // On the edge from p to q, get the closest intersection
@@ -601,14 +669,12 @@ struct HoleMaker {
       hole.push_back(pp);
 
       while (pp != qq) {
-        SaveMesh(std::format("split{}.stl", filename_index));
+        SaveMesh(std::format("split{}", filename_index));
         filename_index++;
 
         // Split0 lgtm.
 
-        // Split1 doesn't seem right. We hit the main
-        // diagonal, but shouldn't we split it on both sides?
-        CHECK(filename_index <= 1);
+        // Split1 looks probably good now.
 
         auto io = GetClosestIntersection(p, q);
         if (!io.has_value()) {
@@ -655,11 +721,21 @@ struct HoleMaker {
 
 
   void AddEdgeLoop(const std::vector<int> &loop) {
+    printf("Loop:\n");
     int added = 0;
     for (int i = 0; i < loop.size(); i++) {
       const int a = loop[i];
       const int b = loop[(i + 1) % loop.size()];
+      printf("  %d. #%d -> #%d   %s %s\n",
+             i, a, b,
+             VecString(points[a]).c_str(),
+             VecString(points[b]).c_str());
+      if (a == b) {
+        printf("    (skip)\n");
+        continue;
+      }
       if (!HasEdge(a, b)) {
+        printf("    (missing)\n");
         AddEdge(a, b);
         added++;
       }
@@ -740,11 +816,11 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
                 const std::vector<vec2> &polygon) {
   HoleMaker maker(polyhedron, polygon);
   maker.Split();
-  maker.SaveMesh("split.stl");
+  maker.SaveMesh("split");
   maker.AddEdgeLoops();
-  maker.SaveMesh("addedgeloops.stl");
+  maker.SaveMesh("addedgeloops");
   maker.RemoveHole();
-  maker.SaveMesh("removehole.stl");
+  maker.SaveMesh("removehole");
 
   return maker.GetMesh();
 }
