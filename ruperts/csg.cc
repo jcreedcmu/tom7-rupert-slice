@@ -730,41 +730,52 @@ struct HoleMaker {
     }
   }
 
-  void AddEdgeLoop(const std::vector<int> &loop) {
-    printf("Loop:\n");
-    int added = 0;
+  void CheckEdgeLoop(const std::vector<int> &loop) {
+    static constexpr bool VERBOSE = false;
+    if (VERBOSE) {
+      printf("Loop:\n");
+    }
+    int missing = 0;
     for (int i = 0; i < loop.size(); i++) {
       const int a = loop[i];
       const int b = loop[(i + 1) % loop.size()];
-      printf("  %d. #%d -> #%d   %s %s\n",
-             i, a, b,
-             VecString(points[a]).c_str(),
-             VecString(points[b]).c_str());
+      if (VERBOSE) {
+        printf("  %d. #%d -> #%d   %s %s\n",
+               i, a, b,
+               VecString(points[a]).c_str(),
+               VecString(points[b]).c_str());
+      }
       if (a == b) {
-        printf("    (skip)\n");
+        if (VERBOSE) {
+          printf("    (skip)\n");
+        }
         continue;
       }
       if (!HasEdge(a, b)) {
-        printf("    (missing)\n");
-        // (XXX not actually adding)
-        added++;
+        if (VERBOSE) {
+          printf("    (missing)\n");
+        }
+        missing++;
       }
     }
-    printf("Added %d edges.\n", added);
+    if (VERBOSE) {
+      printf("Missing %d edges.\n", missing);
+    }
+    CHECK(missing == 0);
   }
 
-  // Although we have a vertex at every point (and now intersection)
-  // on the top and bottom holes, we might not have an edge. Add
-  // these where they do not exist.
-  void AddEdgeLoops() {
+  // Now we have a vertex at every point and intersection on the
+  // top and bottom holes. This should also result in an edge
+  // between adjacent vertices.
+  void CheckEdgeLoops() {
     std::vector<int> top, bot;
     for (const auto &[t, b] : hole) {
       if (top.empty() || t != top.back()) top.push_back(t);
       if (bot.empty() || b != bot.back()) bot.push_back(b);
     }
 
-    AddEdgeLoop(top);
-    AddEdgeLoop(bot);
+    CheckEdgeLoop(top);
+    CheckEdgeLoop(bot);
   }
 
   // Remove triangles that have a vertex inside the hole.
@@ -813,9 +824,32 @@ struct HoleMaker {
 
   void RepairHole() {
 
-    // TODO: Use the hole to create internal faces. Delete triangles
-    // that have a vertex inside the hole.
+    // Create internal holes as a triangle strip.
+    for (int idx = 0; idx < hole.size(); idx++) {
+      const auto &[pt, pb] = hole[idx];
+      const auto &[qt, qb] = hole[(idx + 1) % hole.size()];
+      if (pt == qt && pb == qb) {
+        // Nothing to do if the two edges are the same.
+      } else if (pt == qt) {
+        // Top points are equal, so we just need one
+        // triangle.
+        AddTriangleTo(&work_triangles, pt, pb, qb);
+      } else if (pb == qb) {
+        // Same, on the bottom.
+        AddTriangleTo(&work_triangles, pb, pt, qt);
+      } else {
+        // A quad, made of two triangles.
 
+        //   pt------qt
+        //   |`.      |
+        //   |  `.    |
+        //   |    `.  |
+        //   pb------qb
+
+        AddTriangleTo(&work_triangles, pt, qt, qb);
+        AddTriangleTo(&work_triangles, pt, qb, pb);
+      }
+    }
   }
 
   Mesh3D GetMesh() {
@@ -832,10 +866,11 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
   HoleMaker maker(polyhedron, polygon);
   maker.Split();
   maker.SaveMesh("split");
-  maker.AddEdgeLoops();
-  maker.SaveMesh("addedgeloops");
+  maker.CheckEdgeLoops();
   maker.RemoveHole();
   maker.SaveMesh("removehole");
+  maker.RepairHole();
+  maker.SaveMesh("repairhole");
 
   return maker.GetMesh();
 }
