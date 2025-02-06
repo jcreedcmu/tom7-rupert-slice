@@ -303,6 +303,7 @@ struct HoleMaker {
   // their z coordinate.
 
   std::vector<int> ProjectThroughMesh(const vec2 &pt) {
+    printf(ACYAN("proj") " at %s\n", VecString(pt).c_str());
     std::vector<std::tuple<int, int, int>> new_triangles;
     new_triangles.reserve(work_triangles.size());
 
@@ -342,6 +343,14 @@ struct HoleMaker {
       const vec3 &vb = points[b];
       const vec3 &vc = points[c];
 
+      printf("For triangle\n"
+             "  %d. %s\n"
+             "  %d. %s\n"
+             "  %d. %s\n",
+             a, VecString(va).c_str(),
+             b, VecString(vb).c_str(),
+             c, VecString(vc).c_str());
+
       const vec2 &va2 = {va.x, va.y};
       const vec2 &vb2 = {vb.x, vb.y};
       const vec2 &vc2 = {vc.x, vc.y};
@@ -358,6 +367,7 @@ struct HoleMaker {
         // TODO: We could check here that the point is not on the
         // resulting edge (and error out).
         new_triangles.push_back(tri);
+        printf("  " AORANGE("perp") "\n");
         continue;
       }
 
@@ -375,6 +385,9 @@ struct HoleMaker {
         // do anything except record it.
         new_points.insert(p.value());
         new_triangles.push_back(tri);
+        // FIXME We should check the already split first!!
+        printf("  " AGREEN("already have vertex") " %d\n",
+               p.value());
         continue;
       }
 
@@ -388,6 +401,8 @@ struct HoleMaker {
         AddTriangleTo(&new_triangles, b, c, d);
         // (and discard the original triangle)
         // But that's all we need to do to deal with this triangle.
+        printf("  " ABLUE("already split") " %d-%d (other %d). add %d\n",
+               a, b, c, d);
         continue;
       }
 
@@ -413,6 +428,9 @@ struct HoleMaker {
           new_points.insert(d);
           CHECK(!already_split.contains({a, b}));
           already_split[{a, b}] = d;
+
+          printf("  " APURPLE("new split") " %d-%d (other %d). add %d\n",
+                 a, b, c, d);
           return;
         };
 
@@ -459,12 +477,15 @@ struct HoleMaker {
         AddTriangleTo(&new_triangles, d, b, c);
         AddTriangleTo(&new_triangles, a, b, d);
         // And discard the existing triangle.
+        printf("  " ARED("split inside") " %d-%d-%d +%d\n",
+               a, b, c, d);
         continue;
       }
 
       // Otherwise, the common case that this point is just
       // not in the triangle at all. Preserve the triangle
       // as-is.
+      printf("  " AGREY("nothing") "\n");
       new_triangles.push_back(tri);
     }
 
@@ -472,40 +493,6 @@ struct HoleMaker {
     std::vector<int> np(new_points.begin(), new_points.end());
     SortPointIndicesByZ(&np);
     return np;
-  }
-
-  // XXX deprecated?
-  void Step2() {
-    // Next, create a new hole polygon whose vertices are represented by
-    // indices in the points. To do this, we'll add points when a
-    // vertex is inside a triangle, or when it intersects a triangle
-    // edge, or use an existing point when it lands on one. At the same
-    // time, we'll split triangles accordingly.
-
-    hole.reserve(input_polygon.size());
-    for (const vec2 &v : input_polygon) {
-      std::vector<int> ps = ProjectThroughMesh(v);
-      CHECK(ps.size() == 2) << "Expecting exactly one intersection on "
-        "the top and one on the bottom. Maybe this is not a proper "
-        "hole, or maybe it is not in general position. (" << ps.size() <<
-        ")";
-      hole.emplace_back(ps[0], ps[1]);
-    }
-
-    #if 0
-    printf("After splitting on points, work triangles:\n");
-    for (const auto &[a, b, c] : work_triangles) {
-      auto P = [&](int i) {
-          printf("    %d = %s\n",
-                 i, VecString(points[i]).c_str());
-        };
-      printf("  ----\n");
-      P(a);
-      P(b);
-      P(c);
-    }
-    printf("  ----\n");
-    #endif
   }
 
   void SaveMesh(std::string_view filename) {
@@ -522,6 +509,8 @@ struct HoleMaker {
   // closer to q than p.
   std::optional<vec2> GetClosestIntersection(const vec2 &p,
                                              const vec2 &q) {
+    printf("From %s -> %s\n", VecString(p).c_str(),
+           VecString(q).c_str());
     const double dist_p_to_q = distance(p, q);
 
     // The closest point matching the criteria.
@@ -564,6 +553,23 @@ struct HoleMaker {
     return closest;
   }
 
+  #if 0
+  // Add an edge from p to q if one does not already exist.
+  // Assumes that there are no other edges that would intersect
+  // this one.
+  void MaybeAddEdge(int p, int q) {
+    if (p == q) return;
+    if (HasEdge(p, q)) return;
+
+    std::vector<std::tuple<int, int, int>> new_triangles;
+    new_triangles.reserve(work_triangles.size());
+
+    for (const auto ) {}
+
+    work_triangles = std::move(new_triangles);
+  }
+  #endif
+
   void Split() {
     // Walk the polygon (in 2D) and project to vertices wherever
     // it has a vertex, or where there is an intersection with
@@ -573,6 +579,7 @@ struct HoleMaker {
     CHECK(hole.empty());
     hole.reserve(input_polygon.size());
 
+    int filename_index = 0;
     // Project the point through the polyhedron (splitting it as
     // necessary), expecting two intersections.
     auto Sample = [this](const vec2 &v2) -> std::pair<int, int> {
@@ -594,23 +601,38 @@ struct HoleMaker {
       hole.push_back(pp);
 
       while (pp != qq) {
+        SaveMesh(std::format("split{}.stl", filename_index));
+        filename_index++;
+
+        // Split0 lgtm.
+
+        // Split1 doesn't seem right. We hit the main
+        // diagonal, but shouldn't we split it on both sides?
+        CHECK(filename_index <= 1);
+
         auto io = GetClosestIntersection(p, q);
         if (!io.has_value()) {
+          printf("No more intersections.\n");
           // No more intersections. Then we are done.
+          // MaybeAddEdge(pp.first, qq.first);
+          // MaybeAddEdge(pp.second, qq.second);
           break;
         }
 
         const vec2 &i2 = io.value();
+        printf("Intersection at %s\n", VecString(i2).c_str());
         // i2 is a point between p and q.
         // TODO: Could assert this, since we require it for
         // termination.
         CHECK(i2 != p);
 
+        // It could snap to the same point, though.
         auto rr = Sample(i2);
-        CHECK(rr != pp) << "This might ok, but might also result "
-          "in degenerate triangles?";
+        if (rr != pp) {
+          hole.push_back(rr);
+          pp = rr;
+        }
 
-        pp = rr;
         p = i2;
       }
 
@@ -619,184 +641,44 @@ struct HoleMaker {
       if (hole.back() != qq)
         hole.push_back(qq);
     }
-
   }
 
-  void Step3() {
-    // Now walk the edges of the hole and make sure that we have
-    // vertices at every intersection.
-    std::vector<std::pair<int, int>> new_hole;
-    for (int idx = 0; idx < hole.size(); idx++) {
-      int pt, pb, qt, qb;
-      std::tie(pt, pb) = hole[idx];
-      std::tie(qt, qb) = hole[(idx + 1) % hole.size()];
+  void AddEdge(int a, int b) {
+#if 0
+    std::vector<std::tuple<int, int, int>> new_triangles;
+    new_triangles.reserve(work_triangles.size());
 
-      CHECK(pt != qt && pb != qb) << "Fix this above";
+    // XXX HERE
+    work_triangles = std::move(new_triangles);
+#endif
+  }
 
-      // Starting pair remains in the hole.
-      new_hole.emplace_back(pt, pb);
 
-      // Find intersections from p->q.
-      while (pt != qt) {
-        // The top edge and bottom edge are the same in 2D. So just get
-        // them from the top. (Note that we may have snapped differently,
-        // but we ignore this issue, perhaps to our peril?)
-        const vec2 &pv = {points[pt].x, points[pt].y};
-        const vec2 &qv = {points[qt].x, points[pt].y};
-
-        // Get the closest intersection from pv->qv.
-        // The first two indices are the edge, and the third is the
-        // other vertex in the triangle. Edges are ordered a < b.
-        std::optional<std::tuple<vec2, int, int, int>> closest;
-        double closest_dist = std::numeric_limits<double>::infinity();
-        auto Try = [&](int u, int v, int w) {
-            // So that the output edge is ordered.
-            CHECK(u < v);
-            const vec2 &uv = {points[u].x, points[u].y};
-            const vec2 &vv = {points[v].x, points[v].y};
-
-            if (auto lo = LineIntersection(uv, vv, pv, qv)) {
-              double dist = length(lo.value() - pv);
-              if (!closest.has_value() || dist < closest_dist) {
-                closest = {std::make_tuple(lo.value(), u, v, w)};
-              }
-            }
-          };
-
-        for (const auto &[a, b, c] : work_triangles) {
-          CHECK(a < b && b < c) << std::format("{} {} {}", a, b, c);
-          Try(a, b, c);
-          Try(b, c, a);
-          Try(a, c, b);
-        }
-
-        if (!closest.has_value()) {
-          // If there was no intersection, then since p and q
-          // are on vertices of triangles, they must already
-          // be connected by an edge. So we just advance.
-          CHECK(HasEdge(pt, qt));
-          CHECK(HasEdge(pb, qb));
-
-          pt = qt;
-          pb = qb;
-          break;
-        }
-
-        // Otherwise, split the triangle.
-
-        const auto &[i2, edge_a, edge_b, c_] = closest.value();
-        CHECK(edge_a < edge_b) << edge_a << " " << edge_b;
-
-        // i2 is an intersection on the edge a-b. Find that point in 3D.
-        const vec3 &va = points[edge_a];
-        const vec3 &vb = points[edge_b];
-        const std::optional<vec3> io = PointToLine(va, vb, i2);
-        CHECK(io.has_value()) << "We intersected a perpendicular line?";
-        const int i = AddPoint(io.value());
-
-        printf("Edge %d-%d:\n"
-               "  %s\n"
-               "  %s\n", edge_a, edge_b,
-               VecString(va).c_str(), VecString(vb).c_str());
-        printf("Intersection point #%d, at %s\n",
-               i, VecString(io.value()).c_str());
-
-        // We expect to intersect a face on the other side as well.
-        std::vector<int> new_points = {i};
-
-        // Now add it to every triangle with an edge (a, b).
-        {
-          std::vector<std::tuple<int, int, int>> new_triangles;
-          new_triangles.reserve(work_triangles.size());
-
-          for (const auto &tri : work_triangles) {
-            printf("Consider %d-%d-%d\n",
-                   std::get<0>(tri),
-                   std::get<1>(tri),
-                   std::get<2>(tri));
-            if (auto co = TriangleWithEdge(tri, edge_a, edge_b)) {
-              const int c = co.value();
-
-              // e.g.
-              // a---i---b  //
-              //  \  |  /   //
-              //   \ | /    //
-              //    \|/     //
-              //     c      //
-              CHECK(edge_a != i && edge_a != c && i != c);
-              CHECK(edge_b != i && edge_b != c && i != c);
-              AddTriangleTo(&new_triangles, edge_a, i, c);
-              AddTriangleTo(&new_triangles, i, edge_b, c);
-            } else if (IsAVertex(tri, i)) {
-
-              // If the point snapped to a vertex of this triangle,
-              // it is not inside it. No need to split.
-              new_triangles.push_back(tri);
-
-            } else {
-              const auto &[a, b, c] = tri;
-              const vec3 &va = points[a];
-              const vec3 &vb = points[b];
-              const vec3 &vc = points[c];
-              const vec2 a2 = {va.x, va.y};
-              const vec2 b2 = {vb.x, vb.y};
-              const vec2 c2 = {vc.x, vc.y};
-
-              if (InTriangle(a2, b2, c2, i2)) {
-
-                printf("Split triangle %d-%d-%d which has vertices:\n"
-                       "  %s\n"
-                       "  %s\n"
-                       "  %s\n"
-                       "At point: %s\n",
-                       a, b, c,
-                       VecString(va).c_str(),
-                       VecString(vb).c_str(),
-                       VecString(vc).c_str(),
-                       VecString(i2).c_str());
-
-                // Split like in SplitTrianglesAtPoint.
-                auto i3o = PointToPlane(va, vb, vc, i2);
-                CHECK(i3o.has_value()) << "If the point is strictly "
-                  "within the triangle, we should be able to project "
-                  "it to 3D. But this could happen due to a "
-                  "disagreement about 'epsilon'.";
-
-                const int i = AddPoint(i3o.value());
-                new_points.push_back(i);
-
-                CHECK(a != i && i != c && a != c) <<
-                  std::format("{} {} {}", a, i, c);
-                AddTriangleTo(&new_triangles, a, i, c);
-                CHECK(i != b && b != c && i != c);
-                AddTriangleTo(&new_triangles, i, b, c);
-                CHECK(a != b && b != i && a != i);
-                AddTriangleTo(&new_triangles, a, b, i);
-
-              } else {
-                // Keep as-is.
-                new_triangles.push_back(tri);
-              }
-            }
-          }
-
-          work_triangles = std::move(new_triangles);
-
-          SortPointIndicesByZ(&new_points);
-          CHECK(new_points.size() == 2) << "We should always enter "
-            "in the top and exit on the bottom, creating two points.";
-
-          pt = new_points[0];
-          pb = new_points[1];
-          new_hole.emplace_back(pt, pb);
-        }
+  void AddEdgeLoop(const std::vector<int> &loop) {
+    int added = 0;
+    for (int i = 0; i < loop.size(); i++) {
+      const int a = loop[i];
+      const int b = loop[(i + 1) % loop.size()];
+      if (!HasEdge(a, b)) {
+        AddEdge(a, b);
+        added++;
       }
-
-      CHECK(pb == qb) << "This should be the case when the top segment "
-        "becomes degenerate, but I guess it's possible that one snaps "
-        "when the other doesn't.";
-
     }
+    printf("Added %d edges.\n", added);
+  }
+
+  // Although we have a vertex at every point (and now intersection)
+  // on the top and bottom holes, we might not have an edge. Add
+  // these where they do not exist.
+  void AddEdgeLoops() {
+    std::vector<int> top, bot;
+    for (const auto &[t, b] : hole) {
+      if (top.empty() || t != top.back()) top.push_back(t);
+      if (bot.empty() || b != bot.back()) bot.push_back(b);
+    }
+
+    AddEdgeLoop(top);
+    AddEdgeLoop(bot);
   }
 
   // Remove triangles that have a vertex inside the hole.
@@ -858,7 +740,9 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
                 const std::vector<vec2> &polygon) {
   HoleMaker maker(polyhedron, polygon);
   maker.Split();
-  maker.SaveMesh("makehole.stl");
+  maker.SaveMesh("split.stl");
+  maker.AddEdgeLoops();
+  maker.SaveMesh("addedgeloops.stl");
   maker.RemoveHole();
   maker.SaveMesh("removehole.stl");
 

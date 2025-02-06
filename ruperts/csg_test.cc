@@ -41,10 +41,19 @@ static void TestMakeHole() {
 
   // A small triangular hole, not in any special
   // position (e.g. not on the cube's face diagonal).
+  /*
   std::vector<vec2> hole = {
     {-0.11, -0.44},
     {+0.33, -0.20},
     {0.0, 0.25},
+  };
+  */
+
+  std::vector<vec2> hole = {
+    {-0.22, -0.33},
+    {-0.27, 0.36},
+    {0.34, 0.31},
+    {0.29, -0.35},
   };
 
   Mesh3D mesh = MakeHole(polyhedron, hole);
