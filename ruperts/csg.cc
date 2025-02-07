@@ -32,8 +32,8 @@
 
 #include "yocto_matht.h"
 
-static constexpr bool DEBUG = false;
-static constexpr bool VERBOSE = false;
+static constexpr bool DEBUG = true;
+static constexpr bool VERBOSE = true;
 
 namespace {
 // TODO: Use this throughout.
@@ -263,6 +263,22 @@ struct HoleMaker {
   PointMap3<int> point_index;
   std::vector<std::tuple<int, int, int>> out_triangles;
 
+  // We create a path consisting of a series of vertices to
+  // describe the polygonal hole on each side. But if we
+  // later split an edge, we need to know this so that we
+  // can go through the inserted split point.
+  // In an edge split a-c-b, maps (a, b) to c, with a<b.
+  // Note that a-c and c-b may be further split.
+  std::unordered_map<std::pair<int, int>, int,
+    Hashing<std::pair<int, int>>> split_edges;
+
+  std::optional<int> GetSplitEdge(int a, int b) {
+    if (b < a) std::swap(a, b);
+    auto it = split_edges.find({a, b});
+    if (it == split_edges.end()) return std::nullopt;
+    return {it->second};
+  }
+
   // Return the point's index if we already have it (or a point
   // very close to it).
   std::optional<int> GetPoint(const vec3 &pt) {
@@ -277,6 +293,10 @@ struct HoleMaker {
     int idx = points.size();
     points.push_back(pt);
     point_index.Add(pt, idx);
+    if (VERBOSE) {
+      printf("Added new point " AYELLOW("%d")
+             " at %s.\n", idx, VecString(pt).c_str());
+    }
     return idx;
   }
 
@@ -397,6 +417,9 @@ struct HoleMaker {
              VecString(pt).c_str(),
              (int)work_triangles.size());
     }
+
+    static constexpr bool VERBOSE = false;
+
     std::vector<std::tuple<int, int, int>> new_triangles;
     new_triangles.reserve(work_triangles.size());
 
@@ -527,7 +550,10 @@ struct HoleMaker {
           AddTriangleTo(&new_triangles, b, c, d);
           new_points.insert(d);
           CHECK(!already_split.contains({a, b}));
+          printf("Split %d-%d, inserting %d\n", a, b, d);
           already_split[{a, b}] = d;
+          CHECK(a < b);
+          split_edges[{a, b}] = d;
           if (VERBOSE) {
             printf("  " APURPLE("new split") " %d-%d (other %d). add %d\n",
                    a, b, c, d);
@@ -617,7 +643,7 @@ struct HoleMaker {
   std::optional<vec2> GetClosestIntersection(const vec2 &p,
                                              const vec2 &q,
                                              bool verbose = false) {
-    if (VERBOSE) {
+    if (verbose) {
       printf("From %s -> %s\n", VecString(p).c_str(),
              VecString(q).c_str());
     }
@@ -723,15 +749,18 @@ struct HoleMaker {
         }
         filename_index++;
 
+
         // Split0 lgtm.
 
         // Split1 looks probably good now.
 
         if (VERBOSE) {
-          printf("Top vertex " AWHITE("%d") " to " AWHITE("%d") "\n",
+          printf("Cut top vertex " AWHITE("%d") " to " AWHITE("%d") "\n",
                  pp.first, qq.first);
         }
-        auto io = GetClosestIntersection(p, q);
+        auto io = GetClosestIntersection(p, q,
+                                         pp.first == 10 && qq.first == 12
+                                         );
         if (!io.has_value()) {
           if (VERBOSE) {
             printf("No more intersections.\n");
@@ -747,12 +776,14 @@ struct HoleMaker {
         // TODO: Could assert this, since we require it for
         // termination.
         CHECK(i2 != p);
+        if (VERBOSE) {
+          printf("Intersection at %s.", VecString(i2).c_str());
+        }
 
         // It could snap to the same point, though.
         auto rr = Sample(i2);
         if (VERBOSE) {
-          printf("Intersection at %s. top = %d\n", VecString(i2).c_str(),
-                 rr.first);
+          printf("Snapped top to %d\n", rr.first);
         }
         if (rr != pp) {
           hole.push_back(rr);
@@ -770,7 +801,18 @@ struct HoleMaker {
   }
 
   void CheckEdgeLoop(const std::vector<int> &loop) {
-    static constexpr bool VERBOSE = false;
+    if (VERBOSE) {
+      printf("Triangles:\n");
+      for (const auto &[a, b, c] : work_triangles) {
+        printf("  %d-%d-%d\n", a, b, c);
+      }
+    }
+    if (VERBOSE) {
+      printf("Splits:\n");
+      for (const auto &[ab, c] : split_edges) {
+        printf("  %d-%d: %d\n", ab.first, ab.second, c);
+      }
+    }
     if (VERBOSE) {
       printf("Loop:\n");
     }
@@ -815,6 +857,58 @@ struct HoleMaker {
 
     CheckEdgeLoop(top);
     CheckEdgeLoop(bot);
+  }
+
+  // Account for splits on the edge loops.
+  void FixEdgeLoops() {
+    std::vector<std::pair<int, int>> out;
+    int added = 0;
+    for (int i = 0; i < hole.size(); i++) {
+      int pt, pb, qt, qb;
+      std::tie(pt, pb) = hole[i];
+      std::tie(qt, qb) = hole[(i + 1) % hole.size()];
+
+      for (;;) {
+        bool t = HasEdge(pt, qt);
+        bool b = HasEdge(pb, qb);
+        if (t && b) {
+          out.emplace_back(pt, pb);
+          goto next;
+        } else if (!t && !b) {
+          std::optional<int> ot = GetSplitEdge(pt, qt);
+          std::optional<int> ob = GetSplitEdge(pb, qb);
+          CHECK(ot.has_value()) << std::format("{}-{} ?", pt, qt);
+          CHECK(ob.has_value()) << std::format("{}-{} ?", pb, qb);
+          out.emplace_back(pt, pb);
+          pt = ot.value();
+          pb = ob.value();
+          added += 2;
+        } else if (!t) {
+          // We expect to normally stay in sync, but if only
+          // one was split, we can handle this by duplicating
+          // points on one side.
+          std::optional<int> ot = GetSplitEdge(pt, qt);
+          CHECK(ot.has_value());
+          out.emplace_back(pt, pb);
+          pt = ot.value();
+          added++;
+        } else {
+          CHECK(!b);
+          std::optional<int> ob = GetSplitEdge(pb, qb);
+          CHECK(ob.has_value());
+          out.emplace_back(pt, pb);
+          pb = ob.value();
+          added++;
+        }
+      }
+
+    next:;
+    }
+
+    if (added > 0) {
+      printf("Added %d intermediate points\n", added);
+    }
+    hole = std::move(out);
   }
 
   // Remove triangles that have a vertex inside the hole.
@@ -909,7 +1003,7 @@ struct HoleMaker {
     std::string out;
     AppendFormat(&out, "Input poly:\n");
     for (const vec2 &v : input_polygon) {
-      AppendFormat(&out, "  {}\n", VecString(v));
+      StringAppendF(&out, "  {%.17g,%.17g}\n", v.x, v.y);
     }
     return out;
   }
@@ -921,6 +1015,7 @@ Mesh3D MakeHole(const Polyhedron &polyhedron,
   HoleMaker maker(polyhedron, polygon);
   maker.Split();
   if (DEBUG) maker.SaveMesh("split");
+  maker.FixEdgeLoops();
   maker.CheckEdgeLoops();
   maker.RemoveHole();
   if (DEBUG) maker.SaveMesh("removehole");

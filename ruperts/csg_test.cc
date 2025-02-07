@@ -69,6 +69,38 @@ static void StressTest() {
   (-0.6061,-0.0610)
 */
 
+static void MakeHoleRegression1() {
+  Polyhedron polyhedron = Cube();
+
+  // This hole doesn't intersect any triangles.
+  // We used to incorrectly ignore them, and then
+  // fail to do any splitting.
+  std::vector<vec2> hole = {
+    {-0.5983,0.6050},
+    {0.5934,0.2455},
+    {0.8957,-0.7372},
+  };
+
+  Mesh3D mesh = MakeHole(polyhedron, hole);
+  // XXX check properties
+}
+
+static void MakeHoleRegression2() {
+  Polyhedron polyhedron = Cube();
+
+  // This hole doesn't intersect any triangles.
+  // We used to incorrectly ignore them, and then
+  // fail to do any splitting.
+  std::vector<vec2> hole = {
+    {-0.55155376633860409,-0.40203764978889872},
+    {-0.21766304180549348,-0.2152329697590897},
+    {0.10901159242057352,-0.20790275443552875},
+  };
+
+  Mesh3D mesh = MakeHole(polyhedron, hole);
+  // XXX check properties
+}
+
 static void TestMakeHole() {
   Polyhedron polyhedron = Cube();
 
@@ -107,7 +139,10 @@ int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
 
-  TestMakeHole();
+  // MakeHoleRegression1();
+  MakeHoleRegression2();
+
+  // TestMakeHole();
   // StressTest();
 
   printf("OK\n");
