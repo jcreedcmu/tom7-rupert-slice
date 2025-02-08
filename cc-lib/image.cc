@@ -155,10 +155,11 @@ ImageRGBA::ImageRGBA(std::vector<uint32> &&rgba, int width, int height) :
 }
 
 // static
-ImageRGBA *ImageRGBA::Load(const string &filename) {
+ImageRGBA *ImageRGBA::Load(std::string_view filename) {
+  std::string filename_string = std::string(filename);
   vector<uint8> ret;
   int width = 0, height = 0, bpp_unused = 0;
-  uint8 *stb_rgba = stbi_load(filename.c_str(),
+  uint8 *stb_rgba = stbi_load(filename_string.c_str(),
                               &width, &height, &bpp_unused, 4);
   if (stb_rgba == nullptr) return nullptr;
   const int bytes = width * height * 4;
@@ -228,10 +229,11 @@ std::span<uint32_t> ImageRGBA::data() {
   return std::span<uint32_t>((uint32_t*)rgba.data(), rgba.size());
 }
 
-bool ImageRGBA::Save(const std::string &filename) const {
+bool ImageRGBA::Save(std::string_view filename) const {
+  std::string filename_string = std::string(filename);
   std::vector<uint8> buffer = ToBuffer8();
   CHECK((int)buffer.size() == width * height * 4);
-  return !!stbi_write_png(filename.c_str(),
+  return !!stbi_write_png(filename_string.c_str(),
                           width, height, 4, buffer.data(), 4 * width);
 }
 
@@ -245,11 +247,12 @@ string ImageRGBA::SaveToString() const {
   return VecToString(SaveToVec());
 }
 
-bool ImageRGBA::SaveJPG(const std::string &filename, int quality) const {
+bool ImageRGBA::SaveJPG(std::string_view filename, int quality) const {
+  std::string filename_string = std::string(filename);
   std::vector<uint8> buffer = ToBuffer8();
   CHECK((int)buffer.size() == width * height * 4);
   CHECK(quality >= 0 && quality <= 100) << quality;
-  return !!stbi_write_jpg(filename.c_str(),
+  return !!stbi_write_jpg(filename_string.c_str(),
                           width, height, 4, buffer.data(), quality);
 }
 
@@ -702,6 +705,23 @@ void ImageRGBA::BlendText32(int x, int y, uint32 color, const string &s) {
     xx += EmbeddedFont::WIDTH;
   }
 }
+
+void ImageRGBA::BlendTextOutline32(int x, int y,
+                                   uint32_t outline_color,
+                                   uint32_t fg_color,
+                                   std::string_view s) {
+  std::string ss(s);
+  for (int dy : {-1, 0, 1}) {
+    for (int dx : {-1, 0, 1}) {
+      if (dy != 0 || dx != 0) {
+        BlendText32(x + dx, y + dy, outline_color, ss);
+      }
+    }
+  }
+
+  BlendText32(x, y, fg_color, ss);
+}
+
 
 void ImageRGBA::BlendText(int x, int y,
                           uint8 r, uint8 g, uint8 b, uint8 a,

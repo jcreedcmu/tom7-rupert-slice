@@ -10,6 +10,7 @@
 #include <tuple>
 #include <vector>
 #include <span>
+#include <string_view>
 
 // ImageRGBA is recommended for most uses, but other formats are
 // supported below.
@@ -42,17 +43,17 @@ struct ImageRGBA {
   int Height() const { return height; }
 
   // Supports PNG, JPEG, GIF, others (see stb_image.h).
-  static ImageRGBA *Load(const std::string &filename);
+  static ImageRGBA *Load(std::string_view filename);
   static ImageRGBA *LoadFromMemory(const std::vector<uint8> &bytes);
   static ImageRGBA *LoadFromMemory(const char *data, size_t size);
 
   // Saves in RGBA PNG format. Returns true if successful.
-  bool Save(const std::string &filename) const;
+  bool Save(std::string_view filename) const;
   std::vector<uint8> SaveToVec() const;
   std::string SaveToString() const;
 
   // Quality in [1, 100]. Returns true if successful.
-  bool SaveJPG(const std::string &filename, int quality = 90) const;
+  bool SaveJPG(std::string_view filename, int quality = 90) const;
   // TODO: jpg to vec, to string
 
   // TODO: Replace with copy constructor
@@ -116,6 +117,14 @@ struct ImageRGBA {
                  uint8 r, uint8 g, uint8 b, uint8 a,
                  const std::string &s);
   void BlendText32(int x, int y, uint32 color, const std::string &s);
+
+  // Draws an outline by first drawing on the 9-connected neighbors
+  // in the background color. The foreground color is composited on
+  // top of the background, so opaque foreground will look best.
+  void BlendTextOutline32(int x, int y,
+                          uint32_t outline_color,
+                          uint32_t fg_color,
+                          std::string_view s);
 
   // x specifies the left edge, whether up or down. y specifies the
   // bottom if up, or top if down.
