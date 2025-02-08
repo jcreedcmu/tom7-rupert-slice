@@ -1,6 +1,7 @@
 
 #include "big-polyhedra.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <optional>
@@ -39,6 +40,16 @@ std::string VecString(const BigVec2 &v) {
       "y: " AGREEN("%s") " ≅ %.17g)",
       v.x.ToString().c_str(), v.x.ToDouble(),
       v.y.ToString().c_str(), v.y.ToDouble());
+}
+
+std::string VecString(const BigVec3 &v) {
+  return StringPrintf(
+      "(x: " ARED("%s") " ≅ %.17g; "
+      "y: " AGREEN("%s") " ≅ %.17g; "
+      "z: " ABLUE("%s") " ≅ %.17g)",
+      v.x.ToString().c_str(), v.x.ToDouble(),
+      v.y.ToString().c_str(), v.y.ToDouble(),
+      v.z.ToString().c_str(), v.z.ToDouble());
 }
 
 std::string QuatString(const BigQuat &q) {
@@ -214,6 +225,52 @@ BigPoly Rotate(const BigQuat &q, const BigPoly &poly) {
   }
   return BigPoly{.vertices = std::move(vertices), .faces = poly.faces};
 }
+
+template<class GetPt>
+inline static bool PointInPolygonT(const BigVec2 &point,
+                                   int size,
+                                   const GetPt &get_pt) {
+  int winding_number = 0;
+  for (int i = 0; i < size; i++) {
+    const BigVec2 p0 = get_pt(i);
+    const BigVec2 p1 = get_pt((i + 1) % size);
+
+    // Check if the ray from the point to infinity intersects the edge
+    if (point.y > std::min(p0.y, p1.y)) {
+      if (point.y <= std::max(p0.y, p1.y)) {
+        if (point.x <= std::max(p0.x, p1.x)) {
+          if (p0.y != p1.y) {
+            BigRat vt = (point.y - p0.y) / (p1.y - p0.y);
+            if (point.x < p0.x + vt * (p1.x - p0.x)) {
+              winding_number++;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Point is inside if the winding number is odd
+  return !!(winding_number & 1);
+}
+
+bool PointInPolygon(const BigVec2 &point,
+                    const std::vector<BigVec2> &vertices,
+                    const std::vector<int> &polygon) {
+  return PointInPolygonT(point, polygon.size(),
+                         [&](int idx) {
+                           return vertices[polygon[idx]];
+                         });
+}
+
+bool PointInPolygon(const BigVec2 &point,
+                    const std::vector<BigVec2> &polygon) {
+  return PointInPolygonT(point, polygon.size(),
+                         [&](int idx) {
+                           return polygon[idx];
+                         });
+}
+
 
 // XXX Buggy?
 BigVec3 RotatePoint(const BigQuat &q, const BigVec3 &v) {
@@ -470,12 +527,12 @@ InMeshExhaustive(const BigMesh2D &mesh, const BigVec2 &pt) {
 
 int GetClosestPoint(const BigMesh2D &mesh, const BigVec2 &pt) {
   CHECK(!mesh.vertices.empty());
-  BigRat best_sqdist = DistanceSquared(mesh.vertices[0], pt);
+  BigRat best_sqdist = distance_squared(mesh.vertices[0], pt);
   int best_idx = 0;
 
   for (int i = 1; i < mesh.vertices.size(); i++) {
     const BigVec2 &a = mesh.vertices[i];
-    BigRat sqdist = DistanceSquared(a, pt);
+    BigRat sqdist = distance_squared(a, pt);
     if (sqdist < best_sqdist) {
       best_sqdist = std::move(sqdist);
       best_idx = i;
@@ -489,13 +546,13 @@ std::pair<int, BigRat> GetClosestPoint(const std::vector<BigVec2> &vertices,
                                        const std::vector<int> &hull,
                                        const BigVec2 &pt) {
   CHECK(!hull.empty());
-  BigRat best_sqdist = DistanceSquared(vertices[hull[0]], pt);
+  BigRat best_sqdist = distance_squared(vertices[hull[0]], pt);
   int best_idx = hull[0];
 
   for (int i = 1; i < hull.size(); i++) {
     int idx = hull[i];
     const BigVec2 &a = vertices[idx];
-    BigRat sqdist = DistanceSquared(a, pt);
+    BigRat sqdist = distance_squared(a, pt);
     if (sqdist < best_sqdist) {
       best_sqdist = std::move(sqdist);
       best_idx = idx;
@@ -709,18 +766,18 @@ BigRat SquaredDistanceToClosestPointOnSegment(
 
   BigVec2 v = v1 - v0;
 
-  BigRat sqlen = LengthSquared(v);
+  BigRat sqlen = length_squared(v);
   if (sqlen == zero) {
     // Degenerate case where line segment is just a point,
     // so there is only one choice.
-    return DistanceSquared(pt, v0);
+    return distance_squared(pt, v0);
   }
 
   BigVec2 w = pt - v0;
   BigRat t = BigRat::Max(zero, BigRat::Min(one, dot(v, w) / sqlen));
 
   BigVec2 closest = v0 + (v * t);
-  return DistanceSquared(pt, closest);
+  return distance_squared(pt, closest);
 }
 
 

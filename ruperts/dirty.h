@@ -9,6 +9,8 @@
 #include "image.h"
 
 // XXX To cc-lib?
+// TODO: Allow a scale parameter to reduce the minimum feature
+// size; we rarely need pixel precision.
 struct Dirty {
   Dirty(int width, int height) : used(width, height) {
     used.Clear(false);

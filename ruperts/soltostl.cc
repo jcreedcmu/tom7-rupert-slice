@@ -3,6 +3,8 @@
 
 #include "ansi.h"
 
+#include <cstdio>
+#include <format>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -14,6 +16,7 @@
 #include "solutions.h"
 #include "yocto_matht.h"
 #include "csg.h"
+#include "big-csg.h"
 
 using frame3 = yocto::frame<double, 3>;
 
@@ -40,7 +43,7 @@ static void RenderAny(std::string_view name) {
   for (int i : hull) polygon.push_back(sinner.vertices[i]);
   // XXX test
   // for (vec2 &v : polygon) v *= 0.5;
-  Mesh3D residue = MakeHole(outer, polygon);
+  Mesh3D residue = BigMakeHole(outer, polygon);
 
   std::string filename = std::format("{}-residue.stl", name);
   SaveAsSTL(residue, filename);

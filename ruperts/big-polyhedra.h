@@ -66,25 +66,58 @@ inline BigVec2 operator *(const BigVec2 &v, const BigRat &s) {
   return BigVec2(v.x * s, v.y * s);
 }
 
+inline BigVec2 operator *(const BigRat &s, const BigVec2 &v) {
+  return BigVec2(v.x * s, v.y * s);
+}
+
 // Exact equality.
 inline bool operator ==(const BigVec2 &a, const BigVec2 &b) {
   return a.x == b.x && a.y == b.y;
+}
+
+inline bool operator ==(const BigVec3 &a, const BigVec3 &b) {
+  return a.x == b.x && a.y == b.y && a.z == b.z;
 }
 
 inline BigRat dot(const BigVec2 &a, const BigVec2 &b) {
   return a.x * b.x + a.y * b.y;
 }
 
+inline BigRat dot(const BigVec3 &a, const BigVec3 &b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
 inline BigRat cross(const BigVec2 &a, const BigVec2 &b) {
   return a.x * b.y - a.y * b.x;
+}
+
+inline BigVec3 cross(const BigVec3 &a, const BigVec3 &b) {
+  return BigVec3{
+    a.y * b.z - a.z * b.y,
+    a.z * b.x - a.x * b.z,
+    a.x * b.y - a.y * b.x
+  };
 }
 
 inline quat4 SmallQuat(const BigQuat &q) {
   return quat4{q.x.ToDouble(), q.y.ToDouble(), q.z.ToDouble(), q.w.ToDouble()};
 }
 
+inline BigRat length_squared(const BigVec2 &a) {
+  return dot(a, a);
+}
+
+inline BigRat length_squared(const BigVec3 &a) {
+  return dot(a, a);
+}
+
+inline BigVec3 operator *(const BigRat &s, const BigVec3 &v) {
+  return BigVec3{s * v.x, s * v.y, s * v.z};
+}
+
 // With color
 std::string VecString(const BigVec2 &v);
+std::string VecString(const BigVec3 &v);
 std::string QuatString(const BigQuat &q);
 // For serialization to disk, etc.
 std::string PlainVecString(const BigVec2 &v);
@@ -105,7 +138,7 @@ inline BigQuat operator*(const BigQuat &a, const BigQuat &b) {
   };
 }
 
-inline static vec3 SmallVec(const BigVec3 &v) {
+inline vec3 SmallVec(const BigVec3 &v) {
   return vec3(v.x.ToDouble(), v.y.ToDouble(), v.z.ToDouble());
 }
 
@@ -199,6 +232,16 @@ BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices);
 // Some polyhedra with arbitrary precision.
 BigPoly BigRidode(int digits);
 
+// Point-in-polygon test using the winding number algorithm.
+// Takes a vertex buffer and indices into that set.
+bool PointInPolygon(const BigVec2 &point,
+                    const std::vector<BigVec2> &vertices,
+                    const std::vector<int> &polygon);
+
+// Takes the polygon directly as vertices.
+bool PointInPolygon(const BigVec2 &point,
+                    const std::vector<BigVec2> &polygon);
+
 // Is pt strictly within the triangle a-b-c? Exact. Works with both
 // winding orders.
 bool InTriangle(const BigVec2 &a, const BigVec2 &b, const BigVec2 &c,
@@ -218,13 +261,9 @@ bool InMesh(const BigMesh2D &mesh, const BigVec2 &pt);
 std::optional<std::tuple<int, int, int>>
 InMeshExhaustive(const BigMesh2D &mesh, const BigVec2 &pt);
 
-inline BigRat LengthSquared(const BigVec2 &a) {
-  return dot(a, a);
-}
-
-inline BigRat DistanceSquared(const BigVec2 &a, const BigVec2 &b) {
+inline BigRat distance_squared(const BigVec2 &a, const BigVec2 &b) {
   BigVec2 edge(a.x - b.x, a.y - b.y);
-  return LengthSquared(edge);
+  return length_squared(edge);
 }
 
 // Get the index of the closest mesh point to the target point.

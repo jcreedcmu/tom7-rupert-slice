@@ -11,5 +11,6 @@ Diagnostics:
 InlayHints:
   Enabled: No
 
+# -DBIG_USE_GMP=1,
 CompileFlags:
-  Add: [-xc++, -DBIG_USE_GMP=1, -Wall, -Wshadow-field, --std=c++23, -I., -I../cc-lib, -I../codec, -I../sqlite]
+  Add: [-xc++, -Wall, -Wshadow-field, --std=c++23, -I., -I../cc-lib, -I../codec, -I../sqlite]
