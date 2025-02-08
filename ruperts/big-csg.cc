@@ -25,6 +25,7 @@
 #include "bounds.h"
 #include "image.h"
 #include "dirty.h"
+#include "mesh.h"
 #include "rendering.h"
 #include "polyhedra.h"
 
@@ -36,6 +37,15 @@ namespace {
 static inline BigVec2 Two(const BigVec3 &v) {
   return BigVec2{v.x, v.y};
 }
+
+inline bool CrossIsZero(const BigVec3 &a, const BigVec3 &b) {
+  // PERF can just do the comparisons
+  return
+    BigRat::Sign(a.y * b.z - a.z * b.y) == 0 &&
+    BigRat::Sign(a.z * b.x - a.x * b.z) == 0 &&
+    BigRat::Sign(a.x * b.y - a.y * b.x) == 0;
+}
+
 
 // Draw triangles where all the vertices have z < 0.
 static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
@@ -116,27 +126,6 @@ static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
 
   img.Save(filename);
   printf("Saved %s\n", std::string(filename).c_str());
-}
-
-// Project the point pt, which should lie on the 2D segment (a, b)
-// in the xy plane, such that it lies on the 3D segment (a, b).
-static std::optional<BigVec3> PointToLine(const BigVec3 &a, const BigVec3 &b,
-                                          const BigVec2 &pt2) {
-  BigVec2 a2 = Two(a);
-  BigVec2 b2 = Two(b);
-
-  // In 2D.
-  BigVec2 pdiff2 = pt2 - a2;
-  BigVec2 fulldiff2 = b2 - a2;
-
-  BigRat numer = dot(pdiff2, fulldiff2);
-  BigRat denom = length_squared(fulldiff2);
-
-  // This would mean that (a, b) is perpendicular to xy.
-  if (denom == BigRat(0)) return std::nullopt;
-
-  BigRat f = numer / denom;
-  return {a + f * (b - a)};
 }
 
 // Project the point pt along z to the triangle (plane)
@@ -1122,6 +1111,104 @@ struct BigHoleMaker {
     }
     return out;
   }
+
+  void SimplifyColinear() const {
+    // If we have two colinear edges a-b and b-c,
+    // like this:
+    //
+    //       d      //
+    //      /|\     //
+    //     / | \    //
+    //    /  |  \   //
+    //   a---b---c  //
+    //    \  |  /   //
+    //     \ | /    //
+    //      \|/     //
+    //       e      //
+    //
+    // Then a-b-e and b-c-e are coplanar, and
+    // a-d-b and d-c-b are coplanar. (But these
+    // pairs need not be). We can collapse a-b-c to
+    // a single edge:
+    //
+    //       d      //
+    //      / \     //
+    //     /   \    //
+    //    /     \   //
+    //   a-------c  //
+    //    \     /   //
+    //     \   /    //
+    //      \ /     //
+    //       e      //
+
+    std::unordered_map<int, std::vector<int>> adjacent;
+    auto AddEdge = [&](int u, int v) {
+        adjacent[u].push_back(v);
+        adjacent[v].push_back(u);
+      };
+    for (const auto &[a, b, c] : work_triangles) {
+      AddEdge(a, b);
+      AddEdge(b, c);
+      AddEdge(a, c);
+    }
+
+    // These are vertices that
+    std::unordered_set<int> to_delete;
+
+    // HERE
+    std::vector<std::tuple<int, int, int>> triangles_to_add;
+
+    // Now try to find a point we can delete.
+    for (const auto &[p, neighbors] : adjacent) {
+      if (neighbors.size() == 4) {
+        // If we already marked one of the neighbors
+        // for deletion, we need to wait for a later
+        // round to act on this.
+        if ([&]{
+            for (int n : neighbors)
+              if (to_delete.contains(n))
+                return true;
+            return false;
+          }()) continue;
+
+        const BigVec3 &b = points[p];
+        const BigVec3 &v1 = points[neighbors[0]];
+        const BigVec3 &v2 = points[neighbors[1]];
+        const BigVec3 &v3 = points[neighbors[2]];
+        const BigVec3 &v4 = points[neighbors[3]];
+
+        auto Colinear = [&](const BigVec3 &a,
+                            const BigVec3 &c) {
+            BigVec3 ab = b - a;
+            BigVec3 bc = c - b;
+            return CrossIsZero(ab, bc);
+          };
+
+        // As in the diagram above.
+        auto Simplify = [&](const BigVec3 &a,
+                            const BigVec3 &c,
+                            const BigVec3 &d,
+                            const BigVec3 &e) {
+            // Do it!
+            LOG(FATAL) << "Can simplify";
+          };
+
+        if (Colinear(v1, v2)) {
+          Simplify(v1, v2, v3, v4);
+        } else if (Colinear(v1, v3)) {
+          Simplify(v1, v3, v2, v4);
+        } else if (Colinear(v2, v3)) {
+          Simplify(v2, v3, v1, v4);
+        } else if (Colinear(v2, v4)) {
+          Simplify(v2, v4, v1, v3);
+        } else if (Colinear(v3, v4)) {
+          Simplify(v3, v4, v1, v2);
+        }
+
+      }
+    }
+  }
+
 };
 }  // namespace
 

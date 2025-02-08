@@ -18,7 +18,7 @@
 #include "arcfour.h"
 #include "base/logging.h"
 #include "randutil.h"
-
+#include "mesh.h"
 #include "yocto_matht.h"
 
 using vec2 = yocto::vec<double, 2>;
@@ -88,12 +88,6 @@ struct Mesh2D {
   std::vector<vec2> vertices;
   // Not owned.
   const Faces *faces = nullptr;
-};
-
-// A 3D triangle mesh; not necessarily convex (or even connected).
-struct Mesh3D {
-  std::vector<vec3> vertices;
-  std::vector<std::tuple<int, int, int>> triangles;
 };
 
 inline vec4 VecFromQuat(const quat4 &q) {
@@ -337,14 +331,6 @@ void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
 // Generate little tetrahedra at the points, for debugging.
 void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
                           std::string_view filename);
-
-// Polyhedron should be a convex polyhedron that contains the origin.
-// Polygon should be a simple convex polygon that contains the origin.
-// The polygon represents an infinitely tall extrusion along the
-// z axis. The result is the solid that results from making a hole
-// in the polyhedron with the extrusion (CSG subtraction).
-Mesh3D MakeHole(const Polyhedron &polyhedron,
-                const std::vector<vec2> &polygon);
 
 // Unpack a rigid frame into a rotation (as a normalized quaternion)
 // and a translation vector. If the matrix is not actually a rigid

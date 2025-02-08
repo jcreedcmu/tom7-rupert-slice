@@ -12,6 +12,10 @@ CL_LFLAGS=-lOpenCL
 # GMP_LFLAGS=-lgmp
 # GMP_CFLAGS=-DBIG_USE_GMP
 
+# On Mac, this is how I get them
+# GMP_LFLAGS=`pkg-config --libs gmp`
+# GMP_CFLAGS=`pkg-config --cflags gmp` -DBIG_USE_GMP
+
 CC_LIB=../cc-lib
 CODEC=../codec
 SQLITE=../sqlite
