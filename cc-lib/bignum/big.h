@@ -14,6 +14,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <concepts>
+#include <type_traits>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -307,6 +309,11 @@ struct BigRat {
   inline void Swap(BigRat *other);
 
  private:
+  // Doesn't work?
+  // template <typename T, typename U>
+  // requires std::floating_point<T> && std::floating_point<U>
+  // BigRat(T, U) = delete;
+
   #ifdef BIG_USE_GMP
   using Rep = mpq_t;
   #else
@@ -318,6 +325,7 @@ struct BigRat {
   // Takes ownership.
   // Token for disambiguation as above.
   explicit BigRat(Rep q, std::nullptr_t token) : rep(q) {}
+  static double ToDoubleIterative(const BigRat &r);
   #endif
 
   Rep rep{};
@@ -1519,9 +1527,54 @@ std::pair<BigInt, BigInt> BigRat::Parts() const {
 }
 
 BigRat BigRat::FromDouble(double num) {
-  // XXX as long as it's not inf or nan, we should be able to
-  // get an exact result here.
-  return ApproxDouble(num, int64_t{1} << 60);
+  assert(std::isfinite(num));
+
+  if (num == 0.0) return BigRat(0);
+
+  const uint64_t bits = std::bit_cast<uint64_t>(num);
+
+  bool sign = !!(bits >> 63);
+  // 11 exponent bits
+  int exponent = (bits >> 52) & 0x7FF;
+  // 52 fraction bits
+  uint64_t fraction_bits = bits & uint64_t{0xFFFFFFFFFFFFFLL};
+
+  uint64_t denom = uint64_t{1} << 52;
+
+  // XXX test this more!
+  uint64_t numerator = 0;
+  if (exponent == 0) {
+    // Subnormals
+    numerator = fraction_bits;
+    exponent -= (1023 + 52 - 1);
+  } else {
+    // Implied leading 1.
+    numerator = (1ULL << 52) | fraction_bits;
+    exponent -= 1023;
+  }
+
+  /*
+    printf("numer %llu, denom %llu, exp %d\n",
+    numerator, denom, exponent);
+  */
+  if (exponent > 0) {
+    BigInt numer =
+      BigInt::Times(BigInt(numerator),
+                    BigInt::Pow(BigInt(2), exponent));
+    if (sign) numer = BigInt::Negate(std::move(numer));
+    return BigRat(numer, BigInt(denom));
+  } else if (exponent < 0) {
+    BigInt numer = BigInt(numerator);
+    if (sign) numer = BigInt::Negate(std::move(numer));
+    BigInt d =
+      BigInt::Times(BigInt(denom),
+                    BigInt::Pow(BigInt(2), -exponent));
+    return BigRat(numer, d);
+  } else {
+    BigRat r = BigRat(numerator, denom);
+    if (sign) return BigRat::Negate(std::move(r));
+    return r;
+  }
 }
 
 BigRat BigRat::ApproxDouble(double num, int64_t max_denom) {
@@ -1529,9 +1582,7 @@ BigRat BigRat::ApproxDouble(double num, int64_t max_denom) {
 }
 
 double BigRat::ToDouble() const {
-  // TODO: Should be able to make this work as long as the ratio
-  // is representable. GMP does it.
-  return BqToDouble(rep);
+  return ToDoubleIterative(*this);
 }
 
 #endif

@@ -93,8 +93,55 @@ static void LowWord() {
 }
 
 static void TestRatFromDouble() {
-  BigRat one_half = BigRat::FromDouble(0.5);
-  CHECK(one_half.ToString() == "1/2");
+  // XXX test this more!
+  {
+    BigRat z = BigRat::FromDouble(0.0);
+    std::string s = z.ToString();
+    CHECK(s == "0") << s;
+  }
+
+  {
+    BigRat one_half = BigRat::FromDouble(0.5);
+    std::string s = one_half.ToString();
+    CHECK(s == "1/2") << s;
+  }
+
+  {
+    double ud = 0.4999999999999431;
+    CHECK(ud < 0.5);
+    BigRat u = BigRat::FromDouble(ud);
+    printf("%s\n", u.ToString().c_str());
+    CHECK(BigRat::Less(u, BigRat(1, 2))) << u.ToString();
+  }
+
+  {
+    BigRat r = BigRat::FromDouble(65536);
+    std::string s = r.ToString();
+    CHECK(s == "65536") << s;
+  }
+
+  {
+    BigRat r = BigRat::FromDouble(65537);
+    std::string s = r.ToString();
+    CHECK(s == "65537") << s;
+  }
+
+  {
+    BigRat r = BigRat::FromDouble(-65535);
+    std::string s = r.ToString();
+    CHECK(s == "-65535") << s;
+  }
+
+  {
+    BigRat r = BigRat::FromDouble(1.0 / -65536.0);
+    std::string s = r.ToString();
+    CHECK(s == "-1/65536") << s;
+  }
+
+  BigRat huge = BigRat::FromDouble(1.0e300);
+  CHECK(BigRat::Greater(huge, BigRat(0)));
+  BigRat almost_huge = BigRat::FromDouble(1.0e299);
+  CHECK(BigRat::Greater(huge, almost_huge));
 
   // Note: This number is not exactly representable as a double
   // (not just 1/3, but 0.3333333). GMP gives slightly different
@@ -102,6 +149,31 @@ static void TestRatFromDouble() {
   BigRat thirdish = BigRat::FromDouble(0.3333333);
   double t = thirdish.ToDouble();
   CHECK(std::abs(t - 0.3333333) < 0.0000001) << thirdish.ToString();
+
+  printf("Rat FromDouble: OK\n");
+}
+
+static void TestRatToDouble() {
+  {
+    BigRat one_half(1, 2);
+    double h = one_half.ToDouble();
+    CHECK(std::abs(h - 0.5) < 1e-30) << h;
+    printf("OK: %.17g\n", h);
+  }
+
+  {
+    BigRat about_one_half(BigInt("100000000001"),
+                          BigInt("200000000000"));
+    double res = 100000000001.0 / 200000000000.0;
+    CHECK(std::abs(about_one_half.ToDouble() - res) < 1e-30);
+  }
+
+  {
+    BigRat about_one_half(
+        BigInt("10000000000000000000000000000000000000000001"),
+        BigInt("20000000000000000000000000000000000000000000"));
+    CHECK(std::abs(about_one_half.ToDouble() - 0.5) < 1e-20);
+  }
 }
 
 static void TestToDouble() {
@@ -132,7 +204,6 @@ static void TestToDouble() {
 
   // TODO: Test infinite cases
 }
-
 
 static void TestMod() {
   CHECK(BigInt::Eq(BigInt::Mod(BigInt{3}, BigInt{5}), BigInt{3}));
@@ -939,8 +1010,16 @@ static void TestRatCompare() {
 
   CHECK(BigRat::Eq(BigRat(1, 2),
                    BigRat::Max(BigRat(5, 10), BigRat(-1, 3))));
-}
 
+  CHECK(BigRat::Less(BigRat(BigInt(9007199254739967),
+                            BigInt(18014398509481984)),
+                     BigRat(1, 2)));
+
+  // 9007199254739967/18014398509481984 is 0.4999999999999431010
+  CHECK(BigRat::Compare(BigRat(BigInt(9007199254739967),
+                               BigInt(18014398509481984)),
+                        BigRat(1, 2)) == -1);
+}
 
 int main(int argc, char **argv) {
   printf("Start.\n");
@@ -953,6 +1032,10 @@ int main(int argc, char **argv) {
 
   TestCompare();
   TestRatCompare();
+
+  TestRatFromDouble();
+  TestToDouble();
+  TestRatToDouble();
 
   TestDiv();
   TestCMod();
@@ -998,9 +1081,6 @@ int main(int argc, char **argv) {
   TestRatSwap();
   TestRatMove();
   TestRatSqrt();
-
-  TestRatFromDouble();
-  TestToDouble();
 
   printf("OK\n");
 }

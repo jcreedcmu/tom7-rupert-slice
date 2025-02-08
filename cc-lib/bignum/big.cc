@@ -843,6 +843,92 @@ BigInt::PrimeFactorization(const BigInt &x, int64_t mf) {
   return factors;
 }
 
+// PERF: There must be better ways to do this!
+double BigRat::ToDoubleIterative(const BigRat &r_in) {
+  static constexpr bool VERBOSE = false;
+  bool neg = false;
+
+  if (VERBOSE) {
+    printf("ToDouble: %s\n", r_in.ToString().c_str());
+  }
+
+  BigRat r;
+  {
+    switch (Sign(r_in)) {
+    case -1:
+      neg = true;
+      r = BigRat::Negate(r_in);
+      break;
+    case 0: return 0.0;
+    default:
+    case 1:
+      neg = false;
+      r = r_in;
+      break;
+    }
+  }
+
+  if (VERBOSE) {
+    printf("Neg? %s. r: %s\n", neg ? "yes" : "no",
+           r.ToString().c_str());
+  }
+
+  double lb = 0.0, ub = std::numeric_limits<double>::max();
+  BigRat rub = BigRat::FromDouble(ub);
+  if (VERBOSE) {
+    printf("Rub: %s\n", rub.ToString().c_str());
+  }
+  if (BigRat::Greater(r, rub)) {
+    return neg ? -std::numeric_limits<double>::infinity() :
+      -std::numeric_limits<double>::infinity();
+  }
+
+  // Now we have that lb < r <= ub.
+
+  if (VERBOSE) {
+    printf("Enter loop:\n");
+  }
+  while (lb < ub) {
+    double mid = lb + (ub - lb) * 0.5;
+    if (VERBOSE) {
+      printf("%.17g / %.17g / %.17g\n", lb, mid, ub);
+    }
+    if (mid <= lb || mid >= ub) {
+      // No space left in the interval.
+      return neg ? -mid : mid;
+    }
+
+    BigRat mr = BigRat::FromDouble(mid);
+    int d = BigRat::Compare(r, mr);
+    if (VERBOSE) {
+      printf("r: %s mr: %s  (cmp %d)\n",
+             r.ToString().c_str(),
+             mr.ToString().c_str(), d);
+    }
+    switch (d) {
+    default:
+    case 0:
+      return neg ? -mid : mid;
+    case -1:
+      if (VERBOSE) {
+        printf("below\n");
+      }
+      assert(BigRat::Less(r, mr));
+      ub = mid;
+      break;
+    case 1:
+      assert(BigRat::Greater(r, mr));
+      if (VERBOSE) {
+        printf("above\n");
+      }
+      lb = mid;
+      break;
+    }
+  }
+
+  return ub;
+}
+
 #endif
 
 // Oops, there is BzSqrt! Benchmark to compare (and make sure
