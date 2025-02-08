@@ -12,9 +12,6 @@
 // Below there is also PointMap3, which is a simple wrapper for
 // the common case that you don't need interesting values.
 
-// XXX clang 16 doesn't support double template args; fix??
-inline constexpr double SQDIST = 0.000001;
-
 // SQDIST is the (squared) threshold below which two points are
 // considered the "same." Note that this kind of approach does not
 // actually yield an equivalence relation! I think better would
@@ -27,6 +24,9 @@ template<typename Value>
 struct PointMap3 {
   using vec3 = yocto::vec<double, 3>;
 
+  PointMap3() {}
+  explicit PointMap3(double dist) : sqdist(dist * dist) {}
+
   // Note that this does *not* deduplicate points! It's just
   // the number of elements that have been inserted.
   size_t Size() const {
@@ -35,7 +35,7 @@ struct PointMap3 {
 
   bool Contains(const vec3 &p) const {
     for (const auto &[q, v_] : pts) {
-      if (distance_squared(p, q) < SQDIST) {
+      if (distance_squared(p, q) < sqdist) {
         return true;
       }
     }
@@ -45,7 +45,7 @@ struct PointMap3 {
 
   std::optional<Value> Get(const vec3 &p) const {
     for (const auto &[q, v] : pts) {
-      if (distance_squared(p, q) < SQDIST) {
+      if (distance_squared(p, q) < sqdist) {
         return {v};
       }
     }
@@ -68,14 +68,18 @@ struct PointMap3 {
   }
 
  private:
-  // PERF use kd-tree
+  double sqdist = 0.000001;
+  // perf use kd-tree
   std::vector<std::pair<vec3, Value>> pts;
 };
 
-// As in the 3D version.
+// As in the 3d version.
 template<typename Value>
 struct PointMap2 {
   using vec2 = yocto::vec<double, 2>;
+
+  PointMap2() {}
+  explicit PointMap2(double dist) : sqdist(dist * dist) {}
 
   size_t Size() const {
     return pts.size();
@@ -83,7 +87,7 @@ struct PointMap2 {
 
   bool Contains(const vec2 &p) const {
     for (const vec2 &q : pts) {
-      if (distance_squared(p, q) < SQDIST) {
+      if (distance_squared(p, q) < sqdist) {
         return true;
       }
     }
@@ -93,7 +97,7 @@ struct PointMap2 {
 
   std::optional<Value> Get(const vec2 &p) const {
     for (const auto &[q, v] : pts) {
-      if (distance_squared(p, q) < SQDIST) {
+      if (distance_squared(p, q) < sqdist) {
         return {v};
       }
     }
@@ -113,6 +117,7 @@ struct PointMap2 {
   }
 
  private:
+  double sqdist = 0.000001;
   std::vector<std::pair<vec2, Value>> pts;
 };
 

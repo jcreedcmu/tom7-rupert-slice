@@ -32,8 +32,10 @@
 
 #include "yocto_matht.h"
 
-static constexpr bool DEBUG = true;
-static constexpr bool VERBOSE = true;
+static constexpr bool DEBUG = false;
+static constexpr bool VERBOSE = false;
+
+static constexpr double EPSILON = 0.00001;
 
 namespace {
 // TODO: Use this throughout.
@@ -59,7 +61,9 @@ static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
   bounds.AddMarginFrac(0.10);
 
   // ImageRGBA img(1920, 1080);
-  ImageRGBA img(1024, 768);
+  // ImageRGBA img(1024, 768);
+  ImageRGBA img(5120, 5120);
+  static constexpr float LINE_WIDTH = 1.0f;
   img.Clear32(0x000000FF);
 
   Bounds::Scaler scaler =
@@ -78,9 +82,9 @@ static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
       const auto &[ax, ay] = ToScreen(a);
       const auto &[bx, by] = ToScreen(b);
       const auto &[cx, cy] = ToScreen(c);
-      img.BlendThickLine32(ax, ay, bx, by, 3.0, 0xFFFFFF77);
-      img.BlendThickLine32(bx, by, cx, cy, 3.0, 0xFFFFFF77);
-      img.BlendThickLine32(cx, cy, ax, ay, 3.0, 0xFFFFFF77);
+      img.BlendThickLine32(ax, ay, bx, by, LINE_WIDTH, 0xFFFFFF77);
+      img.BlendThickLine32(bx, by, cx, cy, LINE_WIDTH, 0xFFFFFF77);
+      img.BlendThickLine32(cx, cy, ax, ay, LINE_WIDTH, 0xFFFFFF77);
     }
   }
 
@@ -260,7 +264,7 @@ struct HoleMaker {
   // that's already been added. This also merges points
   // that are less than some epsilon from the first
   // one inserted in the vicinity.
-  PointMap3<int> point_index;
+  PointMap3<int> point_index = PointMap3<int>(EPSILON);
   std::vector<std::tuple<int, int, int>> out_triangles;
 
   // We create a path consisting of a series of vertices to
@@ -276,6 +280,7 @@ struct HoleMaker {
     if (b < a) std::swap(a, b);
     auto it = split_edges.find({a, b});
     if (it == split_edges.end()) return std::nullopt;
+    CHECK(it->second != a && it->second != b);
     return {it->second};
   }
 
@@ -550,7 +555,9 @@ struct HoleMaker {
           AddTriangleTo(&new_triangles, b, c, d);
           new_points.insert(d);
           CHECK(!already_split.contains({a, b}));
-          printf("Split %d-%d, inserting %d\n", a, b, d);
+          if (VERBOSE) {
+            printf("Split %d-%d, inserting %d\n", a, b, d);
+          }
           already_split[{a, b}] = d;
           CHECK(a < b);
           split_edges[{a, b}] = d;
@@ -654,10 +661,19 @@ struct HoleMaker {
     double closest_dist = std::numeric_limits<double>::infinity();
 
     auto TryPoint = [&](const vec2 &v) {
+        // Must be strictly closer to q. We perform this test with
+        // epsilon, or else we get some confounding and useless
+        // self-intersections (e.g. an intersection with an edge
+        // coming from the source vertex, but in the wrong direction).
+        // static constexpr double EPSILON = 1e-6;
         const double qdist = distance(v, q);
-        // Must be strictly closer to q.
-        if (qdist < dist_p_to_q) {
+        if (qdist + EPSILON <= dist_p_to_q) {
           double dist = length(v - p);
+          if (verbose) {
+            printf("    Dist v-q %.17g < p-q %.17g\n",
+                   qdist, dist_p_to_q);
+            printf("    Distance to p: %.17g\n", dist);
+          }
           if (!closest.has_value() || dist < closest_dist) {
             if (verbose) {
               printf("    " AYELLOW("(new best)") "\n");
@@ -759,7 +775,8 @@ struct HoleMaker {
                  pp.first, qq.first);
         }
         auto io = GetClosestIntersection(p, q,
-                                         pp.first == 10 && qq.first == 12
+                                         false
+                                         // pp.first == 10 && qq.first == 12
                                          );
         if (!io.has_value()) {
           if (VERBOSE) {
@@ -777,7 +794,7 @@ struct HoleMaker {
         // termination.
         CHECK(i2 != p);
         if (VERBOSE) {
-          printf("Intersection at %s.", VecString(i2).c_str());
+          printf("Took intersection at %s.\n", VecString(i2).c_str());
         }
 
         // It could snap to the same point, though.
@@ -861,6 +878,25 @@ struct HoleMaker {
 
   // Account for splits on the edge loops.
   void FixEdgeLoops() {
+    if (VERBOSE) {
+      printf("Triangles:\n");
+      for (const auto &[a, b, c] : work_triangles) {
+        printf("  %d-%d-%d\n", a, b, c);
+      }
+    }
+    if (VERBOSE) {
+      printf("Splits:\n");
+      for (const auto &[ab, c] : split_edges) {
+        printf("  %d-%d: %d\n", ab.first, ab.second, c);
+      }
+    }
+    if (VERBOSE) {
+      printf("Loop:\n");
+      for (const auto &[t, b] : hole) {
+        printf("  %d / %d\n", t, b);
+      }
+    }
+
     std::vector<std::pair<int, int>> out;
     int added = 0;
     for (int i = 0; i < hole.size(); i++) {
@@ -868,9 +904,24 @@ struct HoleMaker {
       std::tie(pt, pb) = hole[i];
       std::tie(qt, qb) = hole[(i + 1) % hole.size()];
 
+      if (VERBOSE) {
+        printf("Raw %d/%d -> %d/%d\n", pt, pb, qt, qb);
+      }
+
+      // Skip exact duplicate points.
+      if (pt == pb &&
+          qt == qb) continue;
+
       for (;;) {
-        bool t = HasEdge(pt, qt);
-        bool b = HasEdge(pb, qb);
+        bool t = pt == qt || HasEdge(pt, qt);
+        bool b = pb == qb || HasEdge(pb, qb);
+        if (VERBOSE) {
+          printf("Inner %d/%d -> %d/%d %s/%s\n",
+                 pt, pb, qt, qb,
+                 t ? "ok" : "_", b ? "ok" : "_"
+                 );
+        }
+
         if (t && b) {
           out.emplace_back(pt, pb);
           goto next;
@@ -888,14 +939,14 @@ struct HoleMaker {
           // one was split, we can handle this by duplicating
           // points on one side.
           std::optional<int> ot = GetSplitEdge(pt, qt);
-          CHECK(ot.has_value());
+          CHECK(ot.has_value()) << std::format("{}-{} ?", pt, qt);
           out.emplace_back(pt, pb);
           pt = ot.value();
           added++;
         } else {
           CHECK(!b);
           std::optional<int> ob = GetSplitEdge(pb, qb);
-          CHECK(ob.has_value());
+          CHECK(ob.has_value()) << std::format("{}-{} ?", pb, qb);
           out.emplace_back(pt, pb);
           pb = ob.value();
           added++;

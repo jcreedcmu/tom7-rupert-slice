@@ -39,7 +39,7 @@ static void RenderAny(std::string_view name) {
   polygon.reserve(hull.size());
   for (int i : hull) polygon.push_back(sinner.vertices[i]);
   // XXX test
-  for (vec2 &v : polygon) v *= 0.5;
+  // for (vec2 &v : polygon) v *= 0.5;
   Mesh3D residue = MakeHole(outer, polygon);
 
   std::string filename = std::format("{}-residue.stl", name);

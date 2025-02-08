@@ -140,10 +140,10 @@ int main(int argc, char **argv) {
   printf("\n");
 
   // MakeHoleRegression1();
-  MakeHoleRegression2();
+  // MakeHoleRegression2();
 
   // TestMakeHole();
-  // StressTest();
+  StressTest();
 
   printf("OK\n");
   return 0;
