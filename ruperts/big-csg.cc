@@ -28,8 +28,8 @@
 #include "rendering.h"
 #include "polyhedra.h"
 
-static constexpr bool DEBUG = true;
-static constexpr bool VERBOSE = true;
+static constexpr bool DEBUG = false;
+static constexpr bool VERBOSE = false;
 
 namespace {
 // TODO: Use this throughout.
