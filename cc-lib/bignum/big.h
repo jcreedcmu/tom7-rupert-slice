@@ -280,6 +280,13 @@ struct BigRat {
   // Get the numerator and denominator.
   inline std::pair<BigInt, BigInt> Parts() const;
 
+  // TODO
+  // Get 64 bits from both the numerator and denominator. Will be the
+  // same for equal inputs, but has no other meaning. Intended for
+  // in-memory hash functions, although it doesn't currently depend on
+  // the entire input.
+  // inline uint64_t HashCode() const;
+
   // Returns -1, 0, or 1.
   inline static int Sign(const BigRat &a);
 

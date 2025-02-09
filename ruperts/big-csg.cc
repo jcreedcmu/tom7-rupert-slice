@@ -51,7 +51,8 @@ inline bool CrossIsZero(const BigVec3 &a, const BigVec3 &b) {
 static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
   auto Filter = [&mesh](int i) {
       (void)mesh;
-      return mesh.vertices[i].z >= 0.0;
+      // return mesh.vertices[i].z >= 0.0;
+      return true;
     };
 
   Bounds bounds;
@@ -113,7 +114,7 @@ static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
       int w = ImageRGBA::TEXT_WIDTH * 2 + 4;
       int h = ImageRGBA::TEXT_HEIGHT + 4;
       const auto &[x, y] =
-        dirty.PlaceNearby(ox, oy, w, h, 14);
+        dirty.PlaceNearby(ox, oy, w, h, 32);
       dirty.MarkUsed(x, y, w, h);
 
       img.BlendTextOutline32(x, y,
@@ -137,9 +138,9 @@ static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
 static std::optional<BigVec3> PointToPlane(
     const BigVec3 &a, const BigVec3 &b, const BigVec3 &c,
     const BigVec2 &pt) {
-  BigVec2 a2 = {a.x, a.y};
-  BigVec2 b2 = {b.x, b.y};
-  BigVec2 c2 = {c.x, c.y};
+  BigVec2 a2 = Two(a);
+  BigVec2 b2 = Two(b);
+  BigVec2 c2 = Two(c);
 
   // Barycentric coordinates in 2D.
   BigVec2 v0 = b2 - a2;
@@ -186,7 +187,7 @@ static std::optional<BigVec3> PointOnSegment(
   BigRat t = dot(ap, ab) / length_squared(ab);
   if (t < BigRat(0) || t > BigRat(1)) return std::nullopt;
 
-  BigVec3 isect = (a + t * ab);
+  BigVec3 isect = a + t * ab;
   return {isect};
 }
 
@@ -201,9 +202,7 @@ static std::optional<BigVec2> LineIntersection(
   const BigVec2 m = p0 - p2;
 
   const BigRat denom = s1.x * s2.y - s2.x * s1.y;
-  // Note if denom is 0 or close to it, we will just
-  // get an enormous (or maybe nan) s. This will not
-  // fall into the interval [0, 1].
+  if (denom == BigRat(0)) return std::nullopt;
 
   const BigRat s = (s1.x * m.y - s1.y * m.x) / denom;
 
@@ -211,7 +210,7 @@ static std::optional<BigVec2> LineIntersection(
     const BigRat t = (s2.x * m.y - s2.y * m.x) / denom;
 
     if (t >= BigRat(0) && t <= BigRat(1)) {
-      return {BigVec2{p0 + (t * s1)}};
+      return {BigVec2{p0 + t * s1}};
     }
   }
   return std::nullopt;
@@ -231,26 +230,6 @@ bool TriangleAndPolygonIntersect(
     }
   }
   return false;
-}
-
-// Input triangle must have a < b < c.
-// If the triangle has the edge, returns the vertex that's not on that
-// edge.
-static std::optional<int>
-TriangleWithEdge(const std::tuple<int, int, int> &tri,
-                 int aa, int bb) {
-  if (aa > bb) std::swap(aa, bb);
-  const auto &[a, b, c] = tri;
-  if (aa == a && bb == b) return {c};
-  if (aa == a && bb == c) return {b};
-  if (aa == b && bb == c) return {a};
-  return std::nullopt;
-}
-
-static bool IsAVertex(const std::tuple<int, int, int> &tri,
-                      int i) {
-  const auto &[a, b, c] = tri;
-  return a == i || b == i || c == i;
 }
 
 // Analogous to PointMap3, but with exact tests.
@@ -1112,7 +1091,12 @@ struct BigHoleMaker {
     return out;
   }
 
+  // TODO: This may work, but it doesn't find any simplifications
+  // in my examples. I think I need something fancier.
   void SimplifyColinear() const {
+    printf("Simplify colinear. In: %d triangles\n",
+           (int)work_triangles.size());
+
     // If we have two colinear edges a-b and b-c,
     // like this:
     //
@@ -1141,74 +1125,110 @@ struct BigHoleMaker {
     //      \ /     //
     //       e      //
 
-    std::unordered_map<int, std::vector<int>> adjacent;
-    auto AddEdge = [&](int u, int v) {
-        adjacent[u].push_back(v);
-        adjacent[v].push_back(u);
-      };
-    for (const auto &[a, b, c] : work_triangles) {
-      AddEdge(a, b);
-      AddEdge(b, c);
-      AddEdge(a, c);
-    }
-
-    // These are vertices that
-    std::unordered_set<int> to_delete;
-
-    // HERE
-    std::vector<std::tuple<int, int, int>> triangles_to_add;
-
-    // Now try to find a point we can delete.
-    for (const auto &[p, neighbors] : adjacent) {
-      if (neighbors.size() == 4) {
-        // If we already marked one of the neighbors
-        // for deletion, we need to wait for a later
-        // round to act on this.
-        if ([&]{
-            for (int n : neighbors)
-              if (to_delete.contains(n))
-                return true;
-            return false;
-          }()) continue;
-
-        const BigVec3 &b = points[p];
-        const BigVec3 &v1 = points[neighbors[0]];
-        const BigVec3 &v2 = points[neighbors[1]];
-        const BigVec3 &v3 = points[neighbors[2]];
-        const BigVec3 &v4 = points[neighbors[3]];
-
-        auto Colinear = [&](const BigVec3 &a,
-                            const BigVec3 &c) {
-            BigVec3 ab = b - a;
-            BigVec3 bc = c - b;
-            return CrossIsZero(ab, bc);
-          };
-
-        // As in the diagram above.
-        auto Simplify = [&](const BigVec3 &a,
-                            const BigVec3 &c,
-                            const BigVec3 &d,
-                            const BigVec3 &e) {
-            // Do it!
-            LOG(FATAL) << "Can simplify";
-          };
-
-        if (Colinear(v1, v2)) {
-          Simplify(v1, v2, v3, v4);
-        } else if (Colinear(v1, v3)) {
-          Simplify(v1, v3, v2, v4);
-        } else if (Colinear(v2, v3)) {
-          Simplify(v2, v3, v1, v4);
-        } else if (Colinear(v2, v4)) {
-          Simplify(v2, v4, v1, v3);
-        } else if (Colinear(v3, v4)) {
-          Simplify(v3, v4, v1, v2);
-        }
-
+    for (;;) {
+      std::unordered_map<int, std::set<int>> adjacent;
+      auto AddEdge = [&](int u, int v) {
+          adjacent[u].insert(v);
+          adjacent[v].insert(u);
+        };
+      for (const auto &[a, b, c] : work_triangles) {
+        AddEdge(a, b);
+        AddEdge(b, c);
+        AddEdge(a, c);
       }
-    }
-  }
 
+      // These are vertices that are being deleted. We don't
+      // consider their neighbors for simplification.
+      std::unordered_set<int> to_delete;
+
+      std::vector<std::tuple<int, int, int>> new_triangles;
+      new_triangles.reserve(work_triangles.size());
+
+      // Now try to find a point we can delete.
+      for (const auto &[b, neighbors] : adjacent) {
+        printf("%d has %d neighbors:", b, (int)neighbors.size());
+        for (int i : neighbors) {
+          printf(" %d", i);
+        }
+        printf("\n");
+        if (neighbors.size() == 4) {
+          // If we already marked one of the neighbors
+          // for deletion, we need to wait for a later
+          // round to act on this.
+          if ([&]{
+              for (int n : neighbors)
+                if (to_delete.contains(n))
+                  return true;
+              return false;
+            }()) continue;
+
+          std::vector<int> vs(neighbors.begin(), neighbors.end());
+          CHECK(vs.size() == 4);
+
+          const int i1 = vs[0];
+          const int i2 = vs[1];
+          const int i3 = vs[2];
+          const int i4 = vs[3];
+
+          printf("Consider %d with neighbors %d, %d, %d, %d\n",
+                 b, i1, i2, i3, i4);
+
+          const BigVec3 &v0 = points[b];
+          const BigVec3 &v1 = points[i1];
+          const BigVec3 &v2 = points[i2];
+          const BigVec3 &v3 = points[i3];
+          const BigVec3 &v4 = points[i4];
+
+          auto Colinear = [&](const BigVec3 &a,
+                              const BigVec3 &c) {
+              BigVec3 ab = v0 - a;
+              BigVec3 bc = c - v0;
+              return CrossIsZero(ab, bc);
+            };
+
+          // As in the diagram above.
+          auto Simplify = [&](int a, int c,
+                              int d, int e) {
+
+              to_delete.insert(b);
+
+              // The two new triangles that result from
+              // deleting b.
+              AddTriangleTo(&new_triangles, a, d, c);
+              AddTriangleTo(&new_triangles, a, c, e);
+            };
+
+          if (Colinear(v1, v2)) {
+            Simplify(i1, i2, i3, i4);
+          } else if (Colinear(v1, v3)) {
+            Simplify(i1, i3, i2, i4);
+          } else if (Colinear(v2, v3)) {
+            Simplify(i2, i3, i1, i4);
+          } else if (Colinear(v2, v4)) {
+            Simplify(i2, i4, i1, i3);
+          } else if (Colinear(v3, v4)) {
+            Simplify(i3, i4, i1, i2);
+          }
+        }
+      }
+
+      // Now copy any triangles that don't involve deleted points.
+      for (const auto &[a, b, c] : work_triangles) {
+        if (!to_delete.contains(a) &&
+            !to_delete.contains(b) &&
+            !to_delete.contains(c)) {
+          AddTriangleTo(&new_triangles, a, b, c);
+        }
+      }
+
+      new_triangles = std::move(work_triangles);
+
+      if (to_delete.empty()) break;
+    }
+
+    printf("Simplify colinear. Out: %d triangles\n",
+           (int)work_triangles.size());
+  }
 };
 }  // namespace
 
@@ -1228,6 +1248,10 @@ Mesh3D BigMakeHole(const Polyhedron &polyhedron,
   if (DEBUG) maker.SaveMesh("removehole");
   maker.RepairHole();
   if (DEBUG) maker.SaveMesh("repairhole");
+  maker.SimplifyColinear();
+  if (DEBUG) maker.SaveMesh("simplifycolinear");
+
+  maker.SaveMesh("final");
 
   return maker.GetMesh();
 }
