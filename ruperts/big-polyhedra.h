@@ -1,4 +1,5 @@
 
+#include <cstdint>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -10,6 +11,7 @@
 #include "bignum/big-overloads.h"
 #include "bignum/big.h"
 #include "polyhedra.h"
+#include "hashing.h"
 
 // TODO: To cc-lib bignum
 
@@ -114,6 +116,16 @@ inline BigRat length_squared(const BigVec3 &a) {
 inline BigVec3 operator *(const BigRat &s, const BigVec3 &v) {
   return BigVec3{s * v.x, s * v.y, s * v.z};
 }
+
+template<>
+struct Hashing<BigVec3> {
+  std::size_t operator()(const BigVec3 &v) const {
+    uint64_t x = BigRat::HashCode(v.x);
+    uint64_t y = BigRat::HashCode(v.y);
+    uint64_t z = BigRat::HashCode(v.z);
+    return ((x * 3) + y) * 7 + z;
+  }
+};
 
 // With color
 std::string VecString(const BigVec2 &v);

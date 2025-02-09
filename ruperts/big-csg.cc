@@ -1,6 +1,7 @@
 
 #include "csg.h"
 
+#include <cstdint>
 #include <set>
 #include <format>
 #include <string_view>
@@ -232,11 +233,10 @@ bool TriangleAndPolygonIntersect(
   return false;
 }
 
-// Analogous to PointMap3, but with exact tests.
+// Like PointMap3, but with exact tests. This one does
+// overwrite an exact duplicate.
 template<class Value>
 struct BigPointMap3 {
-  // Note that this does *not* deduplicate points! It's just
-  // the number of elements that have been inserted.
   size_t Size() const {
     return pts.size();
   }
@@ -246,17 +246,13 @@ struct BigPointMap3 {
   }
 
   std::optional<Value> Get(const BigVec3 &p) const {
-    for (const auto &[q, v] : pts) {
-      if (p == q) {
-        return {v};
-      }
-    }
-
-    return std::nullopt;
+    auto it = pts.find(p);
+    if (it == pts.end()) return std::nullopt;
+    return {it->second};
   }
 
   void Add(const BigVec3 &q, const Value &v) {
-    pts.emplace_back(q, v);
+    pts[q] = v;
   }
 
   std::vector<BigVec3> Points() const {
@@ -267,8 +263,8 @@ struct BigPointMap3 {
   }
 
  private:
-  // perf use kd-tree, or even hash map?
-  std::vector<std::pair<BigVec3, Value>> pts;
+  // perf use kd-tree?
+  std::unordered_map<BigVec3, Value, Hashing<BigVec3>> pts;
 };
 
 struct BigHoleMaker {
