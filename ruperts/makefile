@@ -1,4 +1,4 @@
-default : ruperts.exe tosvg.exe gpuperts.exe polyhedra_test.exe scoreboard.exe noboard.exe query.exe visualize.exe tostl.exe noperts.exe imperts.exe validate.exe ratperts.exe big-polyhedra_test.exe
+default : ruperts.exe soltostl.exe topng.exe gpuperts.exe polyhedra_test.exe scoreboard.exe noboard.exe query.exe visualize.exe tostl.exe noperts.exe imperts.exe validate.exe ratperts.exe big-polyhedra_test.exe big-csg_test.exe csg_test.exe
 
 # This assumes OpenCL is installed as a system library, which
 # is now the case for msys2 clang64. If it's not, you could

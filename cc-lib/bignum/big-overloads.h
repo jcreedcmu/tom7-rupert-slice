@@ -236,11 +236,11 @@ inline bool operator !=(int64_t a, const BigInt &b) {
 
 template<>
 struct std::hash<BigInt> {
-  std::size_t operator()(const BigInt& k) const {
+  std::size_t operator()(const BigInt &k) const {
     // XXX: This just uses the low word, but it would be less
     // surprising to depend on the whole thing (even if it
     // might not actually be more efficient for many uses).
-    return (size_t)BigInt::LowWord(k);
+    return (size_t)BigInt::HashCode(k);
   }
 };
 
@@ -297,6 +297,14 @@ inline BigRat &operator/=(BigRat &a, const BigRat &b) {
   a = a / b;
   return a;
 }
+
+template<>
+struct std::hash<BigRat> {
+  std::size_t operator()(const BigRat &k) const {
+    // As above.
+    return (size_t)BigRat::HashCode(k);
+  }
+};
 
 
 // TODO: Combinations that take integers or bigints.

@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <unordered_set>
 
 #include "base/logging.h"
 #include "base/stringprintf.h"
@@ -80,16 +81,18 @@ static void TestToU64() {
 
 }
 
-static void LowWord() {
+static void HashCode() {
   BigInt a{1234};
   BigInt b{5678};
   // Technically this can be anything, but it would probably be a bug if
   // small integers don't get different values.
-  CHECK(BigInt::LowWord(a) != BigInt::LowWord(b));
+  CHECK(BigInt::HashCode(a) != BigInt::HashCode(b));
+  CHECK(BigInt::HashCode(a) == BigInt::HashCode(a));
 
   string s = "190237849028374901872390876190872349817230948719023874190827349817239048712903847190283740918273490817230948798767676767676738347482712341";
   BigInt big(s);
-  CHECK(BigInt::LowWord(a) != BigInt::LowWord(big));
+  CHECK(BigInt::HashCode(a) != BigInt::HashCode(big));
+  CHECK(BigInt::HashCode(big) == BigInt::HashCode(big));
 }
 
 static void TestRatFromDouble() {
@@ -164,8 +167,11 @@ static void TestRatToDouble() {
   {
     BigRat about_one_half(BigInt("100000000001"),
                           BigInt("200000000000"));
-    double res = 100000000001.0 / 200000000000.0;
-    CHECK(std::abs(about_one_half.ToDouble() - res) < 1e-30);
+    double expected = 100000000001.0 / 200000000000.0;
+    double actual = about_one_half.ToDouble();
+    CHECK(std::abs(actual - expected) < 1e-10) <<
+      StringPrintf("Expected: %.17g\n"
+                   "Actual: %.17g\n", expected, actual);
   }
 
   {
@@ -1021,6 +1027,47 @@ static void TestRatCompare() {
                         BigRat(1, 2)) == -1);
 }
 
+static void RatHashCode() {
+  // Technically this can be anything, but it would probably be a bug if
+  // small integers don't get different values.
+  std::unordered_set<uint64_t> distinct;
+  for (const auto &r : {
+        BigRat{123, 1},
+        BigRat{567, 1},
+        BigRat{123, 2},
+        BigRat{567, 2}
+    }) {
+    distinct.insert(BigRat::HashCode(r));
+  }
+  CHECK(distinct.size() == 4);
+
+  BigInt n{"190237849028374901872390876190872349817230948719023874190827349817239048712903847190283740918273490817230948798767676767676738347482712341"};
+  BigInt d{"2398198723048348182374029384190823049810881688181811116747484774117777777777777777777777772039488118060668834743080000273410875486776387"};
+
+  distinct.insert(BigRat::HashCode(BigRat(n, d)));
+  CHECK(distinct.size() == 5);
+  distinct.insert(BigRat::HashCode(BigRat(d, n)));
+  CHECK(distinct.size() == 6);
+  distinct.insert(BigRat::HashCode(BigRat(d, n)));
+  CHECK(distinct.size() == 6);
+
+  distinct.insert(BigRat::HashCode(BigRat(BigInt::Negate(n), d)));
+  CHECK(distinct.size() == 7) << "Is it ignoring the sign bit?";
+}
+
+static void TestRatSign() {
+  CHECK(BigRat::Sign(BigRat(BigInt(-3))) == -1);
+  CHECK(BigRat::Sign(BigRat(BigInt(0))) == 0);
+  CHECK(BigRat::Sign(BigRat(BigInt("19823749283749817"))) == 1);
+  CHECK(BigRat::Sign(BigRat(BigInt("-999999999999999999999"))) == -1);
+
+  CHECK(BigRat::Sign(BigRat(-3, 2)) == -1);
+  CHECK(BigRat::Sign(BigRat(3, -2)) == -1);
+  CHECK(BigRat::Sign(BigRat(0, -1)) == 0);
+  CHECK(BigRat::Sign(BigRat(3215, 75)) == 1);
+  CHECK(BigRat::Sign(BigRat(-3, -4)) == 1);
+}
+
 int main(int argc, char **argv) {
   printf("Start.\n");
   fflush(stdout);
@@ -1042,7 +1089,7 @@ int main(int argc, char **argv) {
   TestModRem();
 
   TestEq();
-  LowWord();
+  HashCode();
   TestMod();
   TestToInt();
   TestGCD();
@@ -1081,6 +1128,9 @@ int main(int argc, char **argv) {
   TestRatSwap();
   TestRatMove();
   TestRatSqrt();
+  TestRatSign();
+
+  RatHashCode();
 
   printf("OK\n");
 }

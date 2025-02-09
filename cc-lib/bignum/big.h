@@ -13,16 +13,17 @@
 #endif
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
-#include <concepts>
-#include <type_traits>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 struct BigInt {
@@ -191,8 +192,9 @@ struct BigInt {
   #endif
 
   // Get 64 (or so) bits of the number. Will be equal for equal a, but
-  // no particular value is guaranteed. Intended for hash functions.
-  inline static uint64_t LowWord(const BigInt &a);
+  // no particular value is guaranteed. Not stable between backends or
+  // versions. Intended for hash functions.
+  inline static uint64_t HashCode(const BigInt &a);
 
   inline void Swap(BigInt *other);
 
@@ -280,12 +282,11 @@ struct BigRat {
   // Get the numerator and denominator.
   inline std::pair<BigInt, BigInt> Parts() const;
 
-  // TODO
   // Get 64 bits from both the numerator and denominator. Will be the
-  // same for equal inputs, but has no other meaning. Intended for
-  // in-memory hash functions, although it doesn't currently depend on
-  // the entire input.
-  // inline uint64_t HashCode() const;
+  // same for equal inputs, but has no other meaning. Might not be
+  // stable between backends or across versions. Intended for hash
+  // functions.
+  inline static uint64_t HashCode(const BigRat &a);
 
   // Returns -1, 0, or 1.
   inline static int Sign(const BigRat &a);
@@ -429,7 +430,8 @@ void BigInt::Swap(BigInt *other) {
   mpz_swap(rep, other->rep);
 }
 
-uint64_t BigInt::LowWord(const BigInt &a) {
+uint64_t BigInt::HashCode(const BigInt &a) {
+  // TODO: Include sign?
   // Zero is represented with no limbs.
   size_t limbs = mpz_size(a.rep);
   if (limbs == 0) return 0;
@@ -1073,6 +1075,30 @@ double BigRat::ToDouble() const {
   return mpq_get_d(rep);
 }
 
+uint64_t BigRat::HashCode(const BigRat &a) {
+  const auto &nrep = mpq_numref(a.rep);
+  const size_t nlimbs = mpz_size(nrep);
+  const auto &drep = mpq_denref(a.rep);
+  const size_t dlimbs = mpz_size(drep);
+
+  uint64_t h = 0xC0FFEE'777'1234567;
+  if (dlimbs != 0) {
+    h ^= mpz_getlimbn(drep, 0);
+    h = std::rotl<uint64_t>(h, 51);
+    h *= uint64_t{6364136223846793005};
+  }
+
+  if (nlimbs != 0) {
+    if (mpz_sgn(nrep) == -1) {
+      h ^= h >> 18;
+    }
+
+    h += mpz_getlimbn(nrep, 0);
+  }
+
+  return h;
+}
+
 #else
 // No GMP. Using portable big*.h.
 
@@ -1191,7 +1217,8 @@ double BigInt::ToDouble() const {
   return d;
 }
 
-uint64_t BigInt::LowWord(const BigInt &a) {
+uint64_t BigInt::HashCode(const BigInt &a) {
+  // TODO: Include sign?
   if (BzNumDigits(a.rep) == 0) return uint64_t{0};
   else return BzGetDigit(a.rep, 0);
 }
@@ -1590,6 +1617,29 @@ BigRat BigRat::ApproxDouble(double num, int64_t max_denom) {
 
 double BigRat::ToDouble() const {
   return ToDoubleIterative(*this);
+}
+
+uint64_t BigRat::HashCode(const BigRat &a) {
+  const auto &nrep = BqGetNumerator(a.rep);
+  const auto &drep = BqGetDenominator(a.rep);
+  uint64_t h = 0xC0FFEE'777'1234567;
+
+  if (BzNumDigits(drep) != 0) {
+    h ^= BzGetDigit(drep, 0);
+    h = std::rotl<uint64_t>(h, 51);
+    h *= uint64_t{6364136223846793005};
+  }
+
+  if (BzNumDigits(nrep) != 0) {
+    // Sign gets stored in numerator.
+    if (BzGetSign(nrep) == BZ_MINUS) {
+      h ^= h >> 18;
+    }
+
+    h += BzGetDigit(nrep, 0);
+  }
+
+  return h;
 }
 
 #endif

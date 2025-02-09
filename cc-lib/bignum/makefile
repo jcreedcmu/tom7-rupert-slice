@@ -1,8 +1,5 @@
 
 default : big_test.exe big-overloads_test.exe big-nogmp_test.exe big-overloads-nogmp_test.exe big-numbers_test.exe big-numbers-nogmp_test.exe polynomial_test.exe polynomial-nogmp_test.exe
-	@$(CXX) $^ -o $@ $(LFLAGS)
-	@echo -n "!"
-
 
 UNAME := $(shell uname -o)
 ifeq ($(UNAME),Cygwin)
