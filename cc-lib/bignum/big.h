@@ -276,8 +276,9 @@ struct BigRat {
 
   // In base 10.
   inline std::string ToString() const;
-  // The non-GMP version only works when the numerator and denominator
-  // are small; readily returns nan! XXX fix it...
+  // Not very efficient (does binary search), but should get the
+  // result within one ULP for all representable doubles. Returns
+  // positive or negative infinity if the value is too large.
   inline double ToDouble() const;
   // Get the numerator and denominator.
   inline std::pair<BigInt, BigInt> Parts() const;
@@ -1099,6 +1100,10 @@ uint64_t BigRat::HashCode(const BigRat &a) {
   return h;
 }
 
+int BigRat::Sign(const BigRat &a) {
+  return mpz_sgn(mpq_numref(a.rep));
+}
+
 #else
 // No GMP. Using portable big*.h.
 
@@ -1642,6 +1647,13 @@ uint64_t BigRat::HashCode(const BigRat &a) {
   return h;
 }
 
+int BigRat::Sign(const BigRat &a) {
+  static_assert(BZ_MINUS == -1);
+  static_assert(BZ_ZERO == 0);
+  static_assert(BZ_PLUS == 1);
+  return BzGetSign(BqGetNumerator(a.rep));
+}
+
 #endif
 
 // Common / derived implementations.
@@ -1661,11 +1673,6 @@ BigRat BigRat::Min(const BigRat &a, const BigRat &b) {
 BigRat BigRat::Max(const BigRat &a, const BigRat &b) {
   const int cmp = BigRat::Compare(a, b);
   return cmp == -1 ? b : a;
-}
-
-int BigRat::Sign(const BigRat &a) {
-  // PERF: This can surely be done more efficiently!
-  return BigRat::Compare(a, BigRat(0));
 }
 
 bool BigRat::Less(const BigRat &a, const BigRat &b) {
