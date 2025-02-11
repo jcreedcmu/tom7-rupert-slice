@@ -14,7 +14,7 @@
 // The polygon represents an infinitely tall extrusion along the
 // z axis. The result is the solid that results from making a hole
 // in the polyhedron with the extrusion (CSG subtraction).
-Mesh3D BigMakeHole(const Polyhedron &polyhedron,
-                   const std::vector<vec2> &polygon);
+TriangularMesh3D BigMakeHole(const Polyhedron &polyhedron,
+                             const std::vector<vec2> &polygon);
 
 #endif

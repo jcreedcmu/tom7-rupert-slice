@@ -1,4 +1,6 @@
 
+// Generate Z3 formula.
+
 #include <cstdint>
 #include <cstdio>
 #include <format>
@@ -13,6 +15,7 @@
 #include "base/stringprintf.h"
 #include "bignum/polynomial.h"
 #include "polyhedra.h"
+#include "symmetry-groups.h"
 #include "util.h"
 
 struct SymbolTable {

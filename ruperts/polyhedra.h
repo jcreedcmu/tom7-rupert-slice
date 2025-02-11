@@ -199,6 +199,13 @@ std::pair<vec2, double> ClosestPointOnHull(
 
 double DistanceToMesh(const Mesh2D &mesh, const vec2 &pt);
 
+// Return the minimum distance between the two hulls; assumes that
+// the inner is completely inside the outer.
+double HullClearance(const std::vector<vec2> &outer_points,
+                     const std::vector<int> &outer_hull,
+                     const std::vector<vec2> &inner_points,
+                     const std::vector<int> &inner_hull);
+
 // Returns the convex hull (a single polygon) as indices into the
 // vertex list (e.g. Mesh2D::vertices). This is the intuitive "gift
 // wrapping" algorithm; much faster approaches exist, but we have a
@@ -325,6 +332,8 @@ inline bool InHull(const Mesh2D &mesh, const std::vector<int> &hull,
 }
 
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
+void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
+               std::string_view name = "");
 void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
                std::string_view name = "");
 
@@ -362,6 +371,10 @@ double LossFunction(const Polyhedron &poly,
 std::optional<double> GetRatio(const Polyhedron &poly,
                                const frame3 &outer_frame,
                                const frame3 &inner_frame);
+
+std::optional<double> GetClearance(const Polyhedron &poly,
+                                   const frame3 &outer_frame,
+                                   const frame3 &inner_frame);
 
 // Takes ownership of the vertices, which should be a convex hull.
 // Creates faces as all planes where all the other points are on one

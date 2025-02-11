@@ -21,7 +21,7 @@ using Solution = SolutionDB::Solution;
 static std::pair<frame3, frame3> GetSolution(std::string_view name) {
   SolutionDB db;
   Solution sol = db.GetBestSolutionFor(name);
-  return std::make_pair(sol.outer_frame, sols.inner_frame);
+  return std::make_pair(sol.outer_frame, sol.inner_frame);
 }
 
 static void RenderAny(std::string_view name) {

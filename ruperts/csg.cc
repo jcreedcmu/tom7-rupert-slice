@@ -19,18 +19,19 @@
 #include <utility>
 #include <vector>
 
-#include "polyhedra.h"
 #include "ansi.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
+#include "bounds.h"
+#include "dirty.h"
 #include "hashing.h"
+#include "image.h"
+#include "mesh.h"
+#include "point-map.h"
+#include "polyhedra.h"
+#include "rendering.h"
 #include "set-util.h"
 #include "util.h"
-#include "point-map.h"
-#include "bounds.h"
-#include "image.h"
-#include "dirty.h"
-#include "rendering.h"
 
 #include "yocto_matht.h"
 
@@ -46,7 +47,7 @@ static inline vec2 Two(const vec3 &v) {
 }
 
 // Draw triangles where all the vertices have z < 0.
-static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
+static void DrawTop(const TriangularMesh3D &mesh, std::string_view filename) {
   auto Filter = [&mesh](int i) {
       (void)mesh;
       return mesh.vertices[i].z >= 0.0;
@@ -655,7 +656,7 @@ struct HoleMaker {
   }
 
   void SaveMesh(std::string_view filename) {
-    Mesh3D tmp;
+    TriangularMesh3D tmp;
     tmp.vertices = points;
     tmp.triangles = out_triangles;
     for (const auto &tri : work_triangles)
@@ -1071,10 +1072,10 @@ struct HoleMaker {
     }
   }
 
-  Mesh3D GetMesh() {
+  TriangularMesh3D GetMesh() {
     // TODO: Improve mesh.
     // TODO: Garbage collect.
-    Mesh3D ret;
+    TriangularMesh3D ret;
     ret.vertices = points;
     ret.triangles = out_triangles;
     for (const auto &tri : work_triangles)
@@ -1094,7 +1095,7 @@ struct HoleMaker {
 };
 }  // namespace
 
-Mesh3D MakeHole(const Polyhedron &polyhedron,
+TriangularMesh3D MakeHole(const Polyhedron &polyhedron,
                 const std::vector<vec2> &polygon) {
   HoleMaker maker(polyhedron, polygon);
   maker.Split();

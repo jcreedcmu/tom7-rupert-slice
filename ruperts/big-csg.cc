@@ -2,6 +2,7 @@
 #include "csg.h"
 
 #include <cstdint>
+#include <functional>
 #include <set>
 #include <format>
 #include <string_view>
@@ -33,6 +34,8 @@
 static constexpr bool DEBUG = false;
 static constexpr bool VERBOSE = false;
 
+// TODO: Clean up deleted points.
+
 namespace {
 // TODO: Use this throughout.
 static inline BigVec2 Two(const BigVec3 &v) {
@@ -49,7 +52,7 @@ inline bool CrossIsZero(const BigVec3 &a, const BigVec3 &b) {
 
 
 // Draw triangles where all the vertices have z < 0.
-static void DrawTop(const Mesh3D &mesh, std::string_view filename) {
+static void DrawTop(const TriangularMesh3D &mesh, std::string_view filename) {
   auto Filter = [&mesh](int i) {
       (void)mesh;
       // return mesh.vertices[i].z >= 0.0;
@@ -653,7 +656,7 @@ struct BigHoleMaker {
   }
 
   void SaveMesh(std::string_view filename) {
-    Mesh3D tmp;
+    TriangularMesh3D tmp;
     for (const BigVec3 &v : points) {
       tmp.vertices.push_back(SmallVec(v));
     }
@@ -1063,10 +1066,10 @@ struct BigHoleMaker {
     }
   }
 
-  Mesh3D GetMesh() {
+  TriangularMesh3D GetMesh() {
     // TODO: Improve mesh.
     // TODO: Garbage collect.
-    Mesh3D ret;
+    TriangularMesh3D ret;
     for (const BigVec3 &v : points) {
       ret.vertices.push_back(SmallVec(v));
     }
@@ -1085,6 +1088,181 @@ struct BigHoleMaker {
                    v.x.ToString(), v.y.ToString());
     }
     return out;
+  }
+
+  // Are the three vectors coplanar?
+  static bool Coplanar(const BigVec3 &a,
+                       const BigVec3 &b,
+                       const BigVec3 &c) {
+    // Scalar triple product
+    return BigRat::Sign(dot(a, cross(b, c))) == 0;
+  }
+
+  static BigVec3 FaceNormal(const BigVec3 &a,
+                            const BigVec3 &b,
+                            const BigVec3 &c) {
+    return cross(b - a, c - a);
+  }
+
+  // It's trickier than it seems to simplify triangular meshes using
+  // only local operations. This produces general polygonal faces
+  // (which can easily be done greedily) and then retriangulates.
+  void Refacet() {
+    // An edge should join exactly two triangles.
+    // This maps the edge (a < b) to the third vertex.
+    std::unordered_map<std::pair<int, int>, std::vector<int>,
+      Hashing<std::pair<int, int>>> edges;
+    auto GetEdgeIterator = [&](int a, int b) {
+        if (a > b) std::swap(a, b);
+        return edges.find({a, b});
+      };
+
+    for (const auto &[a, b, c] : work_triangles) {
+      CHECK(a < b && b < c);
+      edges[{a, b}].push_back(c);
+      edges[{a, c}].push_back(b);
+      edges[{b, c}].push_back(a);
+    }
+
+    // Just a debugging check.
+    for (const auto &[ab, others] : edges) {
+      const auto &[a, b] = ab;
+      CHECK(others.size() == 2) << "Not manifold";
+      CHECK(a < b);
+    }
+
+    std::unordered_set<std::tuple<int, int, int>,
+                       Hashing<std::tuple<int, int, int>>> triangles_done;
+    auto OrderTriangle = [](int a, int b, int c) {
+        if (a > b) std::swap(a, b);
+        if (b > c) std::swap(b, c);
+        if (a > b) std::swap(a, b);
+        CHECK(a < b && b < c);
+        return std::make_tuple(a, b, c);
+      };
+
+    auto DoneTriangle = [&](int a, int b, int c) {
+        return triangles_done.contains(OrderTriangle(a, b, c));
+      };
+
+    auto MarkTriangleDone = [&](int a, int b, int c) {
+        CHECK(!DoneTriangle(a, b, c));
+        return triangles_done.insert(OrderTriangle(a, b, c));
+      };
+
+    // return a loop that can replace the edge a->b,
+    // consuming any triangles. The third point c defines the plane;
+    // it may not necessarily be the case that a-b-c is an original
+    // triangle.
+    std::function<std::vector<int>(const BigVec3 &,
+                                   int, int, int)> ReplaceEdge =
+      [&](const BigVec3 &face_normal,
+          int a, int b, int c) -> std::vector<int> {
+
+      // HERE.
+      // The face normal should define the direction of a->b?
+
+      auto it = GetEdgeIterator(a, b);
+      if (it == edges.end()) return {a, b};
+
+      // A manifold means that only one of these two triangles is
+      // possible (the other one is inside the polygon already,
+      // i.e., it could be the triangle a-b-c).
+      for (int d : it->second) {
+        if (DoneTriangle(a, b, d)) continue;
+
+        const BigVec3 &aa = points[a];
+        const BigVec3 &bb = points[b];
+        const BigVec3 &cc = points[c];
+        const BigVec3 &dd = points[d];
+
+        BigVec3 ab = bb - aa;
+        BigVec3 ac = cc - aa;
+        BigVec3 ad = dd - aa;
+
+        if (Coplanar(ab, ac, ad)) {
+          MarkTriangleDone(a, b, d);
+          // Merge it.
+
+          std::vector<int> ret;
+
+          //       d      //
+          //      / \     //
+          //     /   \    //
+          //    /     \   //
+          //   a------>b  //
+          //    \     /   //
+          //     \   /    //
+          //      \ L     //
+          //       c      //
+
+          //       d      //
+          //      7 \     //
+          //     /   \    //
+          //    /     >   //
+          //   a       b  //
+          //    \     /   //
+          //     \   /    //
+          //      \ L     //
+          //       c      //
+
+          // Order matters here.
+          // (I think I might need to use a consistent winding
+          // order for the input triangles here!)
+          for (int i : ReplaceEdge(a, d, /* other */ b)) {
+            ret.push_back(i);
+          }
+          for (int i : ReplaceEdge(d, b, /* other */ a)) {
+            ret.push_back(i);
+          }
+          return ret;
+        }
+      }
+
+      // No coplanar triangle found.
+      return {a, b};
+    };
+
+    // Points will always be a subset of the original points.
+    std::vector<std::vector<int>> faces;
+
+    for (const auto &tri : work_triangles) {
+      if (triangles_done.contains(tri)) continue;
+
+      const auto &[a, b, c] = tri;
+      // Don't try adding it a second time.
+      MarkTriangleDone(a, b, c);
+
+      // We need to use a consistent winding order for all the
+      // triangles as we merge them.
+      BigVec3 face_normal = FaceNormal(points[a], points[b], points[c]);
+
+      std::vector<int> face;
+      for (int i : ReplaceEdge(face_normal, a, b, /* other */ c))
+        face.push_back(i);
+      for (int i : ReplaceEdge(face_normal, b, c, /* other */ a))
+        face.push_back(i);
+      for (int i : ReplaceEdge(face_normal, c, a, /* other */ b))
+        face.push_back(i);
+      faces.push_back(std::move(face));
+    }
+
+    printf("Now %d faces:\n", (int)faces.size());
+    for (const std::vector<int> &f : faces) {
+      printf("  ");
+      for (int i : f) printf(" %d", i);
+      printf("\n");
+    }
+
+    Mesh3D mesh;
+    for (const BigVec3 &v : points) {
+      mesh.vertices.push_back(SmallVec(v));
+    }
+    mesh.faces = faces;
+
+    SaveAsSTL(mesh, "simplify.stl");
+
+    printf("OK\n");
   }
 
   // TODO: This may work, but it doesn't find any simplifications
@@ -1136,6 +1314,7 @@ struct BigHoleMaker {
       // These are vertices that are being deleted. We don't
       // consider their neighbors for simplification.
       std::unordered_set<int> to_delete;
+
 
       std::vector<std::tuple<int, int, int>> new_triangles;
       new_triangles.reserve(work_triangles.size());
@@ -1228,8 +1407,65 @@ struct BigHoleMaker {
 };
 }  // namespace
 
-Mesh3D BigMakeHole(const Polyhedron &polyhedron,
-                   const std::vector<vec2> &polygon) {
+#if 0
+void TestCube() {
+  BigHoleMaker maker;
+
+Polyhedron Cube() {
+  //                  +y
+  //      a------b     | +z
+  //     /|     /|     |/
+  //    / |    / |     0--- +x
+  //   d------c  |
+  //   |  |   |  |
+  //   |  e---|--f
+  //   | /    | /
+  //   |/     |/
+  //   h------g
+
+  std::vector<vec3> vertices;
+  auto AddVertex = [&vertices](int x, int y, int z) {
+      int idx = (int)vertices.size();
+      vertices.emplace_back(BigVec3{BigRat(x), BigRat(y), BigRat(z)});
+      return idx;
+    };
+  int a = AddVertex(-1, +1, +1);
+  int b = AddVertex(+1, +1, +1);
+  int c = AddVertex(+1, +1, -1);
+  int d = AddVertex(-1, +1, -1);
+
+  int e = AddVertex(-1, -1, +1);
+  int f = AddVertex(+1, -1, +1);
+  int g = AddVertex(+1, -1, -1);
+  int h = AddVertex(-1, -1, -1);
+
+  std::vector<std::vector<int>> fs;
+  fs.reserve(6);
+
+  // top
+  AddTriangles({a, b, c, d});
+  // bottom
+  AddTriangles({e, f, g, h});
+  // left
+  AddTriangles({a, e, h, d});
+  // right
+  AddTriangles({b, f, g, c});
+  // front
+  AddTriangles({d, c, g, h});
+  // back
+  AddTriangles({a, b, f, e});
+
+  Faces *faces = new Faces(8, std::move(fs));
+  return Polyhedron{
+    .vertices = std::move(vertices),
+    .faces = faces,
+    .name = "cube",
+  };
+}
+#endif
+
+TriangularMesh3D BigMakeHole(const Polyhedron &polyhedron,
+                             const std::vector<vec2> &polygon) {
   std::vector<BigVec2> bigpolygon;
   for (const vec2 &v : polygon)
     bigpolygon.emplace_back(BigRat::FromDouble(v.x),
@@ -1244,6 +1480,8 @@ Mesh3D BigMakeHole(const Polyhedron &polyhedron,
   if (DEBUG) maker.SaveMesh("removehole");
   maker.RepairHole();
   if (DEBUG) maker.SaveMesh("repairhole");
+
+  maker.Refacet();
   maker.SimplifyColinear();
   if (DEBUG) maker.SaveMesh("simplifycolinear");
 

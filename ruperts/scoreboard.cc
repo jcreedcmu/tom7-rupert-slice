@@ -17,7 +17,7 @@ using Solution = SolutionDB::Solution;
 std::string FullMethodName(const char *color,
                            int method,
                            int source) {
-  if (method == SolutionDB::METHOD_IMPROVE) {
+  if (method == SolutionDB::METHOD_IMPROVE_RATIO) {
     return StringPrintf("%s%s" ANSI_RESET "[" AWHITE("%d") "]",
                         color, SolutionDB::MethodName(method), source);
   } else {
@@ -78,10 +78,11 @@ static void PrintAll(const std::unordered_set<std::string> &filter) {
 
       for (const Solution &sol : solmap[name]) {
         printf("  " AGREY("%d.")
-               " %s solved @" APURPLE("%.11g") "\n",
+               " %s solved @" APURPLE("%.11g") " " ABLUE("%.11g") "\n",
                sol.id,
                FullMethodName(ANSI_GREEN, sol.method, sol.source).c_str(),
-               sol.ratio);
+               sol.ratio,
+               sol.clearance);
       }
     }
   }

@@ -37,6 +37,11 @@
 
 DECLARE_COUNTERS(polyhedra, total_evals);
 
+// TODO: Explicitly optimize for clearance
+inline constexpr int METHOD = SolutionDB::METHOD_IMPROVE_RATIO;
+static_assert(METHOD == SolutionDB::METHOD_IMPROVE_RATIO ||
+              METHOD == SolutionDB::METHOD_IMPROVE_CLEARANCE);
+
 static StatusBar *status = nullptr;
 
 using vec2 = yocto::vec<double, 2>;
@@ -93,16 +98,20 @@ static void SaveImprovement(SolutionDB *db,
                             const frame3 &inner_frame) {
 
   std::optional<double> new_ratio = GetRatio(poly, outer_frame, inner_frame);
+  std::optional<double> new_clearance =
+    GetClearance(poly, outer_frame, inner_frame);
 
-  if (!new_ratio.has_value()) {
+  if (!new_ratio.has_value() || !new_clearance.has_value()) {
     status->Printf(ARED("SOLUTION IS INVALID!?") "\n");
     return;
   }
 
   const double ratio = new_ratio.value();
+  const double clearance = new_clearance.value();
 
   db->AddSolution(poly.name, outer_frame, inner_frame,
-                  SolutionDB::METHOD_IMPROVE, old.id, ratio);
+                  SolutionDB::METHOD_IMPROVE_RATIO,
+                  old.id, ratio, clearance);
 
   Rendering rendering(poly, 3840, 2160);
   auto Render = [&rendering, &poly](const frame3 &outer_frame,
@@ -375,7 +384,7 @@ struct Imperts {
       status->Printf("Refresh solution db.");
       std::vector<Attempt> attempts = db.GetAllAttempts();
       for (const Attempt &att : attempts) {
-        if (att.method == SolutionDB::METHOD_IMPROVE) {
+        if (att.method == SolutionDB::METHOD_IMPROVE_RATIO) {
           CHECK(att.source > 0) << "Bad database: " << att.id;
           num_attempted[att.source]++;
         }
@@ -391,7 +400,7 @@ struct Imperts {
         } else {
           it->second = std::min(it->second, sol.ratio);
         }
-        if (sol.method == SolutionDB::METHOD_IMPROVE) {
+        if (sol.method == SolutionDB::METHOD_IMPROVE_RATIO) {
           already_improved.insert(sol.source);
         }
       }
@@ -411,7 +420,7 @@ struct Imperts {
 
       for (Solution &sol : all_solutions) {
         if (SEQUENTIAL_IMPROVEMENT || sol.method !=
-            SolutionDB::METHOD_IMPROVE) {
+            SolutionDB::METHOD_IMPROVE_RATIO) {
           if (!already_improved.contains(sol.id)) {
             if (num_solutions[sol.polyhedron] < 4 ||
                 best_ratio[sol.polyhedron] > 0.999 ||
@@ -555,7 +564,7 @@ struct Imperts {
               num_attempted[solution.id]++;
               notimproved++;
               if (iters > 0) {
-                db.AddAttempt(poly.name, SolutionDB::METHOD_IMPROVE,
+                db.AddAttempt(poly.name, SolutionDB::METHOD_IMPROVE_RATIO,
                               solution.id, best_error, iters, evals);
               }
             }

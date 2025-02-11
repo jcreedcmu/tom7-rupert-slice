@@ -134,5 +134,9 @@ symmetry-groups_test.exe : symmetry-groups_test.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
+fixstats.exe : fixstats.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
 clean :
 	rm -f *.o *.exe $(OBJECTS)

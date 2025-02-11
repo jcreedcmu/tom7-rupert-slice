@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "auto-histo.h"
@@ -30,9 +31,10 @@ struct SolutionDB {
   static constexpr int METHOD_SPECIAL = 6;
   static constexpr int METHOD_ORIGIN = 7;
   static constexpr int METHOD_ALMOST_ID = 8;
-  static constexpr int METHOD_IMPROVE = 9;
+  static constexpr int METHOD_IMPROVE_RATIO = 9;
   static constexpr int METHOD_RATIONAL_OLD = 10;
   static constexpr int METHOD_RATIONAL = 11;
+  static constexpr int METHOD_IMPROVE_CLEARANCE = 12;
 
   static const char *MethodName(int m) {
     switch (m) {
@@ -44,9 +46,10 @@ struct SolutionDB {
     case METHOD_SPECIAL: return "METHOD_SPECIAL";
     case METHOD_ORIGIN: return "METHOD_ORIGIN";
     case METHOD_ALMOST_ID: return "METHOD_ALMOST_ID";
-    case METHOD_IMPROVE: return "METHOD_IMPROVE";
+    case METHOD_IMPROVE_RATIO: return "METHOD_IMPROVE_RATIO";
     case METHOD_RATIONAL_OLD: return "METHOD_RATIONAL_OLD";
     case METHOD_RATIONAL: return "METHOD_RATIONAL";
+    case METHOD_IMPROVE_CLEARANCE: return "METHOD_IMPROVE_CLEARANCE";
     default: return "UNKNOWN";
     }
   }
@@ -77,6 +80,9 @@ struct SolutionDB {
     // The ratio of the shadow's areas (note this is not the
     // same as the volume!)
     double ratio = 0.0;
+    // Minimum clearance between the inner and outer hulls;
+    // this is scale-dependent.
+    double clearance = 0.0;
   };
 
   struct Attempt {
@@ -104,7 +110,10 @@ struct SolutionDB {
 
   std::vector<Solution> GetSolutionsFor(std::string_view name);
   // Or abort.
-  Solution GetBestSolutionFor(std::string_view name);
+  Solution GetBestSolutionFor(std::string_view name,
+                              // false = lowest ratio
+                              // true = highest clearance
+                              bool use_clearance = false);
   std::vector<Solution> GetAllNopertSolutions();
 
   static std::string NopertName(int id) {
@@ -115,7 +124,7 @@ struct SolutionDB {
                    const frame3 &outer_frame,
                    const frame3 &inner_frame,
                    int method, int source,
-                   double ratio);
+                   double ratio, double clearance);
 
   void AddAttempt(const std::string &poly, int method,
                   int source,

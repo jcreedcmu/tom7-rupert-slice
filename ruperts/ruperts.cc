@@ -74,23 +74,25 @@ static void SaveSolution(const Polyhedron &poly,
   }
 
   std::optional<double> new_ratio = GetRatio(poly, outer_frame, inner_frame);
+  std::optional<double> new_clearance =
+    GetClearance(poly, outer_frame, inner_frame);
 
-  if (!new_ratio.has_value()) {
+  if (!new_ratio.has_value() || !new_clearance.has_value()) {
     printf(ARED("SOLUTION IS INVALID!?") "\n");
     return;
   }
 
   const double ratio = new_ratio.value();
+  const double clearance = new_clearance.value();
 
   SolutionDB db;
   db.AddSolution(poly.name, outer_frame, inner_frame,
-                 method, SOURCE, ratio);
+                 method, SOURCE, ratio, clearance);
 
 
-  db.AddSolution(poly.name, outer_frame, inner_frame, method, SOURCE, ratio);
   printf("Added solution (" AYELLOW("%s") ") to database with "
-         "ratio " APURPLE("%.17g") "\n",
-         poly.name, ratio);
+         "ratio " APURPLE("%.17g") ", clearance " ABLUE("%.17g") "\n",
+         poly.name, ratio, clearance);
 }
 
 static constexpr int NUM_THREADS = 4;

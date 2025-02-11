@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -69,7 +70,9 @@ void SolutionDB::Init() {
                       "source integer not null default 0, "
                       "createdate integer not null, "
                       // area of inner hull / outer hull
-                      "ratio real not null"
+                      "ratio real not null, "
+                      // min distance between hulls
+                      "clearance real not null default -1.0"
                       ")");
 
   // XXX unused... what was this for?
@@ -182,7 +185,8 @@ static std::vector<SolutionDB::Solution> GetSolutionsForQuery(
     sol.inner_frame = io.value();
     sol.createdate = r->GetInt(5);
     sol.ratio = r->GetFloat(6);
-    sol.source = r->GetInt(7);
+    sol.clearance = r->GetFloat(7);
+    sol.source = r->GetInt(8);
     ret.push_back(std::move(sol));
   }
   return ret;
@@ -193,22 +197,24 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
     db->ExecuteString(
         "select "
         "id, polyhedron, method, outerframe, innerframe, "
-        "createdate, ratio, source "
+        "createdate, ratio, clearance, source "
         "from solutions"));
 }
 
-SolutionDB::Solution SolutionDB::GetBestSolutionFor(std::string_view name) {
+SolutionDB::Solution SolutionDB::GetBestSolutionFor(std::string_view name,
+                                                    bool use_clearance) {
   std::vector<Solution> sols = GetSolutionsForQuery(
     db->ExecuteString(
         std::format(
             "select "
             "id, polyhedron, method, outerframe, innerframe, "
-            "createdate, ratio, source "
+            "createdate, ratio, clearance, source "
             "from solutions "
             "where polyhedron = '{}' "
-            "order by ratio "
+            "{} "
             "limit 1",
-            name)));
+            name,
+            use_clearance ? "order by clearance desc" : "order by ratio")));
   CHECK(!sols.empty()) << "No solution for " << name;
   return sols[0];
 }
@@ -218,19 +224,19 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllNopertSolutions() {
     db->ExecuteString(
         "select "
         "id, polyhedron, method, outerframe, innerframe, "
-        "createdate, ratio, source "
+        "createdate, ratio, clearance, source "
         "from solutions where polyhedron like 'nopert_%'"));
 }
 
 SolutionDB::Solution SolutionDB::GetSolution(int id) {
   std::vector<Solution> sols = GetSolutionsForQuery(
     db->ExecuteString(
-        StringPrintf(
+        std::format(
             "select "
             "id, polyhedron, method, outerframe, innerframe, "
-            "createdate, ratio, source "
+            "createdate, ratio, clearance, source "
             "from solutions "
-            "where id = %d", id)));
+            "where id = {}", id)));
   CHECK(sols.size() == 1) << "Solution " << id << " not found";
   return sols[0];
 }
@@ -242,7 +248,7 @@ std::vector<SolutionDB::Solution> SolutionDB::GetSolutionsFor(
         std::format(
             "select "
             "id, polyhedron, method, outerframe, innerframe, "
-            "createdate, ratio, source "
+            "createdate, ratio, clearance, source "
             "from solutions "
             "where polyhedron = '{}'",
             name)));
@@ -285,20 +291,20 @@ void SolutionDB::AddSolution(const std::string &polyhedron,
                              const frame3 &outer_frame,
                              const frame3 &inner_frame,
                              int method, int source,
-                             double ratio) {
+                             double ratio, double clearance) {
   db->ExecuteAndPrint(
       StringPrintf(
           "insert into solutions "
           "(polyhedron, method, source, outerframe, innerframe, "
           "createdate, ratio) "
-          "values ('%s', %d, %d, '%s', '%s', %lld, %.17g)",
+          "values ('%s', %d, %d, '%s', '%s', %lld, %.17g, %.17g)",
           polyhedron.c_str(),
           method,
           source,
           FrameString(outer_frame).c_str(),
           FrameString(inner_frame).c_str(),
           time(nullptr),
-          ratio));
+          ratio, clearance));
 }
 
 static std::vector<SolutionDB::Nopert> GetNopertsForQuery(

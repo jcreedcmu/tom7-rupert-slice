@@ -25,6 +25,7 @@
 #include "base/stringprintf.h"
 #include "hashing.h"
 #include "hull3d.h"
+#include "mesh.h"
 #include "randutil.h"
 #include "set-util.h"
 #include "util.h"
@@ -434,6 +435,31 @@ double DistanceToMesh(const Mesh2D &mesh, const vec2 &pt) {
   CHECK(best_sqdist.has_value());
   return sqrt(best_sqdist.value());
 }
+
+double HullClearance(const std::vector<vec2> &outer_points,
+                     const std::vector<int> &outer_hull,
+                     const std::vector<vec2> &inner_points,
+                     const std::vector<int> &inner_hull) {
+  // The minimum distance must be between a vertex on one and
+  // an edge on the other.
+
+  double min_sqdist = std::numeric_limits<double>::infinity();
+  for (int i = 0; i < inner_hull.size(); i++) {
+    const vec2 &i1 = inner_points[inner_hull[i]];
+    const vec2 &i2 = inner_points[inner_hull[(i + 1) % inner_hull.size()]];
+    for (int o = 0; o < outer_hull.size(); o++) {
+      const vec2 &o1 = outer_points[outer_hull[o]];
+      const vec2 &o2 = outer_points[outer_hull[(o + 1) % outer_hull.size()]];
+
+      double di = SquaredPointLineDistance(i1, i2, o1);
+      double ii = SquaredPointLineDistance(o1, o2, i1);
+      min_sqdist = std::min(min_sqdist, std::min(di, ii));
+    }
+  }
+
+  return std::sqrt(min_sqdist);
+}
+
 
 std::vector<int> GiftWrapConvexHull(const std::vector<vec2> &vertices) {
   constexpr bool VERBOSE = false;
@@ -1147,7 +1173,29 @@ std::optional<double> GetRatio(const Polyhedron &poly,
   return {ratio};
 }
 
-void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
+std::optional<double> GetClearance(const Polyhedron &poly,
+                                   const frame3 &outer_frame,
+                                   const frame3 &inner_frame) {
+  // Compute new error ratio.
+  Polyhedron outer = Rotate(poly, outer_frame);
+  Polyhedron inner = Rotate(poly, inner_frame);
+  Mesh2D souter = Shadow(outer);
+  Mesh2D sinner = Shadow(inner);
+
+  std::vector<int> outer_hull = QuickHull(souter.vertices);
+  std::vector<int> inner_hull = QuickHull(sinner.vertices);
+
+  for (const vec2 &iv : sinner.vertices) {
+    if (!InHull(souter, outer_hull, iv)) {
+      return std::nullopt;
+    }
+  }
+
+  return {HullClearance(souter.vertices, outer_hull,
+                        sinner.vertices, inner_hull)};
+}
+
+void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
                std::string_view name) {
   std::string solid_name = name.empty() ? "mesh" : std::string(name);
   std::string contents = std::format("solid {}\n", solid_name);
@@ -1175,15 +1223,47 @@ void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
   printf("Wrote " AGREEN("%s") "\n", f.c_str());
 }
 
-static Mesh3D ToMesh(const Polyhedron &poly) {
-  return Mesh3D{.vertices = poly.vertices,
+static TriangularMesh3D ToMesh(const Polyhedron &poly) {
+  return TriangularMesh3D{.vertices = poly.vertices,
     .triangles = poly.faces->triangulation};
 }
 
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename) {
-  Mesh3D mesh = ToMesh(poly);
+  TriangularMesh3D mesh = ToMesh(poly);
   return SaveAsSTL(mesh, filename, poly.name);
 }
+
+// TODO: Convert triangular mesh to face mesh, so we can share code.
+void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
+               std::string_view name) {
+  std::string solid_name = name.empty() ? "mesh" : std::string(name);
+  std::string contents = std::format("solid {}\n", solid_name);
+
+  for (const std::vector<int> &v : mesh.faces) {
+    CHECK(v.size() >= 3);
+    const vec3 &p0 = mesh.vertices[v[0]];
+    const vec3 &p1 = mesh.vertices[v[1]];
+    const vec3 &p2 = mesh.vertices[v[2]];
+
+    vec3 normal = yocto::normalize(yocto::cross(p1 - p0, p2 - p0));
+
+    AppendFormat(&contents, "  facet normal {} {} {}\n",
+                  normal.x, normal.y, normal.z);
+    AppendFormat(&contents, "    outer loop\n");
+    for (int i : v) {
+      const vec3 &p = mesh.vertices[i];
+      AppendFormat(&contents, "      vertex {} {} {}\n", p.x, p.y, p.z);
+    }
+    AppendFormat(&contents, "    endloop\n");
+    AppendFormat(&contents, "  endfacet\n");
+  }
+
+  AppendFormat(&contents, "endsolid {}\n", name);
+  std::string f = (std::string)filename;
+  Util::WriteFile(f, contents);
+  printf("Wrote " AGREEN("%s") "\n", f.c_str());
+}
+
 
 void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
                           std::string_view filename) {

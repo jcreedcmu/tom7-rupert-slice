@@ -9,6 +9,8 @@
 #include "ansi.h"
 #include "arcfour.h"
 #include "base/logging.h"
+#include "mesh.h"
+#include "randutil.h"
 #include "yocto_matht.h"
 #include "polyhedra.h"
 #include "periodically.h"
@@ -48,7 +50,7 @@ static void StressTest() {
       printf("  (%.17g, %.17g)\n", v.x, v.y);
     }
 
-    Mesh3D mesh = BigMakeHole(poly, polygon);
+    TriangularMesh3D mesh = BigMakeHole(poly, polygon);
     if (status_per.ShouldRun()) {
       printf("%d iters\n", iters);
     }
@@ -76,7 +78,7 @@ static void MakeHoleRegression1() {
     {0.8957,-0.7372},
   };
 
-  Mesh3D mesh = BigMakeHole(polyhedron, hole);
+  TriangularMesh3D mesh = BigMakeHole(polyhedron, hole);
   // XXX check properties
 }
 
@@ -92,7 +94,7 @@ static void MakeHoleRegression2() {
     {0.10901159242057352,-0.20790275443552875},
   };
 
-  Mesh3D mesh = BigMakeHole(polyhedron, hole);
+  TriangularMesh3D mesh = BigMakeHole(polyhedron, hole);
   // XXX check properties
 }
 
@@ -104,7 +106,7 @@ static void MakeHoleRegression3() {
     {0.098365546849227034, -0.097417790196595272},
   };
 
-  Mesh3D mesh = BigMakeHole(polyhedron, hole);
+  TriangularMesh3D mesh = BigMakeHole(polyhedron, hole);
   // XXX check properties
 }
 
@@ -116,7 +118,7 @@ static void MakeHoleRegression4() {
     {0.31918058913674846, 0.44125289037604137},
   };
 
-  Mesh3D mesh = BigMakeHole(polyhedron, hole);
+  TriangularMesh3D mesh = BigMakeHole(polyhedron, hole);
   // XXX check properties
 }
 
@@ -141,7 +143,7 @@ static void TestMakeHole() {
     {0.8957,-0.7372},
   };
 
-  Mesh3D mesh = BigMakeHole(polyhedron, hole);
+  TriangularMesh3D mesh = BigMakeHole(polyhedron, hole);
   // XXX check properties
   printf("Mesh vertices:\n");
   for (int i = 0; i < mesh.vertices.size(); i++) {
