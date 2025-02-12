@@ -1,8 +1,6 @@
 
-#include "csg.h"
+#include "big-csg.h"
 
-#include <cstdint>
-#include <functional>
 #include <set>
 #include <format>
 #include <string_view>
@@ -1104,153 +1102,217 @@ struct BigHoleMaker {
     return cross(b - a, c - a);
   }
 
+  struct Face {
+    // A face is always a polygon (not necessarily convex)
+    // with this exact normal.
+    BigVec3 face_normal;
+    std::vector<int> vertices;
+
+    std::pair<int, int> Edge(int i) const {
+      CHECK(i >= 0 && i < vertices.size());
+      return std::make_pair(vertices[i], vertices[(i + 1) % vertices.size()]);
+    }
+  };
+
+  Face ReverseFace(const Face &f) {
+    Face ret;
+    ret.face_normal = -f.face_normal;
+    for (int i = f.vertices.size() - 1; i >= 0; i--) {
+      ret.vertices.push_back(f.vertices[i]);
+    }
+    return ret;
+  }
+
+  Face TriangleFace(int a, int b, int c) {
+    return Face{
+      .face_normal = FaceNormal(points[a], points[b], points[c]),
+      .vertices = {a, b, c},
+    };
+  }
+
   // It's trickier than it seems to simplify triangular meshes using
   // only local operations. This produces general polygonal faces
   // (which can easily be done greedily) and then retriangulates.
   void Refacet() {
     // An edge should join exactly two triangles.
     // This maps the edge (a < b) to the third vertex.
-    std::unordered_map<std::pair<int, int>, std::vector<int>,
-      Hashing<std::pair<int, int>>> edges;
-    auto GetEdgeIterator = [&](int a, int b) {
-        if (a > b) std::swap(a, b);
-        return edges.find({a, b});
-      };
+    {
+      std::unordered_map<std::pair<int, int>, std::vector<int>,
+        Hashing<std::pair<int, int>>> edges;
 
-    for (const auto &[a, b, c] : work_triangles) {
-      CHECK(a < b && b < c);
-      edges[{a, b}].push_back(c);
-      edges[{a, c}].push_back(b);
-      edges[{b, c}].push_back(a);
-    }
-
-    // Just a debugging check.
-    for (const auto &[ab, others] : edges) {
-      const auto &[a, b] = ab;
-      CHECK(others.size() == 2) << "Not manifold";
-      CHECK(a < b);
-    }
-
-    std::unordered_set<std::tuple<int, int, int>,
-                       Hashing<std::tuple<int, int, int>>> triangles_done;
-    auto OrderTriangle = [](int a, int b, int c) {
-        if (a > b) std::swap(a, b);
-        if (b > c) std::swap(b, c);
-        if (a > b) std::swap(a, b);
+      for (const auto &[a, b, c] : work_triangles) {
         CHECK(a < b && b < c);
-        return std::make_tuple(a, b, c);
-      };
+        edges[{a, b}].push_back(c);
+        edges[{a, c}].push_back(b);
+        edges[{b, c}].push_back(a);
+      }
 
-    auto DoneTriangle = [&](int a, int b, int c) {
-        return triangles_done.contains(OrderTriangle(a, b, c));
-      };
+      // Just a debugging check.
+      for (const auto &[ab, others] : edges) {
+        const auto &[a, b] = ab;
+        CHECK(others.size() == 2) << "Not manifold";
+        CHECK(a < b);
+      }
+    }
 
-    auto MarkTriangleDone = [&](int a, int b, int c) {
-        CHECK(!DoneTriangle(a, b, c));
-        return triangles_done.insert(OrderTriangle(a, b, c));
-      };
+    std::vector<Face> faces;
+    faces.reserve(work_triangles.size());
+    for (const auto &[a, b, c] : work_triangles) {
+      faces.push_back(TriangleFace(a, b, c));
+    }
 
-    // return a loop that can replace the edge a->b,
-    // consuming any triangles. The third point c defines the plane;
-    // it may not necessarily be the case that a-b-c is an original
-    // triangle.
-    std::function<std::vector<int>(const BigVec3 &,
-                                   int, int, int)> ReplaceEdge =
-      [&](const BigVec3 &face_normal,
-          int a, int b, int c) -> std::vector<int> {
-
-      // HERE.
-      // The face normal should define the direction of a->b?
-
-      auto it = GetEdgeIterator(a, b);
-      if (it == edges.end()) return {a, b};
-
-      // A manifold means that only one of these two triangles is
-      // possible (the other one is inside the polygon already,
-      // i.e., it could be the triangle a-b-c).
-      for (int d : it->second) {
-        if (DoneTriangle(a, b, d)) continue;
-
-        const BigVec3 &aa = points[a];
-        const BigVec3 &bb = points[b];
-        const BigVec3 &cc = points[c];
-        const BigVec3 &dd = points[d];
-
-        BigVec3 ab = bb - aa;
-        BigVec3 ac = cc - aa;
-        BigVec3 ad = dd - aa;
-
-        if (Coplanar(ab, ac, ad)) {
-          MarkTriangleDone(a, b, d);
-          // Merge it.
-
-          std::vector<int> ret;
-
-          //       d      //
-          //      / \     //
-          //     /   \    //
-          //    /     \   //
-          //   a------>b  //
-          //    \     /   //
-          //     \   /    //
-          //      \ L     //
-          //       c      //
-
-          //       d      //
-          //      7 \     //
-          //     /   \    //
-          //    /     >   //
-          //   a       b  //
-          //    \     /   //
-          //     \   /    //
-          //      \ L     //
-          //       c      //
-
-          // Order matters here.
-          // (I think I might need to use a consistent winding
-          // order for the input triangles here!)
-          for (int i : ReplaceEdge(a, d, /* other */ b)) {
-            ret.push_back(i);
+    auto PutEdgeLast = [](Face *face, int a, int b) {
+        const int num_vertices = face->vertices.size();
+        CHECK(num_vertices >= 3);
+        std::vector<int> vertices;
+        vertices.reserve(num_vertices);
+        for (int i = 0; i < num_vertices; i++) {
+          const auto &[aa, bb] = face->Edge(i);
+          if (a == aa) {
+            CHECK(b == bb) << "Bug: Edge was not as expected?";
+            const int start = (i + 2) % num_vertices;
+            for (int o = 0; o < num_vertices - 2; o++) {
+              vertices.push_back(face->vertices[(start + o) % num_vertices]);
+            }
+            vertices.push_back(a);
+            vertices.push_back(b);
+            face->vertices = std::move(vertices);
+            return;
           }
-          for (int i : ReplaceEdge(d, b, /* other */ a)) {
-            ret.push_back(i);
+        }
+
+        printf("(PutEdgeLast) Face vertices:");
+        for (int i : face->vertices) {
+          printf(" %d", i);
+        }
+        printf("\nLooking for: %d %d\n", a, b);
+        LOG(FATAL) << "Bug: Didn't find edge on face so that I "
+          "could put it last!";
+      };
+
+    auto PopFace = [&faces](int fidx) {
+        CHECK(fidx >= 0 && fidx < faces.size());
+        if (fidx != faces.size() - 1) {
+          std::swap(faces[fidx], faces[faces.size() - 1]);
+        }
+        Face ret = faces.back();
+        faces.pop_back();
+        return ret;
+      };
+
+
+    auto Merge = [&](int fidx1, int fidx2,
+                     // the edge as it appears in face1.
+                     int a, int b) {
+        // Modify face1 in place.
+        Face &face1 = faces[fidx1];
+        Face &face2 = faces[fidx2];
+
+        printf("[Merge] original face1:");
+        for (int i : face1.vertices) printf(" %d", i);
+        printf("\n[Merge] original face2:");
+        for (int i : face2.vertices) printf(" %d", i);
+        printf("\n");
+
+        PutEdgeLast(&face1, a, b);
+
+        // If face2 is flipped, flip it back.
+        {
+          int s = BigRat::Sign(dot(face1.face_normal, face2.face_normal));
+          CHECK(s != 0);
+          if (s == -1) {
+            face2 = ReverseFace(face2);
           }
-          return ret;
+
+          printf("\n[Merge] reversed face2:");
+          for (int i : face2.vertices) printf(" %d", i);
+          printf("\n");
+        }
+
+        // Now we expect to see the edge in the order b,a.
+        PutEdgeLast(&face2, b, a);
+
+        // Y<-- A <---D
+        // |   ^ |    ^
+        // v 2 | v  1 |
+        // X--- B --->C
+        //
+
+        // Remove the last vertex from each. This allows
+        // us to link them up.
+        printf("Face 1:");
+        for (int i : face1.vertices) {
+          printf(" %d", i);
+        }
+        printf("\n");
+        CHECK(face1.Edge(face1.vertices.size() - 2) ==
+              std::make_pair(a, b));
+        face1.vertices.pop_back();
+
+        printf("Face 2:");
+        for (int i : face2.vertices) {
+          printf(" %d", i);
+        }
+        printf("\n");
+        CHECK(face2.Edge(face2.vertices.size() - 2) ==
+              std::make_pair(b, a));
+        face2.vertices.pop_back();
+
+        // Copy the remaining loop from face2 in to face1.
+        for (int v : face2.vertices) {
+          face1.vertices.push_back(v);
+        }
+
+        // Eliminate face 2.
+        (void)PopFace(fidx2);
+      };
+
+    // Now repeatedly merge faces.
+    int merges = 0;
+
+    for (;;) {
+      for (int i = 0; i < faces.size(); i++) {
+        for (int j = 0; j < i; j++) {
+          const Face &face1 = faces[i];
+          const Face &face2 = faces[j];
+          CHECK(face1.vertices.size() >= 3);
+          CHECK(face2.vertices.size() >= 3);
+          if (CrossIsZero(face1.face_normal, face2.face_normal)) {
+            printf("Face #%d and #%d are coplanar.\n", i, j);
+            // The faces are coplanar. Do they share an edge?
+            for (int e = 0; e < face1.vertices.size(); e++) {
+              const auto &[a, b] = face1.Edge(e);
+              printf("Face[%d] edge #%d is %d-%d\n", i, e, a, b);
+              for (int f = 0; f < face2.vertices.size(); f++) {
+                const auto &[aa, bb] = face2.Edge(f);
+                printf("Face[%d] edge #%d is %d-%d\n", j, f, aa, bb);
+
+                if ((a == aa && b == bb) ||
+                    (a == bb && b == aa)) {
+                  printf("OK, merge face %d and %d, along edge %d-%d.\n",
+                         i, j, a, b);
+                  Merge(i, j, a, b);
+                  merges++;
+                  goto next;
+                }
+              }
+            }
+          }
         }
       }
 
-      // No coplanar triangle found.
-      return {a, b};
-    };
+      // No merges found. So we are done.
+      break;
 
-    // Points will always be a subset of the original points.
-    std::vector<std::vector<int>> faces;
-
-    for (const auto &tri : work_triangles) {
-      if (triangles_done.contains(tri)) continue;
-
-      const auto &[a, b, c] = tri;
-      // Don't try adding it a second time.
-      MarkTriangleDone(a, b, c);
-
-      // We need to use a consistent winding order for all the
-      // triangles as we merge them.
-      BigVec3 face_normal = FaceNormal(points[a], points[b], points[c]);
-
-      std::vector<int> face;
-      for (int i : ReplaceEdge(face_normal, a, b, /* other */ c))
-        face.push_back(i);
-      for (int i : ReplaceEdge(face_normal, b, c, /* other */ a))
-        face.push_back(i);
-      for (int i : ReplaceEdge(face_normal, c, a, /* other */ b))
-        face.push_back(i);
-      faces.push_back(std::move(face));
+    next:;
     }
 
+    printf("Merged %d times.\n", merges);
+
     printf("Now %d faces:\n", (int)faces.size());
-    for (const std::vector<int> &f : faces) {
+    for (const Face &f : faces) {
       printf("  ");
-      for (int i : f) printf(" %d", i);
+      for (int i : f.vertices) printf(" %d", i);
       printf("\n");
     }
 
@@ -1258,8 +1320,12 @@ struct BigHoleMaker {
     for (const BigVec3 &v : points) {
       mesh.vertices.push_back(SmallVec(v));
     }
-    mesh.faces = faces;
+    for (const Face &f : faces) {
+      mesh.faces.push_back(f.vertices);
+    }
 
+    // Oops: You need to triangulate. STL does not support
+    // non-triangular faces!
     SaveAsSTL(mesh, "simplify.stl");
 
     printf("OK\n");

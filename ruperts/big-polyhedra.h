@@ -64,6 +64,10 @@ inline BigVec2 operator -(const BigVec2 &a, const BigVec2 &b) {
   return BigVec2(a.x - b.x, a.y - b.y);
 }
 
+inline BigVec3 operator -(const BigVec3 &a) {
+  return BigVec3(-a.x, -a.y, -a.z);
+}
+
 inline BigVec2 operator *(const BigVec2 &v, const BigRat &s) {
   return BigVec2(v.x * s, v.y * s);
 }

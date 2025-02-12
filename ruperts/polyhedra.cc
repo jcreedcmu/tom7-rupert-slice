@@ -1241,6 +1241,8 @@ void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
 
   for (const std::vector<int> &v : mesh.faces) {
     CHECK(v.size() >= 3);
+
+    // XXX this is not good; the points could be colinear
     const vec3 &p0 = mesh.vertices[v[0]];
     const vec3 &p1 = mesh.vertices[v[1]];
     const vec3 &p2 = mesh.vertices[v[2]];
