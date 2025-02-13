@@ -158,6 +158,10 @@ inline vec3 SmallVec(const BigVec3 &v) {
   return vec3(v.x.ToDouble(), v.y.ToDouble(), v.z.ToDouble());
 }
 
+inline vec2 SmallVec(const BigVec2 &v) {
+  return vec2(v.x.ToDouble(), v.y.ToDouble());
+}
+
 inline quat4 quat_conjugate(const quat4 &q) {
   return {-q.x, -q.y, -q.z, q.w};
 }

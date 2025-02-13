@@ -48,6 +48,221 @@ inline bool CrossIsZero(const BigVec3 &a, const BigVec3 &b) {
     BigRat::Sign(a.x * b.y - a.y * b.x) == 0;
 }
 
+inline bool IsZero(const BigVec3 &a) {
+  return BigRat::Sign(a.x) == 0 &&
+    BigRat::Sign(a.y) == 0 &&
+    BigRat::Sign(a.z) == 0;
+}
+
+static BigVec3 TriangleNormal(const BigVec3 &a,
+                              const BigVec3 &b,
+                              const BigVec3 &c) {
+  return cross(b - a, c - a);
+}
+
+// Compute the face normal, allowing for the possibility of
+// colinear edges and concavity. This is essentially taking
+// an area-weighted average of the normals, but is not actually
+// normalizing. We just care about the direction.
+static BigVec3 FaceNormal(const std::vector<BigVec3> &vertices,
+                          const std::vector<int> &face) {
+  CHECK(face.size() >= 3);
+
+  BigVec3 total_normal{BigRat(0), BigRat(0), BigRat(0)};
+  const BigVec3 &v0 = vertices[face[0]];
+  for (int i = 2; i < face.size(); i++) {
+    const BigVec3 &v1 = vertices[face[i - 1]];
+    const BigVec3 &v2 = vertices[face[i]];
+
+    BigVec3 edge1 = v1 - v0;
+    BigVec3 edge2 = v2 - v0;
+    BigVec3 normal = cross(edge1, edge2);
+    total_normal = total_normal + normal;
+  }
+  return total_normal;
+}
+
+static std::vector<std::tuple<int, int, int>>
+TriangulateFace(const std::vector<BigVec3> &vertices,
+                std::vector<int> face,
+                int face_num) {
+  CHECK(face.size() >= 3);
+  std::vector<std::tuple<int, int, int>> triangles;
+
+  // Need the face normal so that we can find "ears".
+  BigVec3 face_normal = FaceNormal(vertices, face);
+
+  int clip_num = 0;
+
+  // Project the face to 2D (along normal) so that
+  // we can do simpler in-triangle tests.
+  std::vector<BigVec2> vertices2;
+  vertices2.reserve(vertices.size());
+  const BigRat norm_sq_length = dot(face_normal, face_normal);
+  enum Plane { XY, YZ, XZ };
+  Plane plane = [&]() {
+      if (face_normal.x > face_normal.y) {
+        if (face_normal.x > face_normal.z) {
+          return YZ;
+        } else {
+          return XY;
+        }
+      } else {
+        if (face_normal.y > face_normal.z) {
+          return XZ;
+        } else {
+          return XY;
+        }
+      }
+    }();
+  for (const BigVec3 &v : vertices) {
+    BigVec3 pv = v - (dot(v, face_normal) / norm_sq_length) * face_normal;
+    switch (plane) {
+    case XY: vertices2.emplace_back(pv.x, pv.y); break;
+    case YZ: vertices2.emplace_back(pv.y, pv.z); break;
+    case XZ: vertices2.emplace_back(pv.x, pv.z); break;
+    default: LOG(FATAL) << "Impossible";
+    }
+  }
+
+  auto AnyPointInTriangle = [&vertices2](int a, int b, int c,
+                                         const std::vector<int> &face) {
+      for (int d : face) {
+        if (d != a && d != b && d != c) {
+          if (InTriangle(vertices2[a],
+                         vertices2[b],
+                         vertices2[c],
+                         vertices2[d])) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+  std::vector<std::pair<double, double>> v2;
+  for (const BigVec2 &v : vertices2) {
+    const vec2 vv = SmallVec(v);
+    v2.emplace_back(vv.x, vv.y);
+  }
+
+  Bounds bounds;
+  for (int i : face) {
+    bounds.Bound(v2[i]);
+  }
+  bounds.AddMarginFrac(0.05);
+  Bounds::Scaler scaler = bounds.ScaleToFit(1920, 1080).FlipY();
+
+  // Draw the original triangles in 2D.
+  auto SaveFace = [&v2, &scaler](const std::vector<int> &face,
+                                 const std::string &filename) {
+
+      ImageRGBA img(1920, 1080);
+      Dirty dirty(1920, 1080);
+      img.Clear32(0x000000FF);
+      for (int i = 0; i < face.size(); i++) {
+        int a = face[i];
+        int b = face[(i + 1) % face.size()];
+
+        const auto &[x0, y0] = scaler.Scale(v2[a]);
+        const auto &[x1, y1] = scaler.Scale(v2[b]);
+        img.BlendLine32(x0, y0, x1, y1, 0xFFFFFFFF);
+
+      }
+
+      for (int i = 0; i < face.size(); i++) {
+        int a = face[i];
+        const auto &[x0, y0] = scaler.Scale(v2[a]);
+        const auto &[tx, ty] = dirty.PlaceNearby(x0, y0, 12, 12, 50);
+        img.BlendText32(tx, ty, 0xFFFF77FF,
+                        std::format("{}", a));
+      }
+
+      img.Save(filename);
+      printf("Wrote %s\n", filename.c_str());
+    };
+
+  SaveFace(face, std::format("input-face-{}.png", face_num));
+
+  printf("Triangulate face with %d vertices, normal:\n"
+         "  %s\n", (int)face.size(), VecString(face_normal).c_str());
+
+  while (face.size() > 3) {
+    BigVec3 face_normal2 = FaceNormal(vertices, face);
+
+    CHECK(BigRat::Sign(dot(face_normal, face_normal2)) == 1);
+    printf("Start with %d face vertices left [made %d tris]...\n",
+           (int)face.size(), (int)triangles.size());
+
+    for (int i = 0; i < face.size(); i++) {
+      // prev, current, next...
+      int a = face[(i - 1 + face.size()) % face.size()];
+      int b = face[i];
+      int c = face[(i + 1) % face.size()];
+
+      const BigVec3 &va = vertices[a];
+      const BigVec3 &vb = vertices[b];
+      const BigVec3 &vc = vertices[c];
+
+      // Is the vertex an "ear"?
+      BigVec3 edge1 = vb - va;
+      BigVec3 edge2 = vc - vb;
+      BigVec3 cx = cross(edge1, edge2);
+
+      printf("Triangle %d-%d-%d, normal %s\n",
+             a, b, c, VecString(cx).c_str());
+
+
+      if (BigRat::Sign(dot(cx, face_normal)) > 0) {
+        SaveFace(face, std::format("maybe-clip-{}.{}-at-{}-{}-{}.png",
+                                   face_num, clip_num, a, b, c));
+        clip_num++;
+        printf("Maybe clip triangle %d-%d-%d; normal %s\n",
+               a, b, c, VecString(cx).c_str());
+
+
+        // TODO: Also need to check that no points are in a-b-c.
+        if (AnyPointInTriangle(a, b, c, face)) {
+          printf(" ... no! There's a point inside.\n");
+        } else {
+          // This triangle's facing the right way, so we clip it.
+          triangles.emplace_back(a, b, c);
+          // Remove b from the face.
+          face.erase(face.begin() + i);
+          // now when we increment i, we'd be looking at a, c, d. This
+          // is fine.
+
+          printf("Face vertices now:\n");
+          for (int u : face) {
+            printf(" %d", u);
+          }
+          printf("\n");
+          if (face.size() == 3)
+            break;
+        }
+      }
+    }
+  }
+  CHECK(face.size() == 3);
+  triangles.emplace_back(face[0], face[1], face[2]);
+  return triangles;
+}
+
+static std::vector<std::tuple<int, int, int>>
+TriangulateFaces(
+    const std::vector<BigVec3> &vertices,
+    const std::vector<std::vector<int>> &faces) {
+  std::vector<std::tuple<int, int, int>> triangles;
+  for (int f = 0; f < faces.size(); f++) {
+    const std::vector<int> &face = faces[f];
+    for (const std::tuple<int, int, int> &tri :
+           TriangulateFace(vertices, face, f)) {
+      triangles.push_back(tri);
+    }
+  }
+  return triangles;
+}
+
 
 // Draw triangles where all the vertices have z < 0.
 static void DrawTop(const TriangularMesh3D &mesh, std::string_view filename) {
@@ -1096,12 +1311,6 @@ struct BigHoleMaker {
     return BigRat::Sign(dot(a, cross(b, c))) == 0;
   }
 
-  static BigVec3 FaceNormal(const BigVec3 &a,
-                            const BigVec3 &b,
-                            const BigVec3 &c) {
-    return cross(b - a, c - a);
-  }
-
   struct Face {
     // A face is always a polygon (not necessarily convex)
     // with this exact normal.
@@ -1125,7 +1334,7 @@ struct BigHoleMaker {
 
   Face TriangleFace(int a, int b, int c) {
     return Face{
-      .face_normal = FaceNormal(points[a], points[b], points[c]),
+      .face_normal = TriangleNormal(points[a], points[b], points[c]),
       .vertices = {a, b, c},
     };
   }
@@ -1134,6 +1343,9 @@ struct BigHoleMaker {
   // only local operations. This produces general polygonal faces
   // (which can easily be done greedily) and then retriangulates.
   void Refacet() {
+
+    static constexpr bool VERBOSE = false;
+
     // An edge should join exactly two triangles.
     // This maps the edge (a < b) to the third vertex.
     {
@@ -1208,11 +1420,13 @@ struct BigHoleMaker {
         Face &face1 = faces[fidx1];
         Face &face2 = faces[fidx2];
 
-        printf("[Merge] original face1:");
-        for (int i : face1.vertices) printf(" %d", i);
-        printf("\n[Merge] original face2:");
-        for (int i : face2.vertices) printf(" %d", i);
-        printf("\n");
+        if (VERBOSE) {
+          printf("[Merge] original face1:");
+          for (int i : face1.vertices) printf(" %d", i);
+          printf("\n[Merge] original face2:");
+          for (int i : face2.vertices) printf(" %d", i);
+          printf("\n");
+        }
 
         PutEdgeLast(&face1, a, b);
 
@@ -1224,9 +1438,11 @@ struct BigHoleMaker {
             face2 = ReverseFace(face2);
           }
 
-          printf("\n[Merge] reversed face2:");
-          for (int i : face2.vertices) printf(" %d", i);
-          printf("\n");
+          if (VERBOSE) {
+            printf("\n[Merge] reversed face2:");
+            for (int i : face2.vertices) printf(" %d", i);
+            printf("\n");
+          }
         }
 
         // Now we expect to see the edge in the order b,a.
@@ -1240,20 +1456,24 @@ struct BigHoleMaker {
 
         // Remove the last vertex from each. This allows
         // us to link them up.
-        printf("Face 1:");
-        for (int i : face1.vertices) {
-          printf(" %d", i);
+        if (VERBOSE) {
+          printf("Face 1:");
+          for (int i : face1.vertices) {
+            printf(" %d", i);
+          }
+          printf("\n");
         }
-        printf("\n");
         CHECK(face1.Edge(face1.vertices.size() - 2) ==
               std::make_pair(a, b));
         face1.vertices.pop_back();
 
-        printf("Face 2:");
-        for (int i : face2.vertices) {
-          printf(" %d", i);
+        if (VERBOSE) {
+          printf("Face 2:");
+          for (int i : face2.vertices) {
+            printf(" %d", i);
+          }
+          printf("\n");
         }
-        printf("\n");
         CHECK(face2.Edge(face2.vertices.size() - 2) ==
               std::make_pair(b, a));
         face2.vertices.pop_back();
@@ -1270,6 +1490,9 @@ struct BigHoleMaker {
     // Now repeatedly merge faces.
     int merges = 0;
 
+    // TODO: We need to make sure we don't merge into a loop (e.g.
+    // around a hole). I think this would require a self-merge, so it
+    // probably is already not possible, but let's be careful.
     for (;;) {
       for (int i = 0; i < faces.size(); i++) {
         for (int j = 0; j < i; j++) {
@@ -1278,19 +1501,26 @@ struct BigHoleMaker {
           CHECK(face1.vertices.size() >= 3);
           CHECK(face2.vertices.size() >= 3);
           if (CrossIsZero(face1.face_normal, face2.face_normal)) {
-            printf("Face #%d and #%d are coplanar.\n", i, j);
+            if (VERBOSE) {
+              printf("Face #%d and #%d are coplanar.\n", i, j);
+            }
             // The faces are coplanar. Do they share an edge?
             for (int e = 0; e < face1.vertices.size(); e++) {
               const auto &[a, b] = face1.Edge(e);
-              printf("Face[%d] edge #%d is %d-%d\n", i, e, a, b);
+              if (VERBOSE) {
+                printf("Face[%d] edge #%d is %d-%d\n", i, e, a, b);
+              }
               for (int f = 0; f < face2.vertices.size(); f++) {
                 const auto &[aa, bb] = face2.Edge(f);
-                printf("Face[%d] edge #%d is %d-%d\n", j, f, aa, bb);
-
+                if (VERBOSE) {
+                  printf("Face[%d] edge #%d is %d-%d\n", j, f, aa, bb);
+                }
                 if ((a == aa && b == bb) ||
                     (a == bb && b == aa)) {
-                  printf("OK, merge face %d and %d, along edge %d-%d.\n",
-                         i, j, a, b);
+                  if (VERBOSE) {
+                    printf("OK, merge face %d and %d, along edge %d-%d.\n",
+                           i, j, a, b);
+                  }
                   Merge(i, j, a, b);
                   merges++;
                   goto next;
@@ -1309,23 +1539,32 @@ struct BigHoleMaker {
 
     printf("Merged %d times.\n", merges);
 
-    printf("Now %d faces:\n", (int)faces.size());
-    for (const Face &f : faces) {
-      printf("  ");
-      for (int i : f.vertices) printf(" %d", i);
-      printf("\n");
+    if (VERBOSE) {
+      printf("Now %d faces:\n", (int)faces.size());
+      for (const Face &f : faces) {
+        printf("  ");
+        for (int i : f.vertices) printf(" %d", i);
+        printf("\n");
+      }
     }
 
-    Mesh3D mesh;
+    // XXX: Remove colinear points!
+
+    std::vector<std::vector<int>> face_indices;
+    for (const Face &f : faces) {
+      face_indices.push_back(f.vertices);
+    }
+
+    // Retriangulate; STL only supports triangular faces!
+    std::vector<std::tuple<int, int, int>> triangles =
+      TriangulateFaces(points, face_indices);
+
+    TriangularMesh3D mesh;
     for (const BigVec3 &v : points) {
       mesh.vertices.push_back(SmallVec(v));
     }
-    for (const Face &f : faces) {
-      mesh.faces.push_back(f.vertices);
-    }
+    mesh.triangles = triangles;
 
-    // Oops: You need to triangulate. STL does not support
-    // non-triangular faces!
     SaveAsSTL(mesh, "simplify.stl");
 
     printf("OK\n");
@@ -1472,63 +1711,6 @@ struct BigHoleMaker {
   }
 };
 }  // namespace
-
-#if 0
-void TestCube() {
-  BigHoleMaker maker;
-
-Polyhedron Cube() {
-  //                  +y
-  //      a------b     | +z
-  //     /|     /|     |/
-  //    / |    / |     0--- +x
-  //   d------c  |
-  //   |  |   |  |
-  //   |  e---|--f
-  //   | /    | /
-  //   |/     |/
-  //   h------g
-
-  std::vector<vec3> vertices;
-  auto AddVertex = [&vertices](int x, int y, int z) {
-      int idx = (int)vertices.size();
-      vertices.emplace_back(BigVec3{BigRat(x), BigRat(y), BigRat(z)});
-      return idx;
-    };
-  int a = AddVertex(-1, +1, +1);
-  int b = AddVertex(+1, +1, +1);
-  int c = AddVertex(+1, +1, -1);
-  int d = AddVertex(-1, +1, -1);
-
-  int e = AddVertex(-1, -1, +1);
-  int f = AddVertex(+1, -1, +1);
-  int g = AddVertex(+1, -1, -1);
-  int h = AddVertex(-1, -1, -1);
-
-  std::vector<std::vector<int>> fs;
-  fs.reserve(6);
-
-  // top
-  AddTriangles({a, b, c, d});
-  // bottom
-  AddTriangles({e, f, g, h});
-  // left
-  AddTriangles({a, e, h, d});
-  // right
-  AddTriangles({b, f, g, c});
-  // front
-  AddTriangles({d, c, g, h});
-  // back
-  AddTriangles({a, b, f, e});
-
-  Faces *faces = new Faces(8, std::move(fs));
-  return Polyhedron{
-    .vertices = std::move(vertices),
-    .faces = faces,
-    .name = "cube",
-  };
-}
-#endif
 
 TriangularMesh3D BigMakeHole(const Polyhedron &polyhedron,
                              const std::vector<vec2> &polygon) {
