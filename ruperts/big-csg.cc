@@ -82,10 +82,21 @@ static BigVec3 FaceNormal(const std::vector<BigVec3> &vertices,
   return total_normal;
 }
 
+static bool ColinearPoints(const BigVec3 &a,
+                           const BigVec3 &b,
+                           const BigVec3 &c) {
+  BigVec3 ab = b - a;
+  BigVec3 bc = c - b;
+  return CrossIsZero(ab, bc);
+}
+
 static std::vector<std::tuple<int, int, int>>
 TriangulateFace(const std::vector<BigVec3> &vertices,
                 std::vector<int> face,
                 int face_num) {
+  static constexpr bool VERBOSE = true;
+  static constexpr bool DEBUG = true;
+
   CHECK(face.size() >= 3);
   std::vector<std::tuple<int, int, int>> triangles;
 
@@ -167,7 +178,7 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
         const auto &[x0, y0] = scaler.Scale(v2[a]);
         const auto &[x1, y1] = scaler.Scale(v2[b]);
         img.BlendLine32(x0, y0, x1, y1, 0xFFFFFFFF);
-
+        img.BlendCircle32(x0, y0, 4, 0xFF7777AA);
       }
 
       for (int i = 0; i < face.size(); i++) {
@@ -182,17 +193,25 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
       printf("Wrote %s\n", filename.c_str());
     };
 
-  SaveFace(face, std::format("input-face-{}.png", face_num));
+  if (DEBUG) {
+    SaveFace(face, std::format("input-face-{}.png", face_num));
+  }
 
-  printf("Triangulate face with %d vertices, normal:\n"
-         "  %s\n", (int)face.size(), VecString(face_normal).c_str());
+  if (VERBOSE) {
+    printf("Triangulate face with %d vertices, normal:\n"
+           "  %s\n", (int)face.size(), VecString(face_normal).c_str());
+  }
 
   while (face.size() > 3) {
-    BigVec3 face_normal2 = FaceNormal(vertices, face);
+    if (DEBUG) {
+      BigVec3 face_normal2 = FaceNormal(vertices, face);
+      CHECK(BigRat::Sign(dot(face_normal, face_normal2)) == 1);
+    }
 
-    CHECK(BigRat::Sign(dot(face_normal, face_normal2)) == 1);
-    printf("Start with %d face vertices left [made %d tris]...\n",
-           (int)face.size(), (int)triangles.size());
+    if (VERBOSE) {
+      printf("Start with %d face vertices left [made %d tris]...\n",
+             (int)face.size(), (int)triangles.size());
+    }
 
     for (int i = 0; i < face.size(); i++) {
       // prev, current, next...
@@ -209,21 +228,27 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
       BigVec3 edge2 = vc - vb;
       BigVec3 cx = cross(edge1, edge2);
 
-      printf("Triangle %d-%d-%d, normal %s\n",
-             a, b, c, VecString(cx).c_str());
-
+      if (VERBOSE) {
+        printf("Triangle %d-%d-%d, normal %s\n",
+               a, b, c, VecString(cx).c_str());
+      }
 
       if (BigRat::Sign(dot(cx, face_normal)) > 0) {
-        SaveFace(face, std::format("maybe-clip-{}.{}-at-{}-{}-{}.png",
-                                   face_num, clip_num, a, b, c));
-        clip_num++;
-        printf("Maybe clip triangle %d-%d-%d; normal %s\n",
-               a, b, c, VecString(cx).c_str());
+        if (DEBUG) {
+          SaveFace(face, std::format("maybe-clip-{}.{}-at-{}-{}-{}.png",
+                                     face_num, clip_num, a, b, c));
+        }
+        if (VERBOSE) {
+          clip_num++;
+          printf("Maybe clip triangle %d-%d-%d; normal %s\n",
+                 a, b, c, VecString(cx).c_str());
+        }
 
-
-        // TODO: Also need to check that no points are in a-b-c.
+        // A proper ear also requires that no points are in a-b-c.
         if (AnyPointInTriangle(a, b, c, face)) {
-          printf(" ... no! There's a point inside.\n");
+          if (VERBOSE) {
+            printf(" ... no! There's a point inside.\n");
+          }
         } else {
           // This triangle's facing the right way, so we clip it.
           triangles.emplace_back(a, b, c);
@@ -232,18 +257,21 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
           // now when we increment i, we'd be looking at a, c, d. This
           // is fine.
 
-          printf("Face vertices now:\n");
-          for (int u : face) {
-            printf(" %d", u);
+          if (VERBOSE) {
+            printf("Face vertices now:\n");
+            for (int u : face) {
+              printf(" %d", u);
+            }
+            printf("\n");
+            if (face.size() == 3)
+              break;
           }
-          printf("\n");
-          if (face.size() == 3)
-            break;
         }
       }
     }
   }
-  CHECK(face.size() == 3);
+
+  CHECK(face.size() == 3) << face.size();
   triangles.emplace_back(face[0], face[1], face[2]);
   return triangles;
 }
@@ -1548,7 +1576,64 @@ struct BigHoleMaker {
       }
     }
 
-    // XXX: Remove colinear points!
+    // Now we can finally remove colinear points, simplifying
+    // the faces. The simple case we're looking for here is a
+    // point b such that we have a-b-c and c-b-a on two different
+    // faces, and a-b-c are colinear, and b has no other neighbors.
+
+    bool simplified = false;
+    int removed = 0;
+    do {
+      simplified = false;
+      std::unordered_map<int, std::set<int>> neighbors;
+      for (const Face &f : faces) {
+        for (int i = 0; i < f.vertices.size(); i++) {
+          int a = f.vertices[i];
+          int b = f.vertices[(i + 1) % f.vertices.size()];
+          neighbors[a].insert(b);
+          neighbors[b].insert(a);
+        }
+      }
+
+      // Now look for points with exactly two neighbors, which
+      // are colinear.
+      for (const auto &[b, ns] : neighbors) {
+        if (ns.size() == 2) {
+          auto sit = ns.begin();
+          const int a = *sit;
+          ++sit;
+          const int c = *sit;
+          ++sit;
+          CHECK(sit == ns.end());
+
+          if (ColinearPoints(points[a], points[b], points[c])) {
+            // Then we can remove this point.
+
+            // PERF: Rather than start over, this can be updated
+            // locally (e.g. the diffs on the neighbor sets are
+            // quite straightforward).
+
+            // Remove b from every face.
+            for (Face &face : faces) {
+              for (int i = 0; i < face.vertices.size(); i++) {
+                if (face.vertices[i] == b) {
+                  CHECK(face.vertices.size() > 3);
+                  face.vertices.erase(face.vertices.begin() + i);
+                  break;
+                }
+              }
+            }
+
+            printf("Removed point #%d\n", b);
+            removed++;
+            simplified = true;
+            break;
+          }
+        }
+      }
+    } while (simplified);
+
+    printf("Removed %d colinear points.\n", removed);
 
     std::vector<std::vector<int>> face_indices;
     for (const Face &f : faces) {
