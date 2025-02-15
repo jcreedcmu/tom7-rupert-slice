@@ -1,3 +1,6 @@
+// Reads existing solutions from the database and tries to
+// improve them.
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -9,6 +12,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -29,18 +33,27 @@
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
+#include "util.h"
 #include "yocto_matht.h"
 
-// Try to find counterexamples.
+// Save an image for each (best) improved solution we find.
+static constexpr bool SAVE_IMAGES = false;
 
 #define ABLOOD(s) AFGCOLOR(148, 0, 0, s)
 
 DECLARE_COUNTERS(polyhedra, total_evals);
 
-// TODO: Explicitly optimize for clearance
-inline constexpr int METHOD = SolutionDB::METHOD_IMPROVE_RATIO;
+// What to optimize for. Ratio is the ratio of the areas of the
+// hulls (smaller is better). Clearance is the minimum distance
+// between hulls (larger is better).
+inline constexpr int METHOD = SolutionDB::METHOD_IMPROVE_CLEARANCE;
 static_assert(METHOD == SolutionDB::METHOD_IMPROVE_RATIO ||
               METHOD == SolutionDB::METHOD_IMPROVE_CLEARANCE);
+
+inline static bool IsImproveMethod(int method) {
+  return method == SolutionDB::METHOD_IMPROVE_RATIO ||
+    method == SolutionDB::METHOD_IMPROVE_CLEARANCE;
+}
 
 static StatusBar *status = nullptr;
 
@@ -91,13 +104,41 @@ static double InnerDistanceLoss(
   }
 }
 
+static double ClearanceLoss(
+    const Polyhedron &poly,
+    const frame3 &outer_frame, const frame3 &inner_frame) {
+
+  auto co = GetClearance(poly, outer_frame, inner_frame);
+  if (co.has_value()) {
+    return -co.value();
+  }
+
+  // Otherwise we have some point outside.
+  // PERF: We should reuse the computations from GetClearance here.
+  return 10000.0 + LossFunction(poly, outer_frame, inner_frame);
+}
+
+static double MethodLoss(
+    const Polyhedron &poly,
+    const frame3 &outer_frame, const frame3 &inner_frame) {
+  if (METHOD == SolutionDB::METHOD_IMPROVE_CLEARANCE) {
+    return ClearanceLoss(poly, outer_frame, inner_frame);
+  } else if (METHOD == SolutionDB::METHOD_IMPROVE_RATIO) {
+    return InnerDistanceLoss(poly, outer_frame, inner_frame);
+  } else {
+    LOG(FATAL) << "Incorrectly configured";
+    return 0.0;
+  }
+}
+
 static void SaveImprovement(SolutionDB *db,
                             const Polyhedron &poly,
                             const Solution &old,
                             const frame3 &outer_frame,
                             const frame3 &inner_frame) {
 
-  std::optional<double> new_ratio = GetRatio(poly, outer_frame, inner_frame);
+  std::optional<double> new_ratio =
+    GetRatio(poly, outer_frame, inner_frame);
   std::optional<double> new_clearance =
     GetClearance(poly, outer_frame, inner_frame);
 
@@ -110,35 +151,49 @@ static void SaveImprovement(SolutionDB *db,
   const double clearance = new_clearance.value();
 
   db->AddSolution(poly.name, outer_frame, inner_frame,
-                  SolutionDB::METHOD_IMPROVE_RATIO,
+                  METHOD,
                   old.id, ratio, clearance);
 
-  Rendering rendering(poly, 3840, 2160);
-  auto Render = [&rendering, &poly](const frame3 &outer_frame,
-                                    const frame3 &inner_frame,
-                                    uint32_t outer_color,
-                                    uint32_t inner_color,
-                                    bool bad) {
-      Polyhedron outer = Rotate(poly, outer_frame);
-      Polyhedron inner = Rotate(poly, inner_frame);
-      Mesh2D souter = Shadow(outer);
-      Mesh2D sinner = Shadow(inner);
+  if (SAVE_IMAGES) {
+    Rendering rendering(poly, 3840, 2160);
+    auto Render = [&rendering, &poly](const frame3 &outer_frame,
+                                      const frame3 &inner_frame,
+                                      uint32_t outer_color,
+                                      uint32_t inner_color,
+                                      bool bad) {
+        Polyhedron outer = Rotate(poly, outer_frame);
+        Polyhedron inner = Rotate(poly, inner_frame);
+        Mesh2D souter = Shadow(outer);
+        Mesh2D sinner = Shadow(inner);
 
-      std::vector<int> outer_hull = QuickHull(souter.vertices);
-      std::vector<int> inner_hull = QuickHull(sinner.vertices);
+        if (AllZero(souter.vertices) ||
+            AllZero(sinner.vertices)) {
+          fprintf(stderr, "Outer:\n%s\nInner:\n%s\n",
+                  FrameString(outer_frame).c_str(),
+                  FrameString(inner_frame).c_str());
+          LOG(FATAL) << "???";
+          return;
+        }
 
-      rendering.RenderHull(souter, outer_hull, outer_color);
-      rendering.RenderHull(sinner, inner_hull, inner_color);
+        std::vector<int> outer_hull = QuickHull(souter.vertices);
+        std::vector<int> inner_hull = QuickHull(sinner.vertices);
 
-      if (bad) {
-        rendering.RenderBadPoints(sinner, souter);
-      }
-    };
+        rendering.RenderHull(souter, outer_hull, outer_color);
+        rendering.RenderHull(sinner, inner_hull, inner_color);
 
-  Render(old.outer_frame, old.inner_frame, 0x440000FF, 0x005500BB, false);
-  Render(outer_frame, inner_frame, 0xAA0000FF, 0x00FF00AA, true);
+        if (bad) {
+          rendering.RenderBadPoints(sinner, souter);
+        }
+      };
 
-  rendering.Save(StringPrintf("impert-%s-%lld.png", poly.name, time(nullptr)));
+    Render(old.outer_frame, old.inner_frame,
+           0x440000FF, 0x005500BB, false);
+    Render(outer_frame, inner_frame,
+           0xAA0000FF, 0x00FF00AA, true);
+
+    rendering.Save(StringPrintf("impert-%s-%lld.png",
+                                poly.name, time(nullptr)));
+  }
 
   std::string old_ratio_str = ARED("(invalid)");;
   {
@@ -181,9 +236,13 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
   const auto &[original_inner_rot, itrans] =
     UnpackFrame(original_inner_frame);
 
-  const double start_loss = InnerDistanceLoss(poly,
-                                              original_outer_frame,
-                                              original_inner_frame);
+  CHECK(!AllZero(original_outer_frame) &&
+        !AllZero(original_inner_frame)) << "Bad starting solution: "
+                                        << poly.name;
+
+  const double start_loss = MethodLoss(poly,
+                                       original_outer_frame,
+                                       original_inner_frame);
   status->Printf("[" AYELLOW("%d") "] "
                  "Starting loss: %s%.17g" ANSI_RESET "\n",
                  thread_idx,
@@ -266,6 +325,11 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
             .z = original_outer_rot.z + o2,
             .w = original_outer_rot.w + o3,
           });
+
+        // It's possible that the tweak created the zero
+        // quaternion, which cannot be normalized.
+        if (AllZero(tweaked_rot)) tweaked_rot.w = 1.0;
+
         return yocto::rotation_frame(tweaked_rot);
       };
 
@@ -279,6 +343,10 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
             .z = original_inner_rot.z + i2,
             .w = original_inner_rot.w + i3,
           });
+        // It's possible that the tweak created the zero
+        // quaternion, which cannot be normalized.
+        if (AllZero(tweaked_rot)) tweaked_rot.w = 1.0;
+
         frame3 rotate = yocto::rotation_frame(tweaked_rot);
         frame3 translate = yocto::translation_frame(
             vec3{
@@ -294,7 +362,7 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
           const std::array<double, D> &args) {
         total_evals++;
         evals_here++;
-        return InnerDistanceLoss(poly, OuterFrame(args), InnerFrame(args));
+        return MethodLoss(poly, OuterFrame(args), InnerFrame(args));
       };
 
     constexpr double Q = 1;
@@ -381,17 +449,28 @@ struct Imperts {
     if (refresh_solutions_per.ShouldRun() || work_queue.empty()) {
       std::unordered_map<std::string, int> num_solutions;
       std::unordered_map<std::string, double> best_ratio;
+      using namespace std::chrono_literals;
+      std::this_thread::sleep_for(1s);
       status->Printf("Refresh solution db.");
       std::vector<Attempt> attempts = db.GetAllAttempts();
       for (const Attempt &att : attempts) {
-        if (att.method == SolutionDB::METHOD_IMPROVE_RATIO) {
+        if (IsImproveMethod(att.method)) {
           CHECK(att.source > 0) << "Bad database: " << att.id;
           num_attempted[att.source]++;
         }
       }
 
       work_queue.clear();
-      std::vector<Solution> all_solutions = db.GetAllSolutions();
+      std::vector<Solution> all_solutions = [this]() {
+          std::vector<Solution> all;
+          for (Solution &sol : db.GetAllSolutions()) {
+            if (!Util::StartsWith(sol.polyhedron, "nopert_")) {
+              all.emplace_back(std::move(sol));
+            }
+          }
+          return all;
+        }();
+
       for (Solution &sol : all_solutions) {
         num_solutions[sol.polyhedron]++;
         auto it = best_ratio.find(sol.polyhedron);
@@ -400,7 +479,7 @@ struct Imperts {
         } else {
           it->second = std::min(it->second, sol.ratio);
         }
-        if (sol.method == SolutionDB::METHOD_IMPROVE_RATIO) {
+        if (sol.method == METHOD) {
           already_improved.insert(sol.source);
         }
       }
@@ -419,8 +498,7 @@ struct Imperts {
       }
 
       for (Solution &sol : all_solutions) {
-        if (SEQUENTIAL_IMPROVEMENT || sol.method !=
-            SolutionDB::METHOD_IMPROVE_RATIO) {
+        if (SEQUENTIAL_IMPROVEMENT || !IsImproveMethod(sol.method)) {
           if (!already_improved.contains(sol.id)) {
             if (num_solutions[sol.polyhedron] < 4 ||
                 best_ratio[sol.polyhedron] > 0.999 ||
@@ -502,7 +580,7 @@ struct Imperts {
     ParallelFan(
       NUM_THREADS,
       [&](int thread_idx) {
-        ArcFour rc(StringPrintf("noperts.%d.%lld\n",
+        ArcFour rc(StringPrintf("imperts.%d.%lld\n",
                                 thread_idx, time(nullptr)));
 
         for (;;) {

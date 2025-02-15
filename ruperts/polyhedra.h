@@ -331,6 +331,27 @@ inline bool InHull(const Mesh2D &mesh, const std::vector<int> &hull,
   return PointInPolygon(pt, mesh.vertices, hull);
 }
 
+// Various tests for exactly zero, usually for assertions.
+
+inline bool AllZero(const std::vector<vec2> &vec) {
+  for (const vec2 &v : vec)
+    if (v.x != 0.0 || v.y != 0.0)
+      return false;
+  return true;
+}
+
+inline bool AllZero(const vec3 &vec) {
+  return vec.x == 0.0 && vec.y == 0.0 && vec.z == 0.0;
+}
+
+inline bool AllZero(const quat4 &q) {
+  return q.x == 0.0 && q.y == 0.0 && q.z == 0.0 && q.w == 0.0;
+}
+
+inline bool AllZero(const frame3 &f) {
+  return AllZero(f.x) && AllZero(f.y) && AllZero(f.z) && AllZero(f.o);
+}
+
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
 void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
                std::string_view name = "");
@@ -372,6 +393,8 @@ std::optional<double> GetRatio(const Polyhedron &poly,
                                const frame3 &outer_frame,
                                const frame3 &inner_frame);
 
+// Get the minimum distance between the two hulls. Here a larger
+// distance is better.
 std::optional<double> GetClearance(const Polyhedron &poly,
                                    const frame3 &outer_frame,
                                    const frame3 &inner_frame);

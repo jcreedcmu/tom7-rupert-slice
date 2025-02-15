@@ -892,7 +892,14 @@ std::vector<int> QuickHull(const std::vector<vec2> &vertices) {
     if (LeftOf(vertices[b], vertices[i])) b = i;
   }
 
-  CHECK(a != b);
+  if (a == b) [[unlikely]] {
+    fprintf(stderr, "Quickhull failure on:\n");
+    for (const vec2 &v : vertices) {
+      printf("  {%.17g, %.17g},\n",
+             v.x, v.y);
+    }
+    LOG(FATAL) << "Should not be possible!";
+  }
 
   // Split the points on either side of segment (a, b).
   std::vector<int> left, right;
@@ -1157,6 +1164,17 @@ std::optional<double> GetRatio(const Polyhedron &poly,
   Mesh2D souter = Shadow(outer);
   Mesh2D sinner = Shadow(inner);
 
+  if (AllZero(souter.vertices) ||
+      AllZero(sinner.vertices)) {
+    /*
+    fprintf(stderr, "Outer:\n%s\nInner:\n%s\n",
+            FrameString(outer_frame).c_str(),
+            FrameString(inner_frame).c_str());
+    LOG(FATAL) << "???";
+    */
+    return std::nullopt;
+  }
+
   std::vector<int> outer_hull = QuickHull(souter.vertices);
   std::vector<int> inner_hull = QuickHull(sinner.vertices);
 
@@ -1181,6 +1199,17 @@ std::optional<double> GetClearance(const Polyhedron &poly,
   Polyhedron inner = Rotate(poly, inner_frame);
   Mesh2D souter = Shadow(outer);
   Mesh2D sinner = Shadow(inner);
+
+  if (AllZero(souter.vertices) ||
+      AllZero(sinner.vertices)) {
+    /*
+    fprintf(stderr, "Outer:\n%s\nInner:\n%s\n",
+            FrameString(outer_frame).c_str(),
+            FrameString(inner_frame).c_str());
+    LOG(FATAL) << "???";
+    */
+    return std::nullopt;
+  }
 
   std::vector<int> outer_hull = QuickHull(souter.vertices);
   std::vector<int> inner_hull = QuickHull(sinner.vertices);

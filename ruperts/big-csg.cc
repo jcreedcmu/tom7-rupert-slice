@@ -94,8 +94,8 @@ static std::vector<std::tuple<int, int, int>>
 TriangulateFace(const std::vector<BigVec3> &vertices,
                 std::vector<int> face,
                 int face_num) {
-  static constexpr bool VERBOSE = true;
-  static constexpr bool DEBUG = true;
+  static constexpr bool VERBOSE = false;
+  static constexpr bool DEBUG = false;
 
   CHECK(face.size() >= 3);
   std::vector<std::tuple<int, int, int>> triangles;
@@ -185,6 +185,7 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
         int a = face[i];
         const auto &[x0, y0] = scaler.Scale(v2[a]);
         const auto &[tx, ty] = dirty.PlaceNearby(x0, y0, 12, 12, 50);
+        dirty.MarkUsed(tx, ty, 12, 12);
         img.BlendText32(tx, ty, 0xFFFF77FF,
                         std::format("{}", a));
       }
@@ -263,8 +264,10 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
               printf(" %d", u);
             }
             printf("\n");
-            if (face.size() == 3)
-              break;
+          }
+
+          if (face.size() == 3) {
+            break;
           }
         }
       }
@@ -1624,7 +1627,9 @@ struct BigHoleMaker {
               }
             }
 
-            printf("Removed point #%d\n", b);
+            if (VERBOSE) {
+              printf("Removed point #%d\n", b);
+            }
             removed++;
             simplified = true;
             break;
@@ -1644,15 +1649,18 @@ struct BigHoleMaker {
     std::vector<std::tuple<int, int, int>> triangles =
       TriangulateFaces(points, face_indices);
 
-    TriangularMesh3D mesh;
-    for (const BigVec3 &v : points) {
-      mesh.vertices.push_back(SmallVec(v));
+    work_triangles = triangles;
+
+    if (DEBUG) {
+      TriangularMesh3D mesh;
+      for (const BigVec3 &v : points) {
+        mesh.vertices.push_back(SmallVec(v));
+      }
+      mesh.triangles = triangles;
+      SaveAsSTL(mesh, "simplify.stl");
     }
-    mesh.triangles = triangles;
 
-    SaveAsSTL(mesh, "simplify.stl");
-
-    printf("OK\n");
+    printf("Refacet OK\n");
   }
 
   // TODO: This may work, but it doesn't find any simplifications
@@ -1815,7 +1823,7 @@ TriangularMesh3D BigMakeHole(const Polyhedron &polyhedron,
   if (DEBUG) maker.SaveMesh("repairhole");
 
   maker.Refacet();
-  maker.SimplifyColinear();
+  // maker.SimplifyColinear();
   if (DEBUG) maker.SaveMesh("simplifycolinear");
 
   maker.SaveMesh("final");
