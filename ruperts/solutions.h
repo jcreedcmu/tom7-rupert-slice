@@ -23,6 +23,7 @@ struct SolutionDB {
 
   static constexpr const char *DBFILE = "ruperts.sqlite";
 
+  static constexpr int METHOD_INVALID = 0;
   static constexpr int METHOD_HULL = 1;
   static constexpr int METHOD_SIMUL = 2;
   static constexpr int METHOD_MAX = 3;
@@ -38,6 +39,7 @@ struct SolutionDB {
 
   static const char *MethodName(int m) {
     switch (m) {
+    case METHOD_INVALID: return "INVALID";
     case METHOD_HULL: return "METHOD_HULL";
     case METHOD_SIMUL: return "METHOD_SIMUL";
     case METHOD_MAX: return "METHOD_MAX";

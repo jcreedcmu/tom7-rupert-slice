@@ -296,7 +296,7 @@ void SolutionDB::AddSolution(const std::string &polyhedron,
       StringPrintf(
           "insert into solutions "
           "(polyhedron, method, source, outerframe, innerframe, "
-          "createdate, ratio) "
+          "createdate, ratio, clearance) "
           "values ('%s', %d, %d, '%s', '%s', %lld, %.17g, %.17g)",
           polyhedron.c_str(),
           method,
