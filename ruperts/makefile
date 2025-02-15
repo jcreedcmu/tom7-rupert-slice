@@ -9,8 +9,8 @@ CL_LFLAGS=-lOpenCL
 
 # This is optional; if you want to use plain C++ code, just
 # comment it out. But GMP is much faster.
-# GMP_LFLAGS=-lgmp
-# GMP_CFLAGS=-DBIG_USE_GMP
+GMP_LFLAGS=-lgmp
+GMP_CFLAGS=-DBIG_USE_GMP
 
 # On Mac, this is how I get them
 # GMP_LFLAGS=`pkg-config --libs gmp`
@@ -36,7 +36,7 @@ CODEC_OBJECTS=$(CODEC)/mov.o $(CODEC)/mov-recorder.o
 CL_OBJECTS=$(CC_LIB)/opencl/clutil.o
 SQLITE_OBJECTS=$(SQLITE)/database.o $(SQLITE)/sqlite3.o
 
-OBJECTS=$(CC_LIB_OBJECTS) $(CODEC_OBJECTS) $(SQLITE_OBJECTS) polyhedra.o csg.o big-csg.o rendering.o solutions.o hull.o hull3d.o big-polyhedra.o symmetry-groups.o
+OBJECTS=$(CC_LIB_OBJECTS) $(CODEC_OBJECTS) $(SQLITE_OBJECTS) polyhedra.o big-csg.o rendering.o solutions.o hull.o hull3d.o big-polyhedra.o symmetry-groups.o mesh.o
 
 $(CC_LIB)/%.o : $(CC_LIB)/%.cc makefile
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -71,10 +71,6 @@ soltostl.exe : soltostl.o $(OBJECTS)
 	@echo -n "!"
 
 polyhedra_test.exe : polyhedra_test.o $(OBJECTS)
-	@$(CXX) $^ -o $@ $(LFLAGS)
-	@echo -n "!"
-
-csg_test.exe : csg_test.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
