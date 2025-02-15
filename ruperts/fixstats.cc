@@ -1,5 +1,6 @@
 
 // Recomputes stats for each solution.
+// Marks invalid solutions as invalid.
 
 #include <cstdio>
 #include <optional>
@@ -40,6 +41,14 @@ static void FixAll() {
 
     if (!ratio.has_value() || !clearance.has_value()) {
       printf(ARED("Not valid!!") " Solution #%d\n", sol.id);
+
+      db.ExecuteAndPrint(
+          StringPrintf(
+              "update solutions "
+              "set invalid = 1 "
+              "where id = %d",
+              sol.id));
+
     } else {
       printf("Solution %d:\n"
              "  ratio %.17g -> %.17g\n"

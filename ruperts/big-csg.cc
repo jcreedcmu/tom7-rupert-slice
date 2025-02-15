@@ -110,20 +110,18 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
   std::vector<BigVec2> vertices2;
   vertices2.reserve(vertices.size());
   const BigRat norm_sq_length = dot(face_normal, face_normal);
+  CHECK(BigRat::Sign(norm_sq_length) == 1) << "Degenerate normal?";
   enum Plane { XY, YZ, XZ };
   Plane plane = [&]() {
-      if (face_normal.x > face_normal.y) {
-        if (face_normal.x > face_normal.z) {
-          return YZ;
-        } else {
-          return XY;
-        }
+      BigRat ax = BigRat::Abs(face_normal.x);
+      BigRat ay = BigRat::Abs(face_normal.y);
+      BigRat az = BigRat::Abs(face_normal.z);
+      if (ax >= ay && ax >= az) {
+        return YZ;
+      } else if (ay >= ax && ay >= az) {
+        return XZ;
       } else {
-        if (face_normal.y > face_normal.z) {
-          return XZ;
-        } else {
-          return XY;
-        }
+        return XY;
       }
     }();
   for (const BigVec3 &v : vertices) {
@@ -157,6 +155,8 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
     v2.emplace_back(vv.x, vv.y);
   }
 
+  const std::vector<int> original_face = face;
+
   Bounds bounds;
   for (int i : face) {
     bounds.Bound(v2[i]);
@@ -164,7 +164,7 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
   bounds.AddMarginFrac(0.05);
   Bounds::Scaler scaler = bounds.ScaleToFit(1920, 1080).FlipY();
 
-  // Draw the original triangles in 2D.
+  // Draw the projected face in 2D.
   auto SaveFace = [&v2, &scaler](const std::vector<int> &face,
                                  const std::string &filename) {
 
@@ -214,6 +214,7 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
              (int)face.size(), (int)triangles.size());
     }
 
+    bool clipped = false;
     for (int i = 0; i < face.size(); i++) {
       // prev, current, next...
       int a = face[(i - 1 + face.size()) % face.size()];
@@ -257,6 +258,7 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
           face.erase(face.begin() + i);
           // now when we increment i, we'd be looking at a, c, d. This
           // is fine.
+          clipped = true;
 
           if (VERBOSE) {
             printf("Face vertices now:\n");
@@ -271,6 +273,16 @@ TriangulateFace(const std::vector<BigVec3> &vertices,
           }
         }
       }
+    }
+
+    if (!clipped) {
+      printf("Failed to find any triangle to clip!\n");
+      for (int i : face) {
+        printf("%d. %s\n", i, VecString(vertices2[i]).c_str());
+      }
+      SaveFace(face, std::format("bad-face-{}.png", face_num));
+      SaveFace(original_face, std::format("input-face-{}.png", face_num));
+      LOG(FATAL) << "Can't proceed";
     }
   }
 
@@ -1646,6 +1658,7 @@ struct BigHoleMaker {
     }
 
     // Retriangulate; STL only supports triangular faces!
+    printf("Triangulate...\n");
     std::vector<std::tuple<int, int, int>> triangles =
       TriangulateFaces(points, face_indices);
 
@@ -1812,21 +1825,24 @@ TriangularMesh3D BigMakeHole(const Polyhedron &polyhedron,
     bigpolygon.emplace_back(BigRat::FromDouble(v.x),
                             BigRat::FromDouble(v.y));
 
+  printf("Init...\n");
   BigHoleMaker maker(polyhedron, bigpolygon);
+  printf("Split...\n");
   maker.Split();
   if (DEBUG) maker.SaveMesh("split");
+  printf("Fix edge loops...\n");
   maker.FixEdgeLoops();
   maker.CheckEdgeLoops();
+  printf("Remove hole...\n");
   maker.RemoveHole();
   if (DEBUG) maker.SaveMesh("removehole");
+  printf("Repair hole...\n");
   maker.RepairHole();
   if (DEBUG) maker.SaveMesh("repairhole");
-
+  printf("Refacet...\n");
   maker.Refacet();
   // maker.SimplifyColinear();
   if (DEBUG) maker.SaveMesh("simplifycolinear");
-
-  maker.SaveMesh("final");
 
   return maker.GetMesh();
 }

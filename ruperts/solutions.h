@@ -105,9 +105,10 @@ struct SolutionDB {
     int method = 0;
   };
 
+  // By default these do not return solutions marked as invalid.
   std::vector<Solution> GetAllSolutions();
   std::vector<Attempt> GetAllAttempts();
-  // Or abort.
+  // Or abort. Allows fetching a solution marked invalid.
   Solution GetSolution(int id);
 
   std::vector<Solution> GetSolutionsFor(std::string_view name);

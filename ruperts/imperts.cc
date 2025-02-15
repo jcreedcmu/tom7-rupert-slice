@@ -630,6 +630,11 @@ struct Imperts {
           {
             MutexLock ml(&m);
 
+            threadstatus[thread_idx] =
+              StringPrintf("Completed " AWHITE("%s") "[%d]", poly.name,
+                           solution.id);
+            MaybeStatus();
+
             total_gen_sec += gen_sec;
             total_solve_sec += solve_sec;
 

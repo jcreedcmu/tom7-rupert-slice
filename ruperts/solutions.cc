@@ -53,6 +53,7 @@ std::optional<frame3> SolutionDB::StringFrame(const std::string &s) {
       .x = vec3{ds[0], ds[1], ds[2]},
       .y = vec3{ds[3], ds[4], ds[5]},
       .z = vec3{ds[6], ds[7], ds[8]},
+      .o = vec3{ds[9], ds[10], ds[11]},
     }};
 }
 
@@ -72,19 +73,9 @@ void SolutionDB::Init() {
                       // area of inner hull / outer hull
                       "ratio real not null, "
                       // min distance between hulls
-                      "clearance real not null default -1.0"
-                      ")");
-
-  // XXX unused... what was this for?
-  db->ExecuteAndPrint("create table "
-                      "if not exists "
-                      "best ("
-                      "id integer primary key, "
-                      "polyhedron string not null, "
-                      "outerframe string not null, "
-                      "innerframe string not null, "
-                      "createdate integer not null, "
-                      "ratio real not null"
+                      "clearance real not null default -1.0, "
+                      // marked 1 for broken solutions
+                      "invalid boolean not null default 0"
                       ")");
 
   db->ExecuteAndPrint("create table "
@@ -198,7 +189,8 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
         "select "
         "id, polyhedron, method, outerframe, innerframe, "
         "createdate, ratio, clearance, source "
-        "from solutions"));
+        "from solutions "
+        "where invalid = 0"));
 }
 
 SolutionDB::Solution SolutionDB::GetBestSolutionFor(std::string_view name,
@@ -211,6 +203,7 @@ SolutionDB::Solution SolutionDB::GetBestSolutionFor(std::string_view name,
             "createdate, ratio, clearance, source "
             "from solutions "
             "where polyhedron = '{}' "
+            "and invalid = 0 "
             "{} "
             "limit 1",
             name,
@@ -225,7 +218,8 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllNopertSolutions() {
         "select "
         "id, polyhedron, method, outerframe, innerframe, "
         "createdate, ratio, clearance, source "
-        "from solutions where polyhedron like 'nopert_%'"));
+        "from solutions where polyhedron like 'nopert_%' "
+        "and invalid = 0"));
 }
 
 SolutionDB::Solution SolutionDB::GetSolution(int id) {
@@ -250,7 +244,8 @@ std::vector<SolutionDB::Solution> SolutionDB::GetSolutionsFor(
             "id, polyhedron, method, outerframe, innerframe, "
             "createdate, ratio, clearance, source "
             "from solutions "
-            "where polyhedron = '{}'",
+            "where polyhedron = '{}' "
+            "and invalid = 0",
             name)));
 }
 
@@ -296,8 +291,8 @@ void SolutionDB::AddSolution(const std::string &polyhedron,
       StringPrintf(
           "insert into solutions "
           "(polyhedron, method, source, outerframe, innerframe, "
-          "createdate, ratio, clearance) "
-          "values ('%s', %d, %d, '%s', '%s', %lld, %.17g, %.17g)",
+          "createdate, ratio, clearance, invalid) "
+          "values ('%s', %d, %d, '%s', '%s', %lld, %.17g, %.17g, 0)",
           polyhedron.c_str(),
           method,
           source,

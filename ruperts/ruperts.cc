@@ -73,7 +73,8 @@ static void SaveSolution(const Polyhedron &poly,
     rendering.Save(StringPrintf("hulls-%s.png", poly.name));
   }
 
-  std::optional<double> new_ratio = GetRatio(poly, outer_frame, inner_frame);
+  std::optional<double> new_ratio =
+    GetRatio(poly, outer_frame, inner_frame);
   std::optional<double> new_clearance =
     GetClearance(poly, outer_frame, inner_frame);
 
@@ -276,9 +277,8 @@ struct Solver {
 
   }
 
-  // Run one iteration, and return the error. Error of 0.0 means
-  // a solution.
-  // Exclusive access to rc.
+  // Run one iteration, and return the error (and outer, inner
+  // frames). Error of 0.0 means a solution. Exclusive access to rc.
   virtual std::tuple<double, frame3, frame3> RunOne(ArcFour *rc) = 0;
 };
 
@@ -1299,6 +1299,19 @@ int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
 
+  StatusBar status(STATUS_LINES);
+
+  if (argc > 1) {
+    std::string name = argv[1];
+    Polyhedron poly = PolyhedronByName(name);
+
+    for (;;) {
+      SolveWith(poly, SolutionDB::METHOD_SIMUL, &status, 3600.0);
+      SolveWith(poly, SolutionDB::METHOD_HULL, &status, 3600.0);
+      SolveWith(poly, SolutionDB::METHOD_MAX, &status, 3600.0);
+    }
+  }
+
   if (false) {
     GrindNoperts();
   }
@@ -1358,8 +1371,6 @@ int main(int argc, char **argv) {
   Polyhedron target = DeltoidalHexecontahedron();
 
   // Call one of the solution procedures:
-
-  StatusBar status(STATUS_LINES);
 
   SolveSimul(target, &status);
 
