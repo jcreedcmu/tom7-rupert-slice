@@ -4,6 +4,8 @@
 #define _DARWIN_USE_64_BIT_INODE 1
 #endif
 
+#include "util.h"
+
 #include <algorithm>
 #include <bit>
 #include <cassert>
@@ -11,6 +13,7 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <format>
 #include <optional>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,8 +23,6 @@
 #include <system_error>
 #include <type_traits>
 #include <unordered_set>
-
-#include "util.h"
 
 // Note: It is a design goal for this to only depend on the standard
 // library (not even base/*)!
@@ -86,9 +87,7 @@ using int64 = int64_t;
 using uint64 = uint64_t;
 
 string Util::itos(int i) {
-  char s[64];
-  snprintf(s, 62, "%d", i);
-  return (string)s;
+  return std::format("{}", i);
 }
 
 int Util::stoi(const string &s) {
@@ -315,7 +314,8 @@ static T ReadAndCloseFile(FILE *f, const T *magic_opt) {
   }
 }
 
-std::optional<string> Util::ReadFileOpt(const string &s) {
+std::optional<string> Util::ReadFileOpt(std::string_view sv) {
+  std::string s{sv};
   if (Util::isdir(s)) return nullopt;
   if (s.empty()) return nullopt;
   FILE *f = fopen(s.c_str(), "rb");
@@ -327,7 +327,8 @@ std::optional<string> Util::ReadFileOpt(const string &s) {
   return {ReadAndCloseFile<string>(f, nullptr)};
 }
 
-string Util::ReadFile(const string &s) {
+string Util::ReadFile(std::string_view sv) {
+  std::string s{sv};
   if (Util::isdir(s)) return "";
   if (s == "") return "";
 
@@ -339,8 +340,8 @@ string Util::ReadFile(const string &s) {
 // PERF: Benchmark against ForEachLine approach.
 // XXX: Probably this should return an empty vector if the
 // file does not exist?
-vector<string> Util::ReadFileToLines(const string &f) {
-  return SplitToLines(ReadFile(f));
+vector<string> Util::ReadFileToLines(std::string_view filename) {
+  return SplitToLines(ReadFile(filename));
 }
 
 vector<string> Util::NormalizeLines(const std::vector<string> &lines) {
@@ -353,8 +354,9 @@ vector<string> Util::NormalizeLines(const std::vector<string> &lines) {
   return out;
 }
 
-bool Util::WriteLinesToFile(const string &filename,
+bool Util::WriteLinesToFile(std::string_view sv,
                             const std::vector<string> &lines) {
+  std::string filename{sv};
   FILE *f = fopen(filename.c_str(), "wb");
   if (f == nullptr) return false;
 

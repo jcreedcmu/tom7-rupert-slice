@@ -28,9 +28,9 @@ struct Util {
   static int stoi(const std::string &s);
 
   // No error handling; it just returns "".
-  static string ReadFile(const string &filename);
+  static string ReadFile(std::string_view filename);
   // Same but returns nullopt if the file can't be read.
-  static std::optional<string> ReadFileOpt(const string &filename);
+  static std::optional<string> ReadFileOpt(std::string_view filename);
 
   // Returns true upon success.
   static bool WriteFile(std::string_view filename,
@@ -38,11 +38,11 @@ struct Util {
 
   // Reads the lines in the file to the vector. Ignores all
   // carriage returns, including ones not followed by newline.
-  static std::vector<string> ReadFileToLines(const string &f);
+  static std::vector<string> ReadFileToLines(std::string_view filename);
   // Overwrite file with the lines; each line ending with a newline char.
   // (Nothing special is done for newlines already in the input.)
   // Returns true upon success.
-  static bool WriteLinesToFile(const string &f,
+  static bool WriteLinesToFile(std::string_view filename,
                                const std::vector<string> &lines);
 
   // Frequently useful when reading a file as a vector of lines:
@@ -59,7 +59,7 @@ struct Util {
   // Calls f on each line (without the newline), streamed from
   // the file. Ignores \r. Suitable for very large files.
   template<class F>
-  static void ForEachLine(const string &filename, F f);
+  static void ForEachLine(std::string_view filename, F f);
 
   // As above, but treat the first token on each line as a map key,
   // and strips leading whitespace from the rest. Ignores empty lines.
@@ -358,14 +358,11 @@ struct Util {
                                const uint8_t *needle, size_t m);
 };
 
-// Deprecated: Call the ones in the Util class please!
-inline std::string itos(int i) { return Util::itos(i); }
-inline int stoi(const std::string &s) { return Util::stoi(s); }
-
 // Template implementations follow.
 
 template<class F>
-void Util::ForEachLine(const std::string &s, F f) {
+void Util::ForEachLine(std::string_view sv, F f) {
+  std::string s{sv};
   FILE *file = fopen(s.c_str(), "rb");
   if (!file) return;
   int c;
