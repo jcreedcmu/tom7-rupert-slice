@@ -276,9 +276,9 @@ struct BigRat {
 
   // In base 10.
   inline std::string ToString() const;
-  // Not very efficient (does binary search), but should get the
-  // result within one ULP for all representable doubles. Returns
-  // positive or negative infinity if the value is too large.
+  // Should get the result within one ULP for all representable
+  // doubles. Returns positive or negative infinity if the value is
+  // too large. Without GMP, not very efficient (does binary search).
   inline double ToDouble() const;
   // Get the numerator and denominator.
   inline std::pair<BigInt, BigInt> Parts() const;
@@ -314,6 +314,8 @@ struct BigRat {
   // Returns a rational approximation to the square root of a,
   // which differs from the correct answer by no more than epsilon.
   static BigRat Sqrt(const BigRat &a, const BigRat &epsilon);
+  // Same, for cube root.
+  static BigRat Cbrt(const BigRat &a, const BigRat &epsilon);
 
   inline void Swap(BigRat *other);
 

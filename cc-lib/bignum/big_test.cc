@@ -933,6 +933,72 @@ static void TestRatSqrt() {
   printf("Sqrt OK\n");
 }
 
+static void TestRatCbrt() {
+  {
+    BigRat epsilon = BigRat(1, int64_t{1000000000});
+    BigRat half = BigRat::Cbrt(BigRat(1, 8), epsilon);
+
+    BigRat err = BigRat::Abs(BigRat::Minus(half, BigRat(1, 2)));
+
+    CHECK(BigRat::LessEq(err, epsilon)) << half.ToString() << "\n = \n"
+                                        << half.ToDouble();
+  }
+
+  {
+    printf("Test cbrt:\n");
+
+    #if BIG_USE_GMP
+    const char *EPS =
+      "0.000000000000000000000000000000000000000000000000000"
+      "00000000000000000000000000000000000000000000000000000"
+      "00000000000000000000000000000000000000000000000000001";
+    const char *EPS2 =
+      "0.0000000000000000000000000000000000000000000000000001";
+    #else
+    const char *EPS = "0.0000000000000000000000000001";
+    const char *EPS2 = "0.0000000001";
+    #endif
+
+    BigRat epsilon = BigRat::FromDecimal(EPS);
+
+    BigRat approx_pi =
+      BigRat::FromDecimal(
+          "3.141592653589793238462643383279502884197169399375105820974"
+          "94459230781640628620899862803482534211706798214808651328230"
+          "66470938446095505822317253594081284811174502841027019385211"
+          "05559644622948954930381964428810975665933446128475648233786"
+          "78316527120190914564856692346034861045432664821339360726024"
+          "9141273724587006");
+
+    BigRat cbrt_pi = BigRat::Cbrt(approx_pi, epsilon);
+
+    BigRat expected =
+      BigRat::FromDecimal(
+          "1.464591887561523263020142527263790391738596855627937174357"
+          "25593713839364979828626614568206782035382089750397001521899"
+          "32809245750259902118221943750432362715959855331660754443485"
+          "09903392045088050903776065494919699342658172267942315230283"
+          "41629182121187298054296401930582483384853899500923551707960"
+          "75783189347980366547850256686536710438778249536690301754859"
+          "12120284965639908171248396095188032464249826403243390244800"
+          "31842046360937876480565369407819683548409250105232633503176"
+          "35399902875649696425049942464679589940958825254252541166052");
+
+    BigRat err = BigRat::Abs(BigRat::Minus(cbrt_pi, expected));
+
+    CHECK(BigRat::LessEq(err, epsilon));
+
+    BigRat cube = BigRat::Times(expected,
+                                BigRat::Times(expected, expected));
+
+    BigRat err2 = BigRat::Abs(BigRat::Minus(approx_pi, cube));
+    BigRat eps2 = BigRat::FromDecimal(EPS2);
+    CHECK(BigRat::LessEq(err2, eps2)) << cube.ToDouble();
+  }
+  printf("Cbrt OK\n");
+}
+
+
 static void TestCtz() {
   CHECK(BigInt::BitwiseCtz(BigInt(0)) == 0);
   CHECK(BigInt::BitwiseCtz(BigInt(-1)) == 0);
@@ -1027,7 +1093,7 @@ static void TestRatCompare() {
                         BigRat(1, 2)) == -1);
 }
 
-static void RatHashCode() {
+static void TestRatHashCode() {
   // Technically this can be anything, but it would probably be a bug if
   // small integers don't get different values.
   std::unordered_set<uint64_t> distinct;
@@ -1128,9 +1194,10 @@ int main(int argc, char **argv) {
   TestRatSwap();
   TestRatMove();
   TestRatSqrt();
+  TestRatCbrt();
   TestRatSign();
 
-  RatHashCode();
+  TestRatHashCode();
 
   printf("OK\n");
 }

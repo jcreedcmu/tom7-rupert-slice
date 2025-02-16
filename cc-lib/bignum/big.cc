@@ -1382,3 +1382,62 @@ BigRat BigRat::Sqrt(const BigRat &xx, const BigRat &epsilon) {
     x = BigRat::Div(BigRat::Plus(x, y), two);
   }
 }
+
+#if 0
+BigRat BigRat::Cbrt(const BigRat &xxx_in, const BigRat &epsilon) {
+  const BigRat two(2);
+
+  int sign = BigRat::Sign(xxx_in);
+  if (sign == 0) return xxx_in;
+
+  BigRat xxx = sign < 0 ? BigRat::Negate(xxx_in) : xxx_in;
+
+  // "Heron's Method", extended to cube root.
+  BigRat x{1};
+  for (;;) {
+    // So we have xxx = x * x * y.
+    BigRat xx = BigRat::Times(x, x);
+    BigRat y = BigRat::Div(xxx, xx);
+    printf("x = %s\n"
+           "xx = %s\n"
+           "y = %s\n",
+           x.ToString().c_str(),
+           xx.ToString().c_str(),
+           y.ToString().c_str());
+    if (BigRat::Less(BigRat::Abs(BigRat::Minus(x, y)), epsilon)) {
+      if (sign < 0) return BigRat::Negate(y);
+      else return y;
+    }
+    // Otherwise, average x and y to find the next guess.
+    x = BigRat::Div(BigRat::Plus(x, y), two);
+  }
+}
+#endif
+
+BigRat BigRat::Cbrt(const BigRat &in, const BigRat &epsilon) {
+  const BigRat three(3);
+
+  int sign = BigRat::Sign(in);
+  if (sign == 0) return in;
+
+  // x^3 - in = 0
+  // Newton's method gives us the update
+  //   x_next = x - (x^3 - in) / (3 * x^2)
+
+  BigRat x{1};
+  for (;;) {
+    BigRat xx = BigRat::Times(x, x);
+    BigRat xxx = BigRat::Times(xx, x);
+
+    BigRat numerator = BigRat::Minus(xxx, in);
+    BigRat denominator = BigRat::Times(three, xx);
+
+    BigRat next_x = BigRat::Minus(x, BigRat::Div(numerator, denominator));
+
+    if (BigRat::Less(BigRat::Abs(BigRat::Minus(next_x, x)), epsilon)) {
+      return next_x;
+    }
+
+    x = std::move(next_x);
+  }
+}
