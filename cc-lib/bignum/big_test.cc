@@ -1,5 +1,6 @@
 
 #include "bignum/big.h"
+#include <numbers>
 #ifndef BIG_USE_GMP
 #include "bignum/bign.h"
 #endif
@@ -873,6 +874,7 @@ static void TestRatMove() {
 }
 
 static void TestRatSqrt() {
+  printf("Test sqrt:\n");
   {
     BigInt inv_epsilon{1000000000};
     BigRat half = BigRat::Sqrt(BigRat(1, 4), inv_epsilon);
@@ -884,8 +886,6 @@ static void TestRatSqrt() {
   }
 
   {
-    printf("Test sqrt:\n");
-
     #if BIG_USE_GMP
     const char *INV_EPS =
       "1000000000000000000000000000000000000000000000000000"
@@ -936,6 +936,7 @@ static void TestRatSqrt() {
 }
 
 static void TestRatCbrt() {
+  printf("Test cbrt:\n");
   {
     BigInt inv_epsilon = BigInt(int64_t{1000000000});
     BigRat half = BigRat::Cbrt(BigRat(1, 8), inv_epsilon);
@@ -947,8 +948,6 @@ static void TestRatCbrt() {
   }
 
   {
-    printf("Test cbrt:\n");
-
     #if BIG_USE_GMP
     const char *INV_EPS =
       "1000000000000000000000000000000000000000000000000000"
@@ -1001,6 +1000,41 @@ static void TestRatCbrt() {
   printf("Cbrt OK\n");
 }
 
+static void TestRatTruncate() {
+  printf("Test rat truncate:\n");
+
+  {
+    BigRat r = BigRat::Truncate(BigRat{1, 2}, BigInt(1000));
+    CHECK(r.ToString() == "1/2") << r.ToString();
+  }
+
+
+  BigRat pi = BigRat::FromDouble(std::numbers::pi);
+
+  {
+    BigRat r = BigRat::Truncate(pi, BigInt(10));
+    CHECK(r.ToString() == "22/7") << r.ToString();
+  }
+
+  {
+    BigRat r = BigRat::Truncate(BigRat::Negate(pi), BigInt(1000));
+    CHECK(r.ToString() == "-355/113") << r.ToString();
+  }
+
+  {
+    BigRat r = BigRat::Truncate(pi, BigInt(2000000));
+    CHECK(r.ToString() == "5419351/1725033") << r.ToString();
+  }
+
+
+  BigRat phi = BigRat::FromDouble(std::numbers::phi);
+  {
+    // Successive Fibonacci numbers approximate phi. Also, in some
+    // sense this is the hardest real number to approximate rationally.
+    BigRat r = BigRat::Truncate(phi, BigInt(40000000));
+    CHECK(r.ToString() == "63245986/39088169") << r.ToString();
+  }
+}
 
 static void TestCtz() {
   CHECK(BigInt::BitwiseCtz(BigInt(0)) == 0);
@@ -1179,6 +1213,8 @@ int main(int argc, char **argv) {
 
   TestPow();
   TestQuotRem();
+
+  TestRatTruncate();
 
   TestPrimeFactors();
 

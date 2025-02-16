@@ -1367,6 +1367,58 @@ BigRat BigRat::FromDecimal(std::string_view num) {
     BigRat(ParseBigInt(num));
 }
 
+BigRat BigRat::Truncate(const BigRat &a, const BigInt &inv_epsilon) {
+  int sign = BigRat::Sign(a);
+  if (sign == 0) return a;
+
+  BigInt r2, r1;
+
+  if (sign < 0) {
+    std::tie(r2, r1) = BigRat::Negate(a).Parts();
+  } else {
+    std::tie(r2, r1) = a.Parts();
+  }
+
+  // Using continued fractions.
+  // i.e. p_n-2
+  BigInt p2{0};
+  BigInt q2{1};
+  BigInt p1{1};
+  BigInt q1{0};
+
+  while (true) {
+    // Do we have an exact representation?
+    if (BigInt::Sign(r1) == 0) {
+      BigRat ret = BigRat(p1, q1);
+      return (sign < 0) ? BigRat::Negate(ret) : ret;
+    }
+
+    // a_i = floor(r_{i-2} / r_{i-1})
+    BigInt a = BigInt::DivFloor(r2, r1);
+    // r_i = r_{i-2} mod r_{i-1}
+    BigInt r = BigInt::CMod(r2, r1);
+
+    // p_n = a_n * p_{n-1} + p_{n-2}
+    BigInt p = BigInt::Plus(BigInt::Times(a, p1), p2);
+    // q_n = a_n * q_{n-1} + q_{n-2}
+    BigInt q = BigInt::Plus(BigInt::Times(a, q1), q2);
+
+    // If the numerator has gotten too big, return the previous value.
+    if (BigInt::Greater(q, inv_epsilon)) {
+      BigRat ret = BigRat(p1, q1);
+      return (sign < 0) ? BigRat::Negate(ret) : ret;
+    }
+
+    // Shift values for next iteration
+    r2 = std::move(r1);
+    r1 = std::move(r);
+    p2 = std::move(p1);
+    q2 = std::move(q1);
+    p1 = std::move(p);
+    q1 = std::move(q);
+  }
+}
+
 BigRat BigRat::Sqrt(const BigRat &xx, const BigInt &inv_epsilon) {
   const BigRat two(2);
   assert(BigRat::Sign(xx) != -1);
@@ -1374,12 +1426,14 @@ BigRat BigRat::Sqrt(const BigRat &xx, const BigInt &inv_epsilon) {
   const BigRat epsilon{BigInt(1), inv_epsilon};
 
   // "Heron's Method".
+  // This approach converges quickly without producing excessively large
+  // intermediate denominators, so we only perform truncation at the end.
   BigRat x = BigInt(1);
   for (;;) {
     // So we have xx = x * y.
     BigRat y = BigRat::Div(xx, x);
     if (BigRat::Less(BigRat::Abs(BigRat::Minus(x, y)), epsilon)) {
-      return y;
+      return BigRat::Truncate(y, inv_epsilon);
     }
     x = BigRat::Div(BigRat::Plus(x, y), two);
   }
@@ -1389,6 +1443,8 @@ BigRat BigRat::Cbrt(const BigRat &in, const BigInt &inv_epsilon) {
   const BigRat three(3);
 
   const BigRat epsilon{BigInt(1), inv_epsilon};
+  // We use a bit more precision for intermediate truncation.
+  const BigInt four_inv_epsilon = BigInt::Times(inv_epsilon, 4);
 
   int sign = BigRat::Sign(in);
   if (sign == 0) return in;
@@ -1408,7 +1464,13 @@ BigRat BigRat::Cbrt(const BigRat &in, const BigInt &inv_epsilon) {
     BigRat next_x = BigRat::Minus(x, BigRat::Div(numerator, denominator));
 
     if (BigRat::Less(BigRat::Abs(BigRat::Minus(next_x, x)), epsilon)) {
-      return next_x;
+      return Truncate(next_x, inv_epsilon);
+    }
+
+    // If the denominator has gotten too big, truncate.
+    BigInt d = next_x.Parts().second;
+    if (BigInt::Greater(d, four_inv_epsilon)) {
+      next_x = Truncate(next_x, four_inv_epsilon);
     }
 
     x = std::move(next_x);
