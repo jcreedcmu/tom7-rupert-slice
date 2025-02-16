@@ -312,10 +312,16 @@ struct BigRat {
   inline static BigRat Max(const BigRat &a, const BigRat &b);
 
   // Returns a rational approximation to the square root of a,
-  // which differs from the correct answer by no more than epsilon.
-  static BigRat Sqrt(const BigRat &a, const BigRat &epsilon);
+  // which differs from the correct answer by no more than
+  // 1/inv_epsilon.
+  static BigRat Sqrt(const BigRat &a, const BigInt &inv_epsilon);
   // Same, for cube root.
-  static BigRat Cbrt(const BigRat &a, const BigRat &epsilon);
+  static BigRat Cbrt(const BigRat &a, const BigInt &inv_epsilon);
+
+  // Truncate 'a' to the nearest rational with denominator no
+  // larger than inv_epsilon. This can be used to reduce precision
+  // during iterative approximations, like those used above.
+  static BigRat Truncate(const BigRat &a, const BigInt &inv_epsilon);
 
   inline void Swap(BigRat *other);
 

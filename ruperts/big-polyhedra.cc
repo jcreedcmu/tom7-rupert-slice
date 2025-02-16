@@ -94,7 +94,7 @@ BigQuat Normalize(const BigQuat &q, int digits) {
   BigRat norm_sq = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
   printf("Norm^2: %s\n", norm_sq.ToString().c_str());
   CHECK(norm_sq != BigRat(0));
-  BigRat norm = BigRat::Sqrt(norm_sq, BigNumbers::Digits(digits));
+  BigRat norm = BigRat::Sqrt(norm_sq, BigNumbers::Pow10(digits));
   printf("Norm: %s\n", norm.ToString().c_str());
   CHECK(norm != BigRat(0));
   return BigQuat(q.x / norm, q.y / norm, q.z / norm, q.w / norm);
@@ -432,8 +432,8 @@ static void AddEvenPermutations(
 }
 
 BigPoly BigRidode(int digits) {
-  const BigRat epsilon = BigNumbers::Digits(digits);
-  const BigRat phi = (BigRat(1) + BigRat::Sqrt(BigRat(5), epsilon)) / BigRat(2);
+  const BigInt inv_epsilon = BigNumbers::Pow10(digits);
+  const BigRat phi = (BigRat(1) + BigRat::Sqrt(BigRat(5), inv_epsilon)) / BigRat(2);
   const BigRat phi_squared = phi * phi;
   const BigRat phi_cubed = phi_squared * phi;
   const BigRat zero = BigRat(0);
@@ -472,9 +472,9 @@ BigPoly BigDhexe(int digits) {
 
   // Following https://dmccooey.com/polyhedra/DeltoidalHexecontahedron.txt
 
-  const BigRat epsilon = BigNumbers::Digits(digits);
+  const BigInt inv_epsilon = BigNumbers::Pow10(digits);
 
-  const BigRat sqrt_5 = BigRat::Sqrt(BigRat(5), epsilon);
+  const BigRat sqrt_5 = BigRat::Sqrt(BigRat(5), inv_epsilon);
 
   const BigRat ZZ = BigRat(0);
   const BigRat C0 = (BigRat(5) - sqrt_5) / BigRat(4);
@@ -565,6 +565,233 @@ BigPoly BigDhexe(int digits) {
       std::move(vertices), "deltoidalhexecontahedron");
 }
 
+#if 0
+BigPoly BigScube() {
+  const double tribonacci =
+    (1.0 + std::cbrt(19.0 + 3.0 * std::sqrt(33.0)) +
+     std::cbrt(19.0 - 3.0 * std::sqrt(33.0))) / 3.0;
+
+  const double a = 1.0;
+  const double b = 1.0 / tribonacci;
+  const double c = tribonacci;
+
+  std::vector<vec3> vertices;
+
+  // All even permutations with an even number of plus signs.
+  //    (odd number of negative signs)
+  // (a, b, c) - even
+  // (b, c, a) - even
+  // (c, a, b) - even
+
+  // 1 = negative, 0 = positive
+  for (const uint8_t s : {0b100, 0b010, 0b001, 0b111}) {
+    vec3 signs{
+      .x = (s & 0b100) ? -1.0 : 1.0,
+      .y = (s & 0b010) ? -1.0 : 1.0,
+      .z = (s & 0b001) ? -1.0 : 1.0,
+    };
+
+    vertices.emplace_back(vec3(a, b, c) * signs);
+    vertices.emplace_back(vec3(b, c, a) * signs);
+    vertices.emplace_back(vec3(c, a, b) * signs);
+  }
+
+  // And all odd permutations with an odd number of plus signs.
+  //    (even number of negative signs).
+
+  // (a, c, b) - odd
+  // (b, a, c) - odd
+  // (c, b, a) - odd
+  // 1 = negative, 0 = positive
+  for (const uint8_t s : {0b011, 0b110, 0b101, 0b000}) {
+    vec3 signs{
+      .x = (s & 0b100) ? -1.0 : 1.0,
+      .y = (s & 0b010) ? -1.0 : 1.0,
+      .z = (s & 0b001) ? -1.0 : 1.0,
+    };
+
+    vertices.emplace_back(vec3(a, c, b) * signs);
+    vertices.emplace_back(vec3(b, a, c) * signs);
+    vertices.emplace_back(vec3(c, b, a) * signs);
+  }
+
+  return MakeConvexOrDie(std::move(vertices), "snubcube",
+                         SYM_OCTAHEDRAL);
+}
+#endif
+
+#if 0
+BigPoly BigPhexe(int digits) {
+  const BigInt inv_epsilon = BigNumbers::Pow10(digits);
+  const BigRat phi =
+    (BigRat(1) + BigRat::Sqrt(BigRat(5), inv_epsilon)) / BigRat(2);
+
+  std::vector<BigVec3> vertices;
+
+  static constexpr BigRat x_term = BigRat::Sqrt(phi - BigRat(5, 27),
+                                                inv_epsilon);
+  static constexpr BigRat x =
+    BigRat::Cbrt((phi + x_term) / BigRat(2)) +
+    BigRat::Cbrt((phi - x_term) / BigRat(2));
+
+  // From
+  // https://dmccooey.com/polyhedra/LpentagonalHexecontahedron.txt
+
+  static constexpr double xx = x * x;
+
+  static constexpr double C0 = phi * Sqrt(3.0 - xx) / 2.0;
+  static constexpr double C1 =
+      phi * Sqrt((x - 1.0 - (1.0 / x)) * phi) / (2.0 * x);
+  static constexpr double C2 = phi * Sqrt((x - 1.0 - (1.0 / x)) * phi) / 2.0;
+  static constexpr double C3 = xx * phi * Sqrt(3.0 - xx) / 2.0;
+  static constexpr double C4 = phi * Sqrt(1.0 - x + (1.0 + phi) / x) / 2.0;
+  static constexpr double C5 = Sqrt(x * (x + phi) + 1.0) / (2.0 * x);
+  static constexpr double C6 = Sqrt((x + 2.0) * phi + 2.0) / (2.0 * x);
+  static constexpr double C7 =
+      Sqrt(-xx * (2.0 + phi) + x * (1.0 + 3.0 * phi) + 4) / 2.0;
+  static constexpr double C8 = (1.0 + phi) * Sqrt(1.0 + (1.0 / x)) / (2.0 * x);
+  static constexpr double C9 =
+      Sqrt(2.0 + 3.0 * phi - 2.0 * x + (3.0 / x)) / 2.0;
+  static constexpr double C10 =
+      Sqrt(xx * (392.0 + 225.0 * phi) + x * (249.0 + 670.0 * phi) +
+           (470.0 + 157.0 * phi)) / 62.0;
+  static constexpr double C11 = phi * Sqrt(x * (x + phi) + 1.0) / (2.0 * x);
+  static constexpr double C12 = phi * Sqrt(xx + x + 1.0 + phi) / (2.0 * x);
+  static constexpr double C13 =
+      phi * Sqrt(xx + 2.0 * x * phi + 2.0) / (2.0 * x);
+  static constexpr double C14 = Sqrt(xx * (1.0 + 2.0 * phi) - phi) / 2.0;
+  static constexpr double C15 = phi * Sqrt(xx + x) / 2.0;
+  static constexpr double C16 =
+      (phi * phi * phi) * Sqrt(x * (x + phi) + 1.0) / (2.0 * xx);
+  static constexpr double C17 =
+      Sqrt(xx * (617.0 + 842.0 * phi) + x * (919.0 + 1589.0 * phi) +
+           (627.0 + 784.0 * phi)) / 62.0;
+  static constexpr double C18 =
+      (phi * phi) * Sqrt(x * (x + phi) + 1.0) / (2.0 * x);
+  static constexpr double C19 = phi * Sqrt(x * (x + phi) + 1.0) / 2.0;
+
+  // Check that the computed values are very close to their quoted
+  // value.
+  CHECK(std::abs(C0 - 0.192893711352359022108262546061) < 1e-10) << C0;
+  CHECK(std::abs(C1 - 0.218483370127321224365534157111) < 1e-10) << C1;
+  CHECK(std::abs(C2 - 0.374821658114562295266609516608) < 1e-10) << C2;
+  CHECK(std::abs(C3 - 0.567715369466921317374872062669) < 1e-10) << C3;
+  CHECK(std::abs(C4 - 0.728335176957191477360671629838) < 1e-10) << C4;
+  CHECK(std::abs(C5 - 0.755467260516595579705585253517) < 1e-10) << C5;
+  CHECK(std::abs(C6 - 0.824957552676275846265811111988) < 1e-10) << C6;
+  CHECK(std::abs(C7 - 0.921228888309550499468934175898) < 1e-10) << C7;
+  CHECK(std::abs(C8 - 0.959987701391583803994339068107) < 1e-10) << C8;
+  CHECK(std::abs(C9 - 1.13706613386050418840961998424) < 1e-10) << C9;
+  CHECK(std::abs(C10 - 1.16712343647533397917215468549) < 1e-10) << C10;
+  CHECK(std::abs(C11 - 1.22237170490362309266282747264) < 1e-10) << C11;
+  CHECK(std::abs(C12 - 1.27209628257581214613814794036) < 1e-10) << C12;
+  CHECK(std::abs(C13 - 1.52770307085850512136921113078) < 1e-10) << C13;
+  CHECK(std::abs(C14 - 1.64691794069037444140475745697) < 1e-10) << C14;
+  CHECK(std::abs(C15 - 1.74618644098582634573474528789) < 1e-10) << C15;
+  CHECK(std::abs(C16 - 1.86540131081769566577029161408) < 1e-10) << C16;
+  CHECK(std::abs(C17 - 1.88844538928366915418351670356) < 1e-10) << C17;
+  CHECK(std::abs(C18 - 1.97783896542021867236841272616) < 1e-10) << C18;
+  CHECK(std::abs(C19 - 2.097053835252087992403959052348) < 1e-10) << C19;
+
+  vertices.emplace_back( -C0,  -C1, -C19);
+  vertices.emplace_back( -C0,   C1,  C19);
+  vertices.emplace_back(  C0,   C1, -C19);
+  vertices.emplace_back(  C0,  -C1,  C19);
+  vertices.emplace_back(-C19,  -C0,  -C1);
+  vertices.emplace_back(-C19,   C0,   C1);
+  vertices.emplace_back( C19,   C0,  -C1);
+  vertices.emplace_back( C19,  -C0,   C1);
+  vertices.emplace_back( -C1, -C19,  -C0);
+  vertices.emplace_back( -C1,  C19,   C0);
+  vertices.emplace_back(  C1,  C19,  -C0);
+  vertices.emplace_back(  C1, -C19,   C0);
+  vertices.emplace_back( 0.0,  -C5, -C18);
+  vertices.emplace_back( 0.0,  -C5,  C18);
+  vertices.emplace_back( 0.0,   C5, -C18);
+  vertices.emplace_back( 0.0,   C5,  C18);
+  vertices.emplace_back(-C18,  0.0,  -C5);
+  vertices.emplace_back(-C18,  0.0,   C5);
+  vertices.emplace_back( C18,  0.0,  -C5);
+  vertices.emplace_back( C18,  0.0,   C5);
+  vertices.emplace_back( -C5, -C18,  0.0);
+  vertices.emplace_back( -C5,  C18,  0.0);
+  vertices.emplace_back(  C5, -C18,  0.0);
+  vertices.emplace_back(  C5,  C18,  0.0);
+  vertices.emplace_back(-C10,  0.0, -C17);
+  vertices.emplace_back(-C10,  0.0,  C17);
+  vertices.emplace_back( C10,  0.0, -C17);
+  vertices.emplace_back( C10,  0.0,  C17);
+  vertices.emplace_back(-C17, -C10,  0.0);
+  vertices.emplace_back(-C17,  C10,  0.0);
+  vertices.emplace_back( C17, -C10,  0.0);
+  vertices.emplace_back( C17,  C10,  0.0);
+  vertices.emplace_back( 0.0, -C17, -C10);
+  vertices.emplace_back( 0.0, -C17,  C10);
+  vertices.emplace_back( 0.0,  C17, -C10);
+  vertices.emplace_back( 0.0,  C17,  C10);
+  vertices.emplace_back( -C3,   C6, -C16);
+  vertices.emplace_back( -C3,  -C6,  C16);
+  vertices.emplace_back(  C3,  -C6, -C16);
+  vertices.emplace_back(  C3,   C6,  C16);
+  vertices.emplace_back(-C16,   C3,  -C6);
+  vertices.emplace_back(-C16,  -C3,   C6);
+  vertices.emplace_back( C16,  -C3,  -C6);
+  vertices.emplace_back( C16,   C3,   C6);
+  vertices.emplace_back( -C6,  C16,  -C3);
+  vertices.emplace_back( -C6, -C16,   C3);
+  vertices.emplace_back(  C6, -C16,  -C3);
+  vertices.emplace_back(  C6,  C16,   C3);
+  vertices.emplace_back( -C2,  -C9, -C15);
+  vertices.emplace_back( -C2,   C9,  C15);
+  vertices.emplace_back(  C2,   C9, -C15);
+  vertices.emplace_back(  C2,  -C9,  C15);
+  vertices.emplace_back(-C15,  -C2,  -C9);
+  vertices.emplace_back(-C15,   C2,   C9);
+  vertices.emplace_back( C15,   C2,  -C9);
+  vertices.emplace_back( C15,  -C2,   C9);
+  vertices.emplace_back( -C9, -C15,  -C2);
+  vertices.emplace_back( -C9,  C15,   C2);
+  vertices.emplace_back(  C9,  C15,  -C2);
+  vertices.emplace_back(  C9, -C15,   C2);
+  vertices.emplace_back( -C7,  -C8, -C14);
+  vertices.emplace_back( -C7,   C8,  C14);
+  vertices.emplace_back(  C7,   C8, -C14);
+  vertices.emplace_back(  C7,  -C8,  C14);
+  vertices.emplace_back(-C14,  -C7,  -C8);
+  vertices.emplace_back(-C14,   C7,   C8);
+  vertices.emplace_back( C14,   C7,  -C8);
+  vertices.emplace_back( C14,  -C7,   C8);
+  vertices.emplace_back( -C8, -C14,  -C7);
+  vertices.emplace_back( -C8,  C14,   C7);
+  vertices.emplace_back(  C8,  C14,  -C7);
+  vertices.emplace_back(  C8, -C14,   C7);
+  vertices.emplace_back( -C4,  C12, -C13);
+  vertices.emplace_back( -C4, -C12,  C13);
+  vertices.emplace_back(  C4, -C12, -C13);
+  vertices.emplace_back(  C4,  C12,  C13);
+  vertices.emplace_back(-C13,   C4, -C12);
+  vertices.emplace_back(-C13,  -C4,  C12);
+  vertices.emplace_back( C13,  -C4, -C12);
+  vertices.emplace_back( C13,   C4,  C12);
+  vertices.emplace_back(-C12,  C13,  -C4);
+  vertices.emplace_back(-C12, -C13,   C4);
+  vertices.emplace_back( C12, -C13,  -C4);
+  vertices.emplace_back( C12,  C13,   C4);
+  vertices.emplace_back(-C11, -C11, -C11);
+  vertices.emplace_back(-C11, -C11,  C11);
+  vertices.emplace_back(-C11,  C11, -C11);
+  vertices.emplace_back(-C11,  C11,  C11);
+  vertices.emplace_back( C11, -C11, -C11);
+  vertices.emplace_back( C11, -C11,  C11);
+  vertices.emplace_back( C11,  C11, -C11);
+  vertices.emplace_back( C11,  C11,  C11);
+
+  CHECK(vertices.size() == 92);
+  return MakeConvexOrDie(
+      std::move(vertices), "pentagonalhexecontahedron",
+      SYM_ICOSAHEDRAL);
+}
+#endif
 
 // Is pt strictly within the triangle a-b-c? Works with both winding orders.
 bool InTriangle(const BigVec2 &a, const BigVec2 &b, const BigVec2 &c,

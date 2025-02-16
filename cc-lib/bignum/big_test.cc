@@ -874,11 +874,12 @@ static void TestRatMove() {
 
 static void TestRatSqrt() {
   {
-    BigRat epsilon = BigRat(1, int64_t{1000000000});
-    BigRat half = BigRat::Sqrt(BigRat(1, 4), epsilon);
+    BigInt inv_epsilon{1000000000};
+    BigRat half = BigRat::Sqrt(BigRat(1, 4), inv_epsilon);
 
     BigRat err = BigRat::Abs(BigRat::Minus(half, BigRat(1, 2)));
 
+    BigRat epsilon{BigInt(1), inv_epsilon};
     CHECK(BigRat::LessEq(err, epsilon));
   }
 
@@ -886,18 +887,18 @@ static void TestRatSqrt() {
     printf("Test sqrt:\n");
 
     #if BIG_USE_GMP
-    const char *EPS =
-      "0.000000000000000000000000000000000000000000000000000"
+    const char *INV_EPS =
+      "1000000000000000000000000000000000000000000000000000"
       "00000000000000000000000000000000000000000000000000000"
-      "00000000000000000000000000000000000000000000000000001";
-    const char *EPS2 =
-      "0.0000000000000000000000000000000000000000000000000001";
+      "00000000000000000000000000000000000000000000000000000";
+    const char *INV_EPS2 =
+      "10000000000000000000000000000000000000000000000000000";
     #else
-    const char *EPS = "0.0000000000000000000000000001";
-    const char *EPS2 = "0.0000000001";
+    const char *INV_EPS = "10000000000000000000000000000";
+    const char *INV_EPS2 = "10000000000";
     #endif
 
-    BigRat epsilon = BigRat::FromDecimal(EPS);
+    BigInt inv_epsilon{INV_EPS};
 
     BigRat approx_pi =
       BigRat::FromDecimal(
@@ -908,7 +909,7 @@ static void TestRatSqrt() {
           "78316527120190914564856692346034861045432664821339360726024"
           "9141273724587006");
 
-    BigRat root_pi = BigRat::Sqrt(approx_pi, epsilon);
+    BigRat root_pi = BigRat::Sqrt(approx_pi, inv_epsilon);
 
     BigRat expected =
       BigRat::FromDecimal(
@@ -922,12 +923,13 @@ static void TestRatSqrt() {
 
     BigRat err = BigRat::Abs(BigRat::Minus(root_pi, expected));
 
+    BigRat epsilon{BigInt{1}, inv_epsilon};
     CHECK(BigRat::LessEq(err, epsilon));
 
     BigRat sq = BigRat::Times(expected, expected);
 
     BigRat err2 = BigRat::Abs(BigRat::Minus(approx_pi, sq));
-    BigRat eps2 = BigRat::FromDecimal(EPS2);
+    BigRat eps2 = BigRat(BigInt{1}, BigInt{INV_EPS2});
     CHECK(BigRat::LessEq(err2, eps2));
   }
   printf("Sqrt OK\n");
@@ -935,31 +937,31 @@ static void TestRatSqrt() {
 
 static void TestRatCbrt() {
   {
-    BigRat epsilon = BigRat(1, int64_t{1000000000});
-    BigRat half = BigRat::Cbrt(BigRat(1, 8), epsilon);
+    BigInt inv_epsilon = BigInt(int64_t{1000000000});
+    BigRat half = BigRat::Cbrt(BigRat(1, 8), inv_epsilon);
 
     BigRat err = BigRat::Abs(BigRat::Minus(half, BigRat(1, 2)));
 
-    CHECK(BigRat::LessEq(err, epsilon)) << half.ToString() << "\n = \n"
-                                        << half.ToDouble();
+    CHECK(BigRat::LessEq(err, BigRat(BigInt(1), inv_epsilon))) <<
+      half.ToString() << "\n = \n" << half.ToDouble();
   }
 
   {
     printf("Test cbrt:\n");
 
     #if BIG_USE_GMP
-    const char *EPS =
-      "0.000000000000000000000000000000000000000000000000000"
+    const char *INV_EPS =
+      "1000000000000000000000000000000000000000000000000000"
       "00000000000000000000000000000000000000000000000000000"
-      "00000000000000000000000000000000000000000000000000001";
-    const char *EPS2 =
-      "0.0000000000000000000000000000000000000000000000000001";
+      "00000000000000000000000000000000000000000000000000000";
+    const char *INV_EPS2 =
+      "10000000000000000000000000000000000000000000000000000";
     #else
-    const char *EPS = "0.0000000000000000000000000001";
-    const char *EPS2 = "0.0000000001";
+    const char *INV_EPS = "10000000000000000000000000000";
+    const char *INV_EPS2 = "10000000000";
     #endif
 
-    BigRat epsilon = BigRat::FromDecimal(EPS);
+    BigInt inv_epsilon{INV_EPS};
 
     BigRat approx_pi =
       BigRat::FromDecimal(
@@ -970,7 +972,7 @@ static void TestRatCbrt() {
           "78316527120190914564856692346034861045432664821339360726024"
           "9141273724587006");
 
-    BigRat cbrt_pi = BigRat::Cbrt(approx_pi, epsilon);
+    BigRat cbrt_pi = BigRat::Cbrt(approx_pi, inv_epsilon);
 
     BigRat expected =
       BigRat::FromDecimal(
@@ -986,13 +988,14 @@ static void TestRatCbrt() {
 
     BigRat err = BigRat::Abs(BigRat::Minus(cbrt_pi, expected));
 
+    BigRat epsilon(BigInt(1), inv_epsilon);
     CHECK(BigRat::LessEq(err, epsilon));
 
     BigRat cube = BigRat::Times(expected,
                                 BigRat::Times(expected, expected));
 
     BigRat err2 = BigRat::Abs(BigRat::Minus(approx_pi, cube));
-    BigRat eps2 = BigRat::FromDecimal(EPS2);
+    BigRat eps2 = BigRat{BigInt(1), BigInt{INV_EPS2}};
     CHECK(BigRat::LessEq(err2, eps2)) << cube.ToDouble();
   }
   printf("Cbrt OK\n");

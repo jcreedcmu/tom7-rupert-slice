@@ -58,6 +58,22 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
   // FlipY is buggy when some are negative?
   Bounds::Scaler scaler = bounds.ScaleToFit(WIDTH, HEIGHT); // .FlipY();
 
+  // Sort triangles, putting larger z coordinates first so that they
+  // are drawn behind.
+  std::sort(mesh.triangles.begin(),
+            mesh.triangles.end(),
+            [&mesh](const auto &t1, const auto &t2) -> bool {
+              const auto &[a1, b1, c1] = t1;
+              const auto &[a2, b2, c2] = t2;
+              double z1 = std::max(mesh.vertices[a1].z,
+                                   std::max(mesh.vertices[b1].z,
+                                            mesh.vertices[c1].z));
+              double z2 = std::max(mesh.vertices[a2].z,
+                                   std::max(mesh.vertices[b2].z,
+                                            mesh.vertices[c2].z));
+              return z1 > z2;
+            });
+
   for (const auto &[a, b, c] : mesh.triangles) {
     vec3 v0 = mesh.vertices[a];
     vec3 v1 = mesh.vertices[b];
@@ -69,21 +85,9 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
 
     AppendFormat(
         &svg,
-        "<line x1=\"{:.6}\" y1=\"{:.6}\" "
-        "x2=\"{:.6}\" y2=\"{:.6}\" stroke=\"#000\" />\n",
-        v0x, v0y, v1x, v1y);
-
-    AppendFormat(
-        &svg,
-        "<line x1=\"{:.6}\" y1=\"{:.6}\" "
-        "x2=\"{:.6}\" y2=\"{:.6}\" stroke=\"#000\" />\n",
-        v1x, v1y, v2x, v2y);
-
-    AppendFormat(
-        &svg,
-        "<line x1=\"{:.6}\" y1=\"{:.6}\" "
-        "x2=\"{:.6}\" y2=\"{:.6}\" stroke=\"#000\" />\n",
-        v2x, v2y, v0x, v0y);
+        "<polygon points=\"{:.6},{:.6} {:.6},{:.6} {:.6},{:.6}\" "
+        "fill=\"#fff\" fill-opacity=\"0.9\" stroke=\"#000\" />\n",
+        v0x, v0y, v1x, v1y, v2x, v2y);
   }
 
   svg += TextSVG::Footer();

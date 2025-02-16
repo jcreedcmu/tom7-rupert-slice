@@ -1367,9 +1367,11 @@ BigRat BigRat::FromDecimal(std::string_view num) {
     BigRat(ParseBigInt(num));
 }
 
-BigRat BigRat::Sqrt(const BigRat &xx, const BigRat &epsilon) {
+BigRat BigRat::Sqrt(const BigRat &xx, const BigInt &inv_epsilon) {
   const BigRat two(2);
   assert(BigRat::Sign(xx) != -1);
+
+  const BigRat epsilon{BigInt(1), inv_epsilon};
 
   // "Heron's Method".
   BigRat x = BigInt(1);
@@ -1383,39 +1385,10 @@ BigRat BigRat::Sqrt(const BigRat &xx, const BigRat &epsilon) {
   }
 }
 
-#if 0
-BigRat BigRat::Cbrt(const BigRat &xxx_in, const BigRat &epsilon) {
-  const BigRat two(2);
-
-  int sign = BigRat::Sign(xxx_in);
-  if (sign == 0) return xxx_in;
-
-  BigRat xxx = sign < 0 ? BigRat::Negate(xxx_in) : xxx_in;
-
-  // "Heron's Method", extended to cube root.
-  BigRat x{1};
-  for (;;) {
-    // So we have xxx = x * x * y.
-    BigRat xx = BigRat::Times(x, x);
-    BigRat y = BigRat::Div(xxx, xx);
-    printf("x = %s\n"
-           "xx = %s\n"
-           "y = %s\n",
-           x.ToString().c_str(),
-           xx.ToString().c_str(),
-           y.ToString().c_str());
-    if (BigRat::Less(BigRat::Abs(BigRat::Minus(x, y)), epsilon)) {
-      if (sign < 0) return BigRat::Negate(y);
-      else return y;
-    }
-    // Otherwise, average x and y to find the next guess.
-    x = BigRat::Div(BigRat::Plus(x, y), two);
-  }
-}
-#endif
-
-BigRat BigRat::Cbrt(const BigRat &in, const BigRat &epsilon) {
+BigRat BigRat::Cbrt(const BigRat &in, const BigInt &inv_epsilon) {
   const BigRat three(3);
+
+  const BigRat epsilon{BigInt(1), inv_epsilon};
 
   int sign = BigRat::Sign(in);
   if (sign == 0) return in;

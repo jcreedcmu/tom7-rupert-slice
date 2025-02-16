@@ -14,6 +14,9 @@ struct BigNumbers {
   // Returns 1 / 10^digits, for use as an epsilon value.
   static BigRat Digits(int64_t digits);
 
+  // Same, for use as an inverse epsilon value.
+  static BigInt Pow10(int64_t digits);
+
   // Returns a rational approximation of π that is no more than
   // epsilon from the correct value.
   static BigRat Pi(const BigRat &epsilon);

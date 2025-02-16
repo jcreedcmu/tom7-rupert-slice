@@ -11,6 +11,10 @@ BigRat BigNumbers::Digits(int64_t digits) {
   return BigRat(BigInt(1), BigInt::Pow(BigInt(10), digits));
 }
 
+BigInt BigNumbers::Pow10(int64_t digits) {
+  return BigInt::Pow(BigInt(10), digits);
+}
+
 // TODO: Might make sense to expose this too?
 //
 // Represents the tail of the Taylor series expansion of
