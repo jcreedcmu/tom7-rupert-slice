@@ -1,6 +1,7 @@
 #ifndef _RUPERTS_MESH_H
 #define _RUPERTS_MESH_H
 
+#include <string_view>
 #include <vector>
 #include <tuple>
 
@@ -20,5 +21,6 @@ struct Mesh3D {
   std::vector<std::vector<int>> faces;
 };
 
+TriangularMesh3D LoadSTL(std::string_view filename);
 
 #endif

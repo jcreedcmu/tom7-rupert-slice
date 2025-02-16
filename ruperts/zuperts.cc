@@ -56,8 +56,7 @@ inline constexpr Parameterization parameterization =
   Parameterization::BOUNDED_MATRICES;
 // Parameterization::QUATS;
 
-inline constexpr SymmetryGroup symmetry_group =
-  SymmetryGroup::OCTAHEDRAL;
+inline constexpr SymmetryGroup symmetry_group = SYM_OCTAHEDRAL;
 
 // For symbolic reasoning we want an exact representation of
 // coordinates. One thing that will generally work here is

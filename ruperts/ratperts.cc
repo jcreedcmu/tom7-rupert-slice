@@ -407,11 +407,12 @@ struct BigSolver {
 };
 
 static void Ratpert() {
-  BigPoly ridode(BigRidode(100));
+  // BigPoly target(BigRidode(100));
+  BigPoly target(BigDhexe(100));
   StatusBar status(NUM_OUTER_THREADS + 2);
 
   for (;;) {
-    BigSolver solver(ridode, &status, {60.0 * 60.0});
+    BigSolver solver(target, &status, {60.0 * 60.0});
     solver.Run();
   }
 }

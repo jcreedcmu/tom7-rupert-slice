@@ -1054,8 +1054,8 @@ struct BigHoleMaker {
 
         // The face we are currently carving. If the mesh is already
         // well-formed, we can't intersect with an edge that's already
-        // connected to one of these vertices (and spurious intersections)
-        // cause problems.
+        // connected to one of these vertices (and spurious intersections
+        // cause problems).
         std::unordered_set<int> ignore_pts = {
           pp.first, pp.second,
           qq.first, qq.second};

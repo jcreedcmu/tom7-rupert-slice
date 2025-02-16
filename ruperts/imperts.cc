@@ -519,6 +519,7 @@ struct Imperts {
     } else {
       Solution sol = work_queue.back();
       work_queue.pop_back();
+      // CHECK(!in_progress.contains(sol.id)) << sol.id;
       in_progress.insert(sol.id);
       return {sol};
     }

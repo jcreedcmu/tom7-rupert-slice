@@ -467,6 +467,105 @@ BigPoly BigRidode(int digits) {
   return MakeBigPolyFromVertices(std::move(vertices), "rhombicosidodecahedron");
 }
 
+BigPoly BigDhexe(int digits) {
+  std::vector<BigVec3> vertices;
+
+  // Following https://dmccooey.com/polyhedra/DeltoidalHexecontahedron.txt
+
+  const BigRat epsilon = BigNumbers::Digits(digits);
+
+  const BigRat sqrt_5 = BigRat::Sqrt(BigRat(5), epsilon);
+
+  const BigRat ZZ = BigRat(0);
+  const BigRat C0 = (BigRat(5) - sqrt_5) / BigRat(4);
+  const BigRat C1 = (BigRat(15) + sqrt_5) / BigRat(22);
+  const BigRat C2 = sqrt_5 / BigRat(2);
+  const BigRat C3 = (BigRat(5) + sqrt_5) / BigRat(6);
+  const BigRat C4 = (BigRat(5) + BigRat(4) * sqrt_5) / BigRat(11);
+  const BigRat C5 = (BigRat(5) + sqrt_5) / BigRat(4);
+  const BigRat C6 = (BigRat(5) + BigRat(3) * sqrt_5) / BigRat(6);
+  const BigRat C7 = (BigRat(25) + BigRat(9) * sqrt_5) / BigRat(22);
+  const BigRat C8 = sqrt_5;
+
+  CHECK(std::abs(C0.ToDouble() - 0.690983005625052575897706582817) < 1.0e-10);
+  CHECK(std::abs(C1.ToDouble() - 0.783457635340899531654962439488) < 1.0e-10);
+  CHECK(std::abs(C2.ToDouble() - 1.11803398874989484820458683437 ) < 1.0e-10);
+  CHECK(std::abs(C3.ToDouble() - 1.20601132958329828273486227812 ) < 1.0e-10);
+  CHECK(std::abs(C4.ToDouble() - 1.26766108272719625323969951590 ) < 1.0e-10);
+  CHECK(std::abs(C5.ToDouble() - 1.80901699437494742410229341718 ) < 1.0e-10);
+  CHECK(std::abs(C6.ToDouble() - 1.95136732208322818153792016770 ) < 1.0e-10);
+  CHECK(std::abs(C7.ToDouble() - 2.05111871806809578489466195539 ) < 1.0e-10);
+  CHECK(std::abs(C8.ToDouble() - 2.23606797749978969640917366873 ) < 1.0e-10);
+
+  vertices.emplace_back( ZZ,  ZZ,  C8);
+  vertices.emplace_back( ZZ,  ZZ, -C8);
+  vertices.emplace_back( C8,  ZZ,  ZZ);
+  vertices.emplace_back(-C8,  ZZ,  ZZ);
+  vertices.emplace_back( ZZ,  C8,  ZZ);
+  vertices.emplace_back( ZZ, -C8,  ZZ);
+  vertices.emplace_back( ZZ,  C1,  C7);
+  vertices.emplace_back( ZZ,  C1, -C7);
+  vertices.emplace_back( ZZ, -C1,  C7);
+  vertices.emplace_back( ZZ, -C1, -C7);
+  vertices.emplace_back( C7,  ZZ,  C1);
+  vertices.emplace_back( C7,  ZZ, -C1);
+  vertices.emplace_back(-C7,  ZZ,  C1);
+  vertices.emplace_back(-C7,  ZZ, -C1);
+  vertices.emplace_back( C1,  C7,  ZZ);
+  vertices.emplace_back( C1, -C7,  ZZ);
+  vertices.emplace_back(-C1,  C7,  ZZ);
+  vertices.emplace_back(-C1, -C7,  ZZ);
+  vertices.emplace_back( C3,  ZZ,  C6);
+  vertices.emplace_back( C3,  ZZ, -C6);
+  vertices.emplace_back(-C3,  ZZ,  C6);
+  vertices.emplace_back(-C3,  ZZ, -C6);
+  vertices.emplace_back( C6,  C3,  ZZ);
+  vertices.emplace_back( C6, -C3,  ZZ);
+  vertices.emplace_back(-C6,  C3,  ZZ);
+  vertices.emplace_back(-C6, -C3,  ZZ);
+  vertices.emplace_back( ZZ,  C6,  C3);
+  vertices.emplace_back( ZZ,  C6, -C3);
+  vertices.emplace_back( ZZ, -C6,  C3);
+  vertices.emplace_back( ZZ, -C6, -C3);
+  vertices.emplace_back( C0,  C2,  C5);
+  vertices.emplace_back( C0,  C2, -C5);
+  vertices.emplace_back( C0, -C2,  C5);
+  vertices.emplace_back( C0, -C2, -C5);
+  vertices.emplace_back(-C0,  C2,  C5);
+  vertices.emplace_back(-C0,  C2, -C5);
+  vertices.emplace_back(-C0, -C2,  C5);
+  vertices.emplace_back(-C0, -C2, -C5);
+  vertices.emplace_back( C5,  C0,  C2);
+  vertices.emplace_back( C5,  C0, -C2);
+  vertices.emplace_back( C5, -C0,  C2);
+  vertices.emplace_back( C5, -C0, -C2);
+  vertices.emplace_back(-C5,  C0,  C2);
+  vertices.emplace_back(-C5,  C0, -C2);
+  vertices.emplace_back(-C5, -C0,  C2);
+  vertices.emplace_back(-C5, -C0, -C2);
+  vertices.emplace_back( C2,  C5,  C0);
+  vertices.emplace_back( C2,  C5, -C0);
+  vertices.emplace_back( C2, -C5,  C0);
+  vertices.emplace_back( C2, -C5, -C0);
+  vertices.emplace_back(-C2,  C5,  C0);
+  vertices.emplace_back(-C2,  C5, -C0);
+  vertices.emplace_back(-C2, -C5,  C0);
+  vertices.emplace_back(-C2, -C5, -C0);
+  vertices.emplace_back( C4,  C4,  C4);
+  vertices.emplace_back( C4,  C4, -C4);
+  vertices.emplace_back( C4, -C4,  C4);
+  vertices.emplace_back( C4, -C4, -C4);
+  vertices.emplace_back(-C4,  C4,  C4);
+  vertices.emplace_back(-C4,  C4, -C4);
+  vertices.emplace_back(-C4, -C4,  C4);
+  vertices.emplace_back(-C4, -C4, -C4);
+
+  CHECK(vertices.size() == 62);
+  return MakeBigPolyFromVertices(
+      std::move(vertices), "deltoidalhexecontahedron");
+}
+
+
 // Is pt strictly within the triangle a-b-c? Works with both winding orders.
 bool InTriangle(const BigVec2 &a, const BigVec2 &b, const BigVec2 &c,
                 const BigVec2 &pt) {

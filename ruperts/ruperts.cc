@@ -1327,7 +1327,7 @@ int main(int argc, char **argv) {
   }
 
   // Grind unsolved polyhedra for an hour at a time.
-  if (false) {
+  if (true) {
     for (;;) {
       constexpr auto sec = std::chrono::seconds(1);
       ReproduceEasySolutions(SolutionDB::METHOD_PARALLEL, true, 3600.0);
