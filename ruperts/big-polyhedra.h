@@ -252,6 +252,11 @@ BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices);
 // Some polyhedra with arbitrary precision.
 BigPoly BigRidode(int digits);
 BigPoly BigDhexe(int digits);
+BigPoly BigPhexe(int digits);
+BigPoly BigScube(int digits);
+BigPoly BigSdode(int digits);
+// Some are exact, but we take an (ignored) digits argument anyway.
+BigPoly BigCube(int digits);
 
 // Point-in-polygon test using the winding number algorithm.
 // Takes a vertex buffer and indices into that set.

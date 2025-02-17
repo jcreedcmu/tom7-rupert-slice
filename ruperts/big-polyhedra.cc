@@ -2,6 +2,8 @@
 #include "big-polyhedra.h"
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <optional>
@@ -565,62 +567,48 @@ BigPoly BigDhexe(int digits) {
       std::move(vertices), "deltoidalhexecontahedron");
 }
 
-#if 0
-BigPoly BigScube() {
-  const double tribonacci =
-    (1.0 + std::cbrt(19.0 + 3.0 * std::sqrt(33.0)) +
-     std::cbrt(19.0 - 3.0 * std::sqrt(33.0))) / 3.0;
+BigPoly BigScube(int digits) {
+  const BigInt inv_epsilon = BigNumbers::Pow10(digits);
 
-  const double a = 1.0;
-  const double b = 1.0 / tribonacci;
-  const double c = tribonacci;
+  BigRat term = BigRat{3} * BigRat::Sqrt(BigRat{33}, inv_epsilon);
 
-  std::vector<vec3> vertices;
+  const BigRat tribonacci =
+    (BigRat{1} + BigRat::Cbrt(BigRat{19} + term, inv_epsilon) +
+     BigRat::Cbrt(BigRat{19} - term, inv_epsilon)) / BigRat{3};
 
-  // All even permutations with an even number of plus signs.
-  //    (odd number of negative signs)
-  // (a, b, c) - even
-  // (b, c, a) - even
-  // (c, a, b) - even
+  const BigRat a = BigRat{1};
+  const BigRat b = BigRat{1} / tribonacci;
+  const BigRat c = tribonacci;
+
+  std::vector<BigVec3> vertices;
 
   // 1 = negative, 0 = positive
   for (const uint8_t s : {0b100, 0b010, 0b001, 0b111}) {
-    vec3 signs{
-      .x = (s & 0b100) ? -1.0 : 1.0,
-      .y = (s & 0b010) ? -1.0 : 1.0,
-      .z = (s & 0b001) ? -1.0 : 1.0,
-    };
+    BigRat s1 = (s & 0b100) ? -BigRat(1) : BigRat(1);
+    BigRat s2 = (s & 0b010) ? -BigRat(1) : BigRat(1);
+    BigRat s3 = (s & 0b001) ? -BigRat(1) : BigRat(1);
 
-    vertices.emplace_back(vec3(a, b, c) * signs);
-    vertices.emplace_back(vec3(b, c, a) * signs);
-    vertices.emplace_back(vec3(c, a, b) * signs);
+    vertices.emplace_back(a * s1, b * s2, c * s3);
+    vertices.emplace_back(b * s1, c * s2, a * s3);
+    vertices.emplace_back(c * s1, a * s2, b * s3);
   }
 
-  // And all odd permutations with an odd number of plus signs.
-  //    (even number of negative signs).
-
-  // (a, c, b) - odd
-  // (b, a, c) - odd
-  // (c, b, a) - odd
   // 1 = negative, 0 = positive
   for (const uint8_t s : {0b011, 0b110, 0b101, 0b000}) {
-    vec3 signs{
-      .x = (s & 0b100) ? -1.0 : 1.0,
-      .y = (s & 0b010) ? -1.0 : 1.0,
-      .z = (s & 0b001) ? -1.0 : 1.0,
-    };
+    BigRat s1 = (s & 0b100) ? -BigRat(1) : BigRat(1);
+    BigRat s2 = (s & 0b010) ? -BigRat(1) : BigRat(1);
+    BigRat s3 = (s & 0b001) ? -BigRat(1) : BigRat(1);
 
-    vertices.emplace_back(vec3(a, c, b) * signs);
-    vertices.emplace_back(vec3(b, a, c) * signs);
-    vertices.emplace_back(vec3(c, b, a) * signs);
+    vertices.emplace_back(a * s1, c * s2, b * s3);
+    vertices.emplace_back(b * s1, a * s2, c * s3);
+    vertices.emplace_back(c * s1, b * s2, a * s3);
   }
 
-  return MakeConvexOrDie(std::move(vertices), "snubcube",
-                         SYM_OCTAHEDRAL);
+  return MakeBigPolyFromVertices(
+      std::move(vertices), "snubcube");
 }
-#endif
 
-#if 0
+
 BigPoly BigPhexe(int digits) {
   const BigInt inv_epsilon = BigNumbers::Pow10(digits);
   const BigRat phi =
@@ -628,71 +616,100 @@ BigPoly BigPhexe(int digits) {
 
   std::vector<BigVec3> vertices;
 
-  static constexpr BigRat x_term = BigRat::Sqrt(phi - BigRat(5, 27),
-                                                inv_epsilon);
-  static constexpr BigRat x =
-    BigRat::Cbrt((phi + x_term) / BigRat(2)) +
-    BigRat::Cbrt((phi - x_term) / BigRat(2));
+  static BigRat x_term = BigRat::Sqrt(phi - BigRat(5, 27),
+                                      inv_epsilon);
+  static BigRat x =
+    BigRat::Cbrt((phi + x_term) / BigRat(2), inv_epsilon) +
+    BigRat::Cbrt((phi - x_term) / BigRat(2), inv_epsilon);
+
+  auto Sqrt = [&inv_epsilon](const BigRat &xx) {
+      return BigRat::Sqrt(xx, inv_epsilon);
+    };
 
   // From
   // https://dmccooey.com/polyhedra/LpentagonalHexecontahedron.txt
 
-  static constexpr double xx = x * x;
+  const BigRat xx = x * x;
 
-  static constexpr double C0 = phi * Sqrt(3.0 - xx) / 2.0;
-  static constexpr double C1 =
-      phi * Sqrt((x - 1.0 - (1.0 / x)) * phi) / (2.0 * x);
-  static constexpr double C2 = phi * Sqrt((x - 1.0 - (1.0 / x)) * phi) / 2.0;
-  static constexpr double C3 = xx * phi * Sqrt(3.0 - xx) / 2.0;
-  static constexpr double C4 = phi * Sqrt(1.0 - x + (1.0 + phi) / x) / 2.0;
-  static constexpr double C5 = Sqrt(x * (x + phi) + 1.0) / (2.0 * x);
-  static constexpr double C6 = Sqrt((x + 2.0) * phi + 2.0) / (2.0 * x);
-  static constexpr double C7 =
-      Sqrt(-xx * (2.0 + phi) + x * (1.0 + 3.0 * phi) + 4) / 2.0;
-  static constexpr double C8 = (1.0 + phi) * Sqrt(1.0 + (1.0 / x)) / (2.0 * x);
-  static constexpr double C9 =
-      Sqrt(2.0 + 3.0 * phi - 2.0 * x + (3.0 / x)) / 2.0;
-  static constexpr double C10 =
-      Sqrt(xx * (392.0 + 225.0 * phi) + x * (249.0 + 670.0 * phi) +
-           (470.0 + 157.0 * phi)) / 62.0;
-  static constexpr double C11 = phi * Sqrt(x * (x + phi) + 1.0) / (2.0 * x);
-  static constexpr double C12 = phi * Sqrt(xx + x + 1.0 + phi) / (2.0 * x);
-  static constexpr double C13 =
-      phi * Sqrt(xx + 2.0 * x * phi + 2.0) / (2.0 * x);
-  static constexpr double C14 = Sqrt(xx * (1.0 + 2.0 * phi) - phi) / 2.0;
-  static constexpr double C15 = phi * Sqrt(xx + x) / 2.0;
-  static constexpr double C16 =
-      (phi * phi * phi) * Sqrt(x * (x + phi) + 1.0) / (2.0 * xx);
-  static constexpr double C17 =
-      Sqrt(xx * (617.0 + 842.0 * phi) + x * (919.0 + 1589.0 * phi) +
-           (627.0 + 784.0 * phi)) / 62.0;
-  static constexpr double C18 =
-      (phi * phi) * Sqrt(x * (x + phi) + 1.0) / (2.0 * x);
-  static constexpr double C19 = phi * Sqrt(x * (x + phi) + 1.0) / 2.0;
+  const BigRat C0 = phi * Sqrt(BigRat(3) - xx) / BigRat(2);
+  const BigRat C1 =
+    phi * Sqrt((x - BigRat{1} - (BigRat{1} / x)) * phi) / (BigRat(2) * x);
+  const BigRat C2 = phi * Sqrt((x - BigRat{1} - (BigRat{1} / x)) * phi) / BigRat(2);
+  const BigRat C3 = xx * phi * Sqrt(BigRat(3) - xx) / BigRat(2);
+  const BigRat C4 = phi * Sqrt(BigRat{1} - x + (BigRat{1} + phi) / x) / BigRat(2);
+  const BigRat C5 = Sqrt(x * (x + phi) + BigRat{1}) / (BigRat(2) * x);
+  const BigRat C6 = Sqrt((x + BigRat(2)) * phi + BigRat(2)) / (BigRat(2) * x);
+  const BigRat C7 =
+    Sqrt(-xx * (BigRat(2) + phi) +
+         x * (BigRat{1} + BigRat(3) * phi) + BigRat{4}) / BigRat(2);
+  const BigRat C8 = (BigRat{1} + phi) *
+    Sqrt(BigRat{1} + (BigRat{1} / x)) / (BigRat(2) * x);
+  const BigRat C9 = Sqrt(BigRat(2) + BigRat(3) * phi -
+                         BigRat(2) * x + (BigRat(3) / x)) / BigRat(2);
+  const BigRat C10 =
+    Sqrt(xx * (BigRat(392) + BigRat{225} * phi) + x *
+         (BigRat{249} + BigRat{670} * phi) +
+         (BigRat{470} + BigRat{157} * phi)) / BigRat(62);
+  const BigRat C11 = phi * Sqrt(x * (x + phi) + BigRat{1}) / (BigRat(2) * x);
+  const BigRat C12 = phi * Sqrt(xx + x + BigRat{1} + phi) / (BigRat(2) * x);
+  const BigRat C13 =
+      phi * Sqrt(xx + BigRat(2) * x * phi + BigRat(2)) / (BigRat(2) * x);
+  const BigRat C14 = Sqrt(xx * (BigRat{1} + BigRat(2) * phi) - phi) / BigRat(2);
+  const BigRat C15 = phi * Sqrt(xx + x) / BigRat(2);
+  const BigRat C16 =
+    (phi * phi * phi) * Sqrt(x * (x + phi) + BigRat{1}) / (BigRat(2) * xx);
+  const BigRat C17 =
+    Sqrt(xx * (BigRat{617} + BigRat(842) * phi) + x *
+         (BigRat{919} + BigRat{1589} * phi) +
+         (BigRat{627} + BigRat{784} * phi)) / BigRat(62);
+  const BigRat C18 =
+    (phi * phi) * Sqrt(x * (x + phi) + BigRat{1}) / (BigRat(2) * x);
+  const BigRat C19 = phi * Sqrt(x * (x + phi) + BigRat{1}) / BigRat(2);
 
   // Check that the computed values are very close to their quoted
   // value.
-  CHECK(std::abs(C0 - 0.192893711352359022108262546061) < 1e-10) << C0;
-  CHECK(std::abs(C1 - 0.218483370127321224365534157111) < 1e-10) << C1;
-  CHECK(std::abs(C2 - 0.374821658114562295266609516608) < 1e-10) << C2;
-  CHECK(std::abs(C3 - 0.567715369466921317374872062669) < 1e-10) << C3;
-  CHECK(std::abs(C4 - 0.728335176957191477360671629838) < 1e-10) << C4;
-  CHECK(std::abs(C5 - 0.755467260516595579705585253517) < 1e-10) << C5;
-  CHECK(std::abs(C6 - 0.824957552676275846265811111988) < 1e-10) << C6;
-  CHECK(std::abs(C7 - 0.921228888309550499468934175898) < 1e-10) << C7;
-  CHECK(std::abs(C8 - 0.959987701391583803994339068107) < 1e-10) << C8;
-  CHECK(std::abs(C9 - 1.13706613386050418840961998424) < 1e-10) << C9;
-  CHECK(std::abs(C10 - 1.16712343647533397917215468549) < 1e-10) << C10;
-  CHECK(std::abs(C11 - 1.22237170490362309266282747264) < 1e-10) << C11;
-  CHECK(std::abs(C12 - 1.27209628257581214613814794036) < 1e-10) << C12;
-  CHECK(std::abs(C13 - 1.52770307085850512136921113078) < 1e-10) << C13;
-  CHECK(std::abs(C14 - 1.64691794069037444140475745697) < 1e-10) << C14;
-  CHECK(std::abs(C15 - 1.74618644098582634573474528789) < 1e-10) << C15;
-  CHECK(std::abs(C16 - 1.86540131081769566577029161408) < 1e-10) << C16;
-  CHECK(std::abs(C17 - 1.88844538928366915418351670356) < 1e-10) << C17;
-  CHECK(std::abs(C18 - 1.97783896542021867236841272616) < 1e-10) << C18;
-  CHECK(std::abs(C19 - 2.097053835252087992403959052348) < 1e-10) << C19;
+  CHECK(std::abs(C0.ToDouble() - 0.192893711352359022108262546061) < 1e-10)
+      << C0.ToString();
+  CHECK(std::abs(C1.ToDouble() - 0.218483370127321224365534157111) < 1e-10)
+      << C1.ToString();
+  CHECK(std::abs(C2.ToDouble() - 0.374821658114562295266609516608) < 1e-10)
+      << C2.ToString();
+  CHECK(std::abs(C3.ToDouble() - 0.567715369466921317374872062669) < 1e-10)
+      << C3.ToString();
+  CHECK(std::abs(C4.ToDouble() - 0.728335176957191477360671629838) < 1e-10)
+      << C4.ToString();
+  CHECK(std::abs(C5.ToDouble() - 0.755467260516595579705585253517) < 1e-10)
+      << C5.ToString();
+  CHECK(std::abs(C6.ToDouble() - 0.824957552676275846265811111988) < 1e-10)
+      << C6.ToString();
+  CHECK(std::abs(C7.ToDouble() - 0.921228888309550499468934175898) < 1e-10)
+      << C7.ToString();
+  CHECK(std::abs(C8.ToDouble() - 0.959987701391583803994339068107) < 1e-10)
+      << C8.ToString();
+  CHECK(std::abs(C9.ToDouble() - 1.13706613386050418840961998424) < 1e-10)
+      << C9.ToString();
+  CHECK(std::abs(C10.ToDouble() - 1.16712343647533397917215468549) < 1e-10)
+      << C10.ToString();
+  CHECK(std::abs(C11.ToDouble() - 1.22237170490362309266282747264) < 1e-10)
+      << C11.ToString();
+  CHECK(std::abs(C12.ToDouble() - 1.27209628257581214613814794036) < 1e-10)
+      << C12.ToString();
+  CHECK(std::abs(C13.ToDouble() - 1.52770307085850512136921113078) < 1e-10)
+      << C13.ToString();
+  CHECK(std::abs(C14.ToDouble() - 1.64691794069037444140475745697) < 1e-10)
+      << C14.ToString();
+  CHECK(std::abs(C15.ToDouble() - 1.74618644098582634573474528789) < 1e-10)
+      << C15.ToString();
+  CHECK(std::abs(C16.ToDouble() - 1.86540131081769566577029161408) < 1e-10)
+      << C16.ToString();
+  CHECK(std::abs(C17.ToDouble() - 1.88844538928366915418351670356) < 1e-10)
+      << C17.ToString();
+  CHECK(std::abs(C18.ToDouble() - 1.97783896542021867236841272616) < 1e-10)
+      << C18.ToString();
+  CHECK(std::abs(C19.ToDouble() - 2.097053835252087992403959052348) < 1e-10)
+      << C19.ToString();
 
+  BigRat zz{0};
   vertices.emplace_back( -C0,  -C1, -C19);
   vertices.emplace_back( -C0,   C1,  C19);
   vertices.emplace_back(  C0,   C1, -C19);
@@ -705,30 +722,30 @@ BigPoly BigPhexe(int digits) {
   vertices.emplace_back( -C1,  C19,   C0);
   vertices.emplace_back(  C1,  C19,  -C0);
   vertices.emplace_back(  C1, -C19,   C0);
-  vertices.emplace_back( 0.0,  -C5, -C18);
-  vertices.emplace_back( 0.0,  -C5,  C18);
-  vertices.emplace_back( 0.0,   C5, -C18);
-  vertices.emplace_back( 0.0,   C5,  C18);
-  vertices.emplace_back(-C18,  0.0,  -C5);
-  vertices.emplace_back(-C18,  0.0,   C5);
-  vertices.emplace_back( C18,  0.0,  -C5);
-  vertices.emplace_back( C18,  0.0,   C5);
-  vertices.emplace_back( -C5, -C18,  0.0);
-  vertices.emplace_back( -C5,  C18,  0.0);
-  vertices.emplace_back(  C5, -C18,  0.0);
-  vertices.emplace_back(  C5,  C18,  0.0);
-  vertices.emplace_back(-C10,  0.0, -C17);
-  vertices.emplace_back(-C10,  0.0,  C17);
-  vertices.emplace_back( C10,  0.0, -C17);
-  vertices.emplace_back( C10,  0.0,  C17);
-  vertices.emplace_back(-C17, -C10,  0.0);
-  vertices.emplace_back(-C17,  C10,  0.0);
-  vertices.emplace_back( C17, -C10,  0.0);
-  vertices.emplace_back( C17,  C10,  0.0);
-  vertices.emplace_back( 0.0, -C17, -C10);
-  vertices.emplace_back( 0.0, -C17,  C10);
-  vertices.emplace_back( 0.0,  C17, -C10);
-  vertices.emplace_back( 0.0,  C17,  C10);
+  vertices.emplace_back(  zz,  -C5, -C18);
+  vertices.emplace_back(  zz,  -C5,  C18);
+  vertices.emplace_back(  zz,   C5, -C18);
+  vertices.emplace_back(  zz,   C5,  C18);
+  vertices.emplace_back(-C18,   zz,  -C5);
+  vertices.emplace_back(-C18,   zz,   C5);
+  vertices.emplace_back( C18,   zz,  -C5);
+  vertices.emplace_back( C18,   zz,   C5);
+  vertices.emplace_back( -C5, -C18,   zz);
+  vertices.emplace_back( -C5,  C18,   zz);
+  vertices.emplace_back(  C5, -C18,   zz);
+  vertices.emplace_back(  C5,  C18,   zz);
+  vertices.emplace_back(-C10,   zz, -C17);
+  vertices.emplace_back(-C10,   zz,  C17);
+  vertices.emplace_back( C10,   zz, -C17);
+  vertices.emplace_back( C10,   zz,  C17);
+  vertices.emplace_back(-C17, -C10,   zz);
+  vertices.emplace_back(-C17,  C10,   zz);
+  vertices.emplace_back( C17, -C10,   zz);
+  vertices.emplace_back( C17,  C10,   zz);
+  vertices.emplace_back(  zz, -C17, -C10);
+  vertices.emplace_back(  zz, -C17,  C10);
+  vertices.emplace_back(  zz,  C17, -C10);
+  vertices.emplace_back(  zz,  C17,  C10);
   vertices.emplace_back( -C3,   C6, -C16);
   vertices.emplace_back( -C3,  -C6,  C16);
   vertices.emplace_back(  C3,  -C6, -C16);
@@ -787,11 +804,138 @@ BigPoly BigPhexe(int digits) {
   vertices.emplace_back( C11,  C11,  C11);
 
   CHECK(vertices.size() == 92);
-  return MakeConvexOrDie(
-      std::move(vertices), "pentagonalhexecontahedron",
-      SYM_ICOSAHEDRAL);
+  return MakeBigPolyFromVertices(
+      std::move(vertices), "pentagonalhexecontahedron");
 }
-#endif
+
+BigPoly BigSdode(int digits) {
+  const BigInt inv_epsilon = BigNumbers::Pow10(digits);
+
+  auto Sqrt = [&inv_epsilon](const BigRat &xx) {
+      return BigRat::Sqrt(xx, inv_epsilon);
+    };
+
+  const BigRat phi =
+    (BigRat(1) + Sqrt(BigRat(5))) / BigRat(2);
+  const BigRat phi_squared = phi * phi;
+
+  const BigRat term = Sqrt(phi - BigRat(5, 27));
+  const BigRat xi =
+    BigRat::Cbrt((phi + term) / BigRat(2), inv_epsilon) +
+    BigRat::Cbrt((phi - term) / BigRat(2), inv_epsilon);
+
+  const BigRat xi_squared = xi * xi;
+  const BigRat inv_xi = BigRat(1) / xi;
+
+  std::vector<BigVec3> vertices;
+  auto AddEvenPermutations = [&](const BigRat &a,
+                                 const BigRat &b,
+                                 const BigRat &c) {
+
+      // (a, b, c) - even
+      // (b, c, a) - even
+      // (c, a, b) - even
+
+      vertices.emplace_back(a, b, c);
+
+      if (a == b && b == c) return;
+
+      vertices.emplace_back(b, c, a);
+      vertices.emplace_back(c, a, b);
+    };
+
+  for (uint8_t bits = 0b000; bits < 0b1000; bits++) {
+    BigRat s1 = (bits & 0b100) ? BigRat(-1) : BigRat(1);
+    BigRat s2 = (bits & 0b010) ? BigRat(-1) : BigRat(1);
+    BigRat s3 = (bits & 0b001) ? BigRat(-1) : BigRat(1);
+
+    if ((std::popcount<uint8_t>(bits) & 1) == 1) {
+      // Odd number of negative signs.
+
+      AddEvenPermutations(
+          s1 * phi * Sqrt(phi * (xi - BigRat{1} - inv_xi)),
+          s2 * xi * phi * Sqrt(BigRat{3} - xi_squared),
+          s3 * phi * Sqrt(xi * (xi + phi) + BigRat{1}));
+      AddEvenPermutations(
+          s1 * phi * Sqrt(BigRat{3} - xi_squared),
+          s2 * xi * phi * Sqrt(BigRat{1} - xi + (BigRat{1} + phi) / xi),
+          s3 * phi * Sqrt(xi * (xi + BigRat{1})));
+      AddEvenPermutations(
+          s1 * xi_squared * phi * Sqrt(phi * (xi - BigRat{1} - inv_xi)),
+          s2 * phi * Sqrt(xi + BigRat{1} - phi),
+          s3 * Sqrt(xi_squared * (BigRat{1} + BigRat{2} * phi) - phi));
+
+    } else {
+      // Even number of negative signs.
+
+      AddEvenPermutations(
+          s1 * xi_squared * phi * Sqrt(BigRat{3} - xi_squared),
+          s2 * xi * phi * Sqrt(phi * (xi - BigRat{1} - inv_xi)),
+          s3 * phi_squared * inv_xi * Sqrt(xi * (xi + phi) + BigRat{1}));
+
+      AddEvenPermutations(
+          s1 * Sqrt(phi * (xi + BigRat{2}) + BigRat{2}),
+          s2 * phi * Sqrt(BigRat{1} - xi + (BigRat{1} + phi) / xi),
+          s3 * xi * Sqrt(xi * (BigRat{1} + phi) - phi));
+    }
+  }
+
+  return MakeBigPolyFromVertices(
+      std::move(vertices), "snubdodecahedron");
+}
+
+
+BigPoly BigCube(int digits) {
+  //                  +y
+  //      a------b     | +z
+  //     /|     /|     |/
+  //    / |    / |     0--- +x
+  //   d------c  |
+  //   |  |   |  |
+  //   |  e---|--f
+  //   | /    | /
+  //   |/     |/
+  //   h------g
+
+  std::vector<BigVec3> vertices;
+  auto AddVertex = [&vertices](int x, int y, int z) {
+      int idx = (int)vertices.size();
+      vertices.emplace_back(BigVec3{BigRat(x), BigRat(y), BigRat(z)});
+      return idx;
+    };
+  int a = AddVertex(-1, +1, +1);
+  int b = AddVertex(+1, +1, +1);
+  int c = AddVertex(+1, +1, -1);
+  int d = AddVertex(-1, +1, -1);
+
+  int e = AddVertex(-1, -1, +1);
+  int f = AddVertex(+1, -1, +1);
+  int g = AddVertex(+1, -1, -1);
+  int h = AddVertex(-1, -1, -1);
+
+  std::vector<std::vector<int>> fs;
+  fs.reserve(6);
+
+  // top
+  fs.push_back({a, b, c, d});
+  // bottom
+  fs.push_back({e, f, g, h});
+  // left
+  fs.push_back({a, e, h, d});
+  // right
+  fs.push_back({b, f, g, c});
+  // front
+  fs.push_back({d, c, g, h});
+  // back
+  fs.push_back({a, b, f, e});
+
+  Faces *faces = new Faces(8, std::move(fs));
+  return BigPoly{
+    .vertices = std::move(vertices),
+    .faces = faces,
+    .name = "cube",
+  };
+}
 
 // Is pt strictly within the triangle a-b-c? Works with both winding orders.
 bool InTriangle(const BigVec2 &a, const BigVec2 &b, const BigVec2 &c,

@@ -214,7 +214,6 @@ struct BigSolver {
                 int64_t it = iters.Read();
                 double ips = it / total_time;
 
-
                 int64_t end_sec =
                   time_limit.has_value() ? (int64_t)time_limit.value() :
                   9999999;
@@ -225,7 +224,6 @@ struct BigSolver {
                                    polyhedron.name, LowerMethod().c_str()),
                       total_time);
 
-                // TODO: Can use progress bar when there's a timer.
                 status->EmitLine(NUM_OUTER_THREADS, bar.c_str());
                 status->LineStatusf(
                     NUM_OUTER_THREADS + 1,
@@ -407,13 +405,55 @@ struct BigSolver {
 };
 
 static void Ratpert() {
-  // BigPoly target(BigRidode(100));
-  BigPoly target(BigDhexe(100));
+  ArcFour rc(std::format("ratperts.{}", time(nullptr)));
+
+  // This is indeed solved easily.
+  // BigPoly target(BigCube(100));
+
+  BigPoly ridode(BigRidode(100));
+  BigPoly dhexe(BigDhexe(100));
+  BigPoly phexe(BigPhexe(100));
+  BigPoly scube(BigScube(100));
+  BigPoly sdode(BigSdode(100));
+
+
   StatusBar status(NUM_OUTER_THREADS + 2);
 
   for (;;) {
-    BigSolver solver(target, &status, {60.0 * 60.0});
-    solver.Run();
+
+    switch (rc.Byte() & 7) {
+    case 0: {
+      BigSolver solver(dhexe, &status, {60.0 * 60.0});
+      solver.Run();
+      break;
+    }
+
+    case 1: {
+      BigSolver solver(phexe, &status, {60.0 * 60.0});
+      solver.Run();
+      break;
+    }
+
+    case 2: {
+      BigSolver solver(scube, &status, {60.0 * 60.0});
+      solver.Run();
+      break;
+    }
+
+    case 3: {
+      BigSolver solver(ridode, &status, {60.0 * 60.0});
+      solver.Run();
+      break;
+    }
+
+    case 4: {
+      BigSolver solver(sdode, &status, {60.0 * 60.0});
+      solver.Run();
+      break;
+    }
+
+    default:;
+    }
   }
 }
 
