@@ -278,5 +278,8 @@ interval-cover-util_test.exe : interval-cover-util_test.o interval-cover-util.o 
 base_test.exe : base_test.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
+array-util_test.exe : array-util_test.o ansi.o $(BASE)
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
 clean :
 	rm -f base/*.o bignum/*.o *.o *.exe *.deleteme test-*.png $(BASE) $(RE2_OBJECTS)

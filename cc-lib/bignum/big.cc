@@ -1379,6 +1379,8 @@ BigRat BigRat::Truncate(const BigRat &a, const BigInt &inv_epsilon) {
     std::tie(r2, r1) = a.Parts();
   }
 
+  // PERF: Short circuit if denominator is already smaller than inv_epsilon.
+
   // Using continued fractions.
   // i.e. p_n-2
   BigInt p2{0};
