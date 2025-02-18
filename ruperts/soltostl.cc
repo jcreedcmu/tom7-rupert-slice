@@ -101,6 +101,7 @@ static void RenderAny(std::string_view name) {
   polygon.reserve(hull.size());
   for (int i : hull) polygon.push_back(sinner.vertices[i]);
   TriangularMesh3D residue = BigMakeHole(outer, polygon);
+  OrientMesh(&residue);
 
   std::string filename = std::format("{}-residue.stl", name);
   SaveAsSTL(residue, filename);

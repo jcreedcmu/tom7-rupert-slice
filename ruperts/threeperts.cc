@@ -8,16 +8,15 @@
 #include <limits>
 #include <mutex>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #include "ansi.h"
+#include "arcfour.h"
 #include "array-util.h"
 #include "atomic-util.h"
 #include "base/logging.h"
-#include "arcfour.h"
 #include "opt/opt.h"
 #include "periodically.h"
 #include "polyhedra.h"
@@ -29,15 +28,19 @@
 
 DECLARE_COUNTERS(iters, attempts);
 
-// A complex is a solid composed of multiple convex solids in
-// a rupert configuration. Rupert configuration means that one
-// solid can pass cleanly through another.
+// Try to find a configuration of three cubes,
+// outer
+// middle
+// inner
+// where inner is ruperting middle,
+// and the entire complex of inner/middle is ruperting outer.
+//
+// In this version, projection always happens along the z axis.
+//
+// If there are three like this (likely) then an arbitrary number
+// are possible by interpolating.
 
-// Here we want to find some kind of loop. The loop is like this:
-//  - complex passes through other
-//  - complex has a
-
-struct Meperts {
+struct Threeperts {
   static constexpr int NUM_THREADS = 1;
   static constexpr int STATUS_LINES = 2;
 
@@ -49,14 +52,14 @@ struct Meperts {
   Periodically status_per = Periodically(5);
   int64_t time_limit = 60 * 60;
 
-  Meperts(const Polyhedron &poly) : poly(poly) {
+  Threeperts(const Polyhedron &poly) : poly(poly) {
     iters.Reset();
   }
 
   void Solve() {
     std::vector<std::thread> threads;
     for (int i = 0; i < NUM_THREADS; i++) {
-      threads.emplace_back(&Meperts::RunThread, this, i);
+      threads.emplace_back(&Threeperts::RunThread, this, i);
     }
 
     for (std::thread &t : threads) {
@@ -82,6 +85,8 @@ struct Meperts {
       const quat4 outer_rot = RandomQuaternion(&rc);
       const quat4 middle_rot = RandomQuaternion(&rc);
       // const quat4 inner_rot = RandomQuaternion(&rc);
+      // Since I was just trying to solve the cube, I left it at
+      // a fixed orientation, which has the smallest shadow.
       const quat4 inner_rot{0.0, 0.0, 0.0, 1.0};
 
       // Simple joint optimization. Each shape is moved independently
@@ -320,7 +325,7 @@ struct Meperts {
         render.DarkenBG();
         render.RenderMesh(sinner);
 
-        render.Save(std::format("meperts-{}.png", poly.name));
+        render.Save(std::format("threeperts-{}.png", poly.name));
 
         return;
       }
@@ -345,7 +350,7 @@ struct Meperts {
           ANSI::ProgressBar(
               (int64_t)total_time, end_sec,
               std::format(APURPLE("{}") " | " ACYAN("{}"),
-                          poly.name, "MEPERTS"),
+                          poly.name, "THREEPERTS"),
               total_time);
 
         status.EmitLine(NUM_THREADS + 0, bar.c_str());
@@ -364,8 +369,8 @@ int main(int argc, char **argv) {
   ANSI::Init();
 
   Polyhedron target = Cube();
-  Meperts meperts(target);
-  meperts.Solve();
+  Threeperts threeperts(target);
+  threeperts.Solve();
 
   delete target.faces;
 

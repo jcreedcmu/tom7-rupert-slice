@@ -15,6 +15,7 @@
 
 using vec3 = yocto::vec<double, 3>;
 using frame3 = yocto::frame<double, 3>;
+using mat3 = yocto::mat<double, 3>;
 
 void TransformMesh(const frame3 &frame, TriangularMesh3D *mesh) {
   for (vec3 &v : mesh->vertices) v = yocto::transform_point(frame, v);
@@ -30,10 +31,12 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
                                       "px",
                                       "ruperts");
 
+  vec3 camera_pos = vec3{-1, 4, 2};
+
   frame3 f = yocto::lookat_frame(
       // eye, elevated off xy plane and
       // backed away from the model along y.
-      vec3{-1, 4, 2},
+      camera_pos,
       // looking at origin
       vec3{0, 0, 0},
       // up is up
@@ -74,20 +77,36 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
               return z1 > z2;
             });
 
+  mat3 rotation = yocto::rotation(f);
+  vec3 camera_dir = yocto::normalize(vec3{0, 0, 0} -
+                                             camera_pos);
+
   for (const auto &[a, b, c] : mesh.triangles) {
     vec3 v0 = mesh.vertices[a];
     vec3 v1 = mesh.vertices[b];
     vec3 v2 = mesh.vertices[c];
 
+    vec3 normal = yocto::normalize(yocto::cross(v1 - v0, v2 - v0));
+    vec3 normal_camera = yocto::transform_direction(rotation, normal);
+
+    // Backface culling.
+    // bool backface = normal_camera.z < 0;
+    bool backface = dot(camera_dir, normal) < 0.0;
+
     const auto &[v0x, v0y] = scaler.Scale(v0.x, v0.y);
     const auto &[v1x, v1y] = scaler.Scale(v1.x, v1.y);
     const auto &[v2x, v2y] = scaler.Scale(v2.x, v2.y);
 
+
+
     AppendFormat(
         &svg,
         "<polygon points=\"{:.6},{:.6} {:.6},{:.6} {:.6},{:.6}\" "
-        "fill=\"#fff\" fill-opacity=\"0.9\" stroke=\"#000\" />\n",
-        v0x, v0y, v1x, v1y, v2x, v2y);
+        "{} stroke=\"#000\" />\n",
+        v0x, v0y, v1x, v1y, v2x, v2y,
+        backface ? "fill=\"#ffaaaa\" fill-opacity=\"0.9\"" :
+                   "fill=\"#aaaaff\" fill-opacity=\"0.9\""
+                 );
   }
 
   svg += TextSVG::Footer();

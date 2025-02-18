@@ -23,4 +23,9 @@ struct Mesh3D {
 
 TriangularMesh3D LoadSTL(std::string_view filename);
 
+// Orients triangles to have a consistent winding order. The input
+// must be manifold, since this is how we determine what that order
+// should be!
+void OrientMesh(TriangularMesh3D *mesh);
+
 #endif

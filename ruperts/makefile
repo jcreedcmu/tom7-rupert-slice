@@ -1,4 +1,4 @@
-default : ruperts.exe soltostl.exe topng.exe gpuperts.exe polyhedra_test.exe scoreboard.exe noboard.exe query.exe visualize.exe tostl.exe noperts.exe imperts.exe validate.exe ratperts.exe big-polyhedra_test.exe big-csg_test.exe symmetry-groups_test.exe fixstats.exe makesvg.exe meperts.exe
+default : ruperts.exe soltostl.exe topng.exe gpuperts.exe polyhedra_test.exe scoreboard.exe noboard.exe query.exe visualize.exe tostl.exe noperts.exe imperts.exe validate.exe ratperts.exe big-polyhedra_test.exe big-csg_test.exe symmetry-groups_test.exe fixstats.exe makesvg.exe threeperts.exe meperts.exe
 # zuperts.exe
 
 # This assumes OpenCL is installed as a system library, which
@@ -142,6 +142,10 @@ makesvg.exe : makesvg.o $(OBJECTS)
 	@echo -n "!"
 
 meperts.exe : meperts.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+threeperts.exe : threeperts.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

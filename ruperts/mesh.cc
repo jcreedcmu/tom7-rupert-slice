@@ -4,11 +4,16 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
-#include "yocto_matht.h"
+#include "hashing.h"
+#include "sorting-network.h"
 #include "util.h"
+#include "yocto_matht.h"
 
 using vec3 = yocto::vec<double, 3>;
 
@@ -90,4 +95,134 @@ TriangularMesh3D LoadSTL(std::string_view filename) {
   }
 
   return mesh;
+}
+
+enum FaceType {
+  ALL_ABOVE,
+  ALL_BELOW,
+  MIXED,
+};
+
+static FaceType ClassifyTriangle(const TriangularMesh3D &mesh,
+                                 int a, int b, int c) {
+  const vec3 &v0 = mesh.vertices[a];
+  const vec3 &v1 = mesh.vertices[b];
+  const vec3 &v2 = mesh.vertices[c];
+
+  const vec3 normal =
+    yocto::normalize(yocto::cross(v1 - v0, v2 - v0));
+
+  bool above = false, below = false;
+
+  // Now for every other vertex, check which side they are on.
+  for (int o = 0; o < mesh.vertices.size(); o++) {
+    if (o != a && o != b && o != c) {
+      const vec3 &v = mesh.vertices[o];
+      double dot = yocto::dot(v - v0, normal);
+      if (dot < -0.00001) {
+        if (above) return MIXED;
+        below = true;
+      } else if (dot > 0.00001) {
+        if (below) return MIXED;
+        above = true;
+      } else {
+        // On plane.
+        continue;
+      }
+    }
+  }
+
+  CHECK(above || below) << "Degenerate: All faces are coplanar.";
+  CHECK(!(above && below)) << "Impossible";
+  if (above) return ALL_ABOVE;
+  else return ALL_BELOW;
+}
+
+static std::tuple<int, int, int> GetOrientedTriangle(const TriangularMesh3D &mesh) {
+  // Start by orienting one triangle. We find one for which the
+  // entire rest of the mesh is on one side of it (or coplanar).
+
+  for (const auto &[a, b, c] : mesh.triangles) {
+    switch (ClassifyTriangle(mesh, a, b, c)) {
+    case ALL_ABOVE:
+      return std::make_tuple(a, b, c);
+    case ALL_BELOW:
+      return std::make_tuple(c, b, a);
+    case MIXED:
+      // Try the next one.
+      continue;
+    }
+  }
+
+  LOG(FATAL) << "No triangle could be oriented? This is bad news!";
+}
+
+static inline bool SameTriangle(int a, int b, int c,
+                                int aa, int bb, int cc) {
+  auto t1 = std::make_tuple(a, b, c);
+  auto t2 = std::make_tuple(aa, bb, cc);
+
+  FixedSort<3>(&t1);
+  FixedSort<3>(&t2);
+  return t1 == t2;
+}
+
+void OrientMesh(TriangularMesh3D *mesh) {
+  const auto &[oa, ob, oc] = GetOrientedTriangle(*mesh);
+
+  // Now iteratively orient triangles that share an edge.
+
+  // Edges that have been processed, in *forward* order.
+  // (i.e. we already inserted a triangle in the correct orientation
+  // a-b-c, and so this set contains a-b. etc.)
+  std::unordered_set<std::pair<int, int>, Hashing<std::pair<int, int>>>
+    edges;
+
+  std::vector<std::tuple<int, int, int>> out, remaining;
+  out.reserve(mesh->triangles.size());
+  remaining.reserve(mesh->triangles.size());
+
+  auto AddTriangle = [&](int a, int b, int c) {
+      out.emplace_back(a, b, c);
+      edges.insert(std::make_pair(a, b));
+      edges.insert(std::make_pair(b, c));
+      edges.insert(std::make_pair(c, a));
+    };
+
+  for (const auto &[a, b, c] : mesh->triangles) {
+    if (SameTriangle(oa, ob, oc, a, b, c)) {
+      AddTriangle(a, b, c);
+    } else {
+      remaining.emplace_back(a, b, c);
+    }
+  }
+
+  while (!remaining.empty()) {
+    bool progress = false;
+    std::vector<std::tuple<int, int, int>> new_remaining;
+    for (const auto &[a, b, c] : remaining) {
+      if (edges.contains({b, a}) ||
+          edges.contains({c, b}) ||
+          edges.contains({a, c})) {
+        // Already in correct orientation
+        AddTriangle(a, b, c);
+        progress = true;
+      } else if (edges.contains({a, b}) ||
+                 edges.contains({b, c}) ||
+                 edges.contains({c, a})) {
+        // Reversed.
+        AddTriangle(c, b, a);
+        progress = true;
+      } else {
+        new_remaining.emplace_back(a, b, c);
+      }
+    }
+
+    CHECK(progress) << "Surface is disconnected";
+    remaining = std::move(new_remaining);
+  }
+
+  CHECK(out.size() == mesh->triangles.size()) <<
+    mesh->triangles.size() << " became " << out.size();
+  mesh->triangles = std::move(out);
 }
