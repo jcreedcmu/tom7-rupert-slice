@@ -146,7 +146,7 @@ class Vector3 {
 
   // Projection onto another vector
   Vector3 projection(const Vector3 &o) const {
-    T C = dotProduct(o) / o.getLengthSquared();
+    T C = dotProduct(o) / o.GetLengthSquared();
     return o * C;
   }
 

@@ -1,6 +1,8 @@
 
 #include "mesh.h"
 
+#include <cstdio>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -9,7 +11,9 @@
 #include <utility>
 #include <vector>
 
+#include "ansi.h"
 #include "base/logging.h"
+#include "base/stringprintf.h"
 #include "hashing.h"
 #include "sorting-network.h"
 #include "util.h"
@@ -218,6 +222,8 @@ void OrientMesh(TriangularMesh3D *mesh) {
       }
     }
 
+    // TODO: We could actually just repeat this whole process on
+    // the remainder.
     CHECK(progress) << "Surface is disconnected";
     remaining = std::move(new_remaining);
   }
@@ -226,3 +232,66 @@ void OrientMesh(TriangularMesh3D *mesh) {
     mesh->triangles.size() << " became " << out.size();
   mesh->triangles = std::move(out);
 }
+
+void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
+               std::string_view name) {
+  std::string solid_name = name.empty() ? "mesh" : std::string(name);
+  std::string contents = std::format("solid {}\n", solid_name);
+
+  for (const auto &[v0, v1, v2] : mesh.triangles) {
+    const vec3 &p0 = mesh.vertices[v0];
+    const vec3 &p1 = mesh.vertices[v1];
+    const vec3 &p2 = mesh.vertices[v2];
+
+    vec3 normal = yocto::normalize(yocto::cross(p1 - p0, p2 - p0));
+
+    AppendFormat(&contents, "  facet normal {} {} {}\n",
+                  normal.x, normal.y, normal.z);
+    AppendFormat(&contents, "    outer loop\n");
+    AppendFormat(&contents, "      vertex {} {} {}\n", p0.x, p0.y, p0.z);
+    AppendFormat(&contents, "      vertex {} {} {}\n", p1.x, p1.y, p1.z);
+    AppendFormat(&contents, "      vertex {} {} {}\n", p2.x, p2.y, p2.z);
+    AppendFormat(&contents, "    endloop\n");
+    AppendFormat(&contents, "  endfacet\n");
+  }
+
+  AppendFormat(&contents, "endsolid {}\n", name);
+  std::string f = (std::string)filename;
+  Util::WriteFile(f, contents);
+  printf("Wrote " AGREEN("%s") "\n", f.c_str());
+}
+
+#if 0
+// Face meshes need to be triangulated.
+void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
+               std::string_view name) {
+  std::string solid_name = name.empty() ? "mesh" : std::string(name);
+  std::string contents = std::format("solid {}\n", solid_name);
+
+  for (const std::vector<int> &v : mesh.faces) {
+    CHECK(v.size() >= 3);
+
+    // XXX this is not good; the points could be colinear
+    const vec3 &p0 = mesh.vertices[v[0]];
+    const vec3 &p1 = mesh.vertices[v[1]];
+    const vec3 &p2 = mesh.vertices[v[2]];
+
+    vec3 normal = yocto::normalize(yocto::cross(p1 - p0, p2 - p0));
+
+    AppendFormat(&contents, "  facet normal {} {} {}\n",
+                  normal.x, normal.y, normal.z);
+    AppendFormat(&contents, "    outer loop\n");
+    for (int i : v) {
+      const vec3 &p = mesh.vertices[i];
+      AppendFormat(&contents, "      vertex {} {} {}\n", p.x, p.y, p.z);
+    }
+    AppendFormat(&contents, "    endloop\n");
+    AppendFormat(&contents, "  endfacet\n");
+  }
+
+  AppendFormat(&contents, "endsolid {}\n", name);
+  std::string f = (std::string)filename;
+  Util::WriteFile(f, contents);
+  printf("Wrote " AGREEN("%s") "\n", f.c_str());
+}
+#endif

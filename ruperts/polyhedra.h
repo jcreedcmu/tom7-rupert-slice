@@ -353,10 +353,6 @@ inline bool AllZero(const frame3 &f) {
 }
 
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
-void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
-               std::string_view name = "");
-void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
-               std::string_view name = "");
 
 // Generate little tetrahedra at the points, for debugging.
 void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,

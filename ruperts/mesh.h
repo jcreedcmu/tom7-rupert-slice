@@ -7,13 +7,16 @@
 
 #include "yocto_matht.h"
 
-// A 3D triangle mesh; not necessarily convex (or even connected).
+// A 3D triangle mesh; not necessarily convex. Some code expects that
+// faces be consistently oriented, that it be a proper manifold, or
+// connected, etc.
 struct TriangularMesh3D {
   using vec3 = yocto::vec<double, 3>;
   std::vector<vec3> vertices;
   std::vector<std::tuple<int, int, int>> triangles;
 };
 
+// Mesh with polygonal faces.
 struct Mesh3D {
   using vec3 = yocto::vec<double, 3>;
   std::vector<vec3> vertices;
@@ -23,9 +26,12 @@ struct Mesh3D {
 
 TriangularMesh3D LoadSTL(std::string_view filename);
 
+void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
+               std::string_view name = "");
+
 // Orients triangles to have a consistent winding order. The input
-// must be manifold, since this is how we determine what that order
-// should be!
+// must be a connected manifold, since this is how we determine what
+// that order should be!
 void OrientMesh(TriangularMesh3D *mesh);
 
 #endif

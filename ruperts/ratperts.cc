@@ -292,7 +292,7 @@ struct BigSolver {
     // which we use to scale down every argument?
     //
     // Or we can set this randomly.
-    const int SCALE = 64 + RandTo(rc, 1024);
+    const int SCALE = 64 + RandTo(rc, 1024 * 1024);
     const BigRat scale_down(1, SCALE);
 
     int local_best_errors = 9999999;

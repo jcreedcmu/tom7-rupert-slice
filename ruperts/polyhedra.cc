@@ -1224,77 +1224,15 @@ std::optional<double> GetClearance(const Polyhedron &poly,
                         sinner.vertices, inner_hull)};
 }
 
-void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
-               std::string_view name) {
-  std::string solid_name = name.empty() ? "mesh" : std::string(name);
-  std::string contents = std::format("solid {}\n", solid_name);
-
-  for (const auto &[v0, v1, v2] : mesh.triangles) {
-    const vec3 &p0 = mesh.vertices[v0];
-    const vec3 &p1 = mesh.vertices[v1];
-    const vec3 &p2 = mesh.vertices[v2];
-
-    vec3 normal = yocto::normalize(yocto::cross(p1 - p0, p2 - p0));
-
-    AppendFormat(&contents, "  facet normal {} {} {}\n",
-                  normal.x, normal.y, normal.z);
-    AppendFormat(&contents, "    outer loop\n");
-    AppendFormat(&contents, "      vertex {} {} {}\n", p0.x, p0.y, p0.z);
-    AppendFormat(&contents, "      vertex {} {} {}\n", p1.x, p1.y, p1.z);
-    AppendFormat(&contents, "      vertex {} {} {}\n", p2.x, p2.y, p2.z);
-    AppendFormat(&contents, "    endloop\n");
-    AppendFormat(&contents, "  endfacet\n");
-  }
-
-  AppendFormat(&contents, "endsolid {}\n", name);
-  std::string f = (std::string)filename;
-  Util::WriteFile(f, contents);
-  printf("Wrote " AGREEN("%s") "\n", f.c_str());
-}
-
-static TriangularMesh3D ToMesh(const Polyhedron &poly) {
+static TriangularMesh3D ToTriangularMesh(const Polyhedron &poly) {
   return TriangularMesh3D{.vertices = poly.vertices,
     .triangles = poly.faces->triangulation};
 }
 
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename) {
-  TriangularMesh3D mesh = ToMesh(poly);
+  TriangularMesh3D mesh = ToTriangularMesh(poly);
   return SaveAsSTL(mesh, filename, poly.name);
 }
-
-// TODO: Convert triangular mesh to face mesh, so we can share code.
-void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
-               std::string_view name) {
-  std::string solid_name = name.empty() ? "mesh" : std::string(name);
-  std::string contents = std::format("solid {}\n", solid_name);
-
-  for (const std::vector<int> &v : mesh.faces) {
-    CHECK(v.size() >= 3);
-
-    // XXX this is not good; the points could be colinear
-    const vec3 &p0 = mesh.vertices[v[0]];
-    const vec3 &p1 = mesh.vertices[v[1]];
-    const vec3 &p2 = mesh.vertices[v[2]];
-
-    vec3 normal = yocto::normalize(yocto::cross(p1 - p0, p2 - p0));
-
-    AppendFormat(&contents, "  facet normal {} {} {}\n",
-                  normal.x, normal.y, normal.z);
-    AppendFormat(&contents, "    outer loop\n");
-    for (int i : v) {
-      const vec3 &p = mesh.vertices[i];
-      AppendFormat(&contents, "      vertex {} {} {}\n", p.x, p.y, p.z);
-    }
-    AppendFormat(&contents, "    endloop\n");
-    AppendFormat(&contents, "  endfacet\n");
-  }
-
-  AppendFormat(&contents, "endsolid {}\n", name);
-  std::string f = (std::string)filename;
-  Util::WriteFile(f, contents);
-  printf("Wrote " AGREEN("%s") "\n", f.c_str());
-}
-
 
 void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
                           std::string_view filename) {

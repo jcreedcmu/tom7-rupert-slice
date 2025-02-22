@@ -39,6 +39,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <utility>
@@ -405,8 +406,11 @@ struct mat<T, 2> {
 // Small Fixed-size matrices stored in column major format.
 template <typename T>
 struct mat<T, 3> {
+  // left column
   vec<T, 3> x = {1, 0, 0};
+  // middle column
   vec<T, 3> y = {0, 1, 0};
+  // right column
   vec<T, 3> z = {0, 0, 1};
 
   vec<T, 3>&       operator[](int i);
@@ -2222,9 +2226,13 @@ inline mat<T, 4> ortho_mat(T xmag, T ymag, T near, T far) {
 template <typename T>
 inline mat<T, 4> perspective_mat(T fovy, T aspect, T near, T far) {
   auto tg = tan(fovy / 2);
-  return {{1 / (aspect * tg), 0, 0, 0}, {0, 1 / tg, 0, 0},
-      {0, 0, (far + near) / (near - far), -1},
-      {0, 0, 2 * far * near / (near - far), 0}};
+  // Remember: This is column major.
+  return {
+    {1 / (aspect * tg), 0, 0, 0},
+    {0, 1 / tg, 0, 0},
+    {0, 0, (far + near) / (near - far), -1},
+    {0, 0, 2 * far * near / (near - far), 0}
+  };
 }
 template <typename T>
 inline mat<T, 4> perspective_mat(T fovy, T aspect, T near) {
