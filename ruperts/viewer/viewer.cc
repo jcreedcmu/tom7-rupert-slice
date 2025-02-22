@@ -20,35 +20,35 @@
 #include <cstdint>
 #include <unistd.h>
 
+#include "SDL.h"
 #include "SDL_error.h"
 #include "SDL_events.h"
 #include "SDL_joystick.h"
 #include "SDL_keyboard.h"
 #include "SDL_keysym.h"
-#include "SDL_timer.h"
-#include "SDL_video.h"
-
-#include "threadutil.h"
-#include "randutil.h"
-#include "arcfour.h"
-#include "base/logging.h"
-#include "base/stringprintf.h"
-
-#include "timer.h"
-#include "ansi.h"
-#include "periodically.h"
-
-#include "SDL.h"
 #include "SDL_main.h"
 #include "SDL_mouse.h"
-
-#include "util.h"
-#include "image.h"
-
+#include "SDL_timer.h"
+#include "SDL_video.h"
 #include "sdl/sdlutil.h"
 #include "sdl/font.h"
 #include "sdl/cursor.h"
 #include "sdl/chars.h"
+
+#include "ansi.h"
+#include "arcfour.h"
+#include "base/logging.h"
+#include "base/stringprintf.h"
+#include "image.h"
+#include "periodically.h"
+#include "randutil.h"
+#include "threadutil.h"
+#include "timer.h"
+#include "util.h"
+
+#include "mesh.h"
+#include "yocto_matht.h"
+
 
 #include "mov.h"
 #include "mov-recorder.h"
@@ -72,6 +72,39 @@ static SDL_Cursor *cursor_eraser = nullptr;
 
 static SDL_Joystick *joystick = nullptr;
 static SDL_Surface *screen = nullptr;
+
+using vec2 = yocto::vec<double, 2>;
+using vec3 = yocto::vec<double, 3>;
+using vec4 = yocto::vec<double, 4>;
+using frame3 = yocto::frame<double, 3>;
+using mat3 = yocto::mat<double, 3>;
+using mat4 = yocto::mat<double, 4>;
+
+TriangularMesh3D TransformMesh(const frame3 &frame,
+                               const TriangularMesh3D &mesh) {
+  TriangularMesh3D out = mesh;
+  for (vec3 &v : out.vertices) v = yocto::transform_point(frame, v);
+  return out;
+}
+
+TriangularMesh3D TransformMesh(const mat4 &mtx,
+                               const TriangularMesh3D &mesh) {
+  TriangularMesh3D out = mesh;
+  for (vec3 &v : out.vertices) v = yocto::transform_point(mtx, v);
+  return out;
+}
+
+inline vec3 ProjectPt(const mat4 &proj, const vec3 &point) {
+  vec4 pp = proj * vec4{.x = point.x, .y = point.y, .z = point.z, .w = 1.0};
+  return vec3{.x = pp.x / pp.w, .y = pp.y / pp.w, .z = pp.z / pp.w};
+}
+
+TriangularMesh3D ProjectMesh(const mat4 &proj,
+                             const TriangularMesh3D &mesh) {
+  TriangularMesh3D out = mesh;
+  for (vec3 &v : out.vertices) v = ProjectPt(proj, v);
+  return out;
+}
 
 enum class Speed {
   PLAY,
@@ -102,14 +135,85 @@ struct ScopeExit {
 #define INPUT_B (1<<1)
 #define INPUT_A (1   )
 
+struct Scene {
+  vec3 camera_pos = vec3{-1.0, -.03, 4.0};
+
+  explicit Scene(TriangularMesh3D mesh) : original_mesh(std::move(mesh)) {
+    OrientMesh(&original_mesh);
+  }
+
+  void Draw(ImageRGBA *img) {
+    img->Clear32(0x000000FF);
+
+    constexpr double SCALE = 300.0;
+
+    // Ideally this should happen from the transform itself
+    auto ToScreen = [img](vec3 v) {
+        // 0,0 in center.
+        int x = std::round((img->Width() >> 1) + v.x * SCALE);
+        int y = std::round((img->Height() >> 1) - v.y * SCALE);
+        return std::make_pair(x, y);
+      };
+
+    auto DrawLine = [&](const vec3 &a, const vec3 &b,
+                        uint32_t color) {
+        const auto &[x0, y0] = ToScreen(a);
+        const auto &[x1, y1] = ToScreen(b);
+        img->BlendLine32(x0, y0, x1, y1, color);
+      };
+
+    constexpr double FOVY = 1.0; // 1 radian is about 60 deg
+    constexpr double ASPECT_RATIO = 1.0;
+    constexpr double NEAR_PLANE = 0.1;
+    constexpr double FAR_PLANE = 1000.0;
+    mat4 persp = yocto::perspective_mat(FOVY, ASPECT_RATIO, NEAR_PLANE,
+                                        FAR_PLANE);
+
+    frame3 frame = translation_frame(-camera_pos);
+
+    TriangularMesh3D mesh = TransformMesh(persp,
+                                          TransformMesh(frame, original_mesh));
+
+    vec3 xpos = ProjectPt(persp, transform_point(frame, vec3{1, 0, 0}));
+    vec3 ypos = ProjectPt(persp, transform_point(frame, vec3{0, 1, 0}));
+    vec3 zpos = ProjectPt(persp, transform_point(frame, vec3{0, 0, 1}));
+    vec3 origin = ProjectPt(persp, transform_point(frame, vec3{0, 0, 0}));
+
+    for (const auto &[a, b, c] : mesh.triangles) {
+      vec3 v0 = mesh.vertices[a];
+      vec3 v1 = mesh.vertices[b];
+      vec3 v2 = mesh.vertices[c];
+
+      vec3 ctr = (v0 + v1 + v2) / 3.0;
+      vec3 normal = normalize(cross(v1 - v0, v2 - v0)) * 0.25;
+      bool backface = normal.z < 0;
+
+      if (backface) {
+        DrawLine(v0, v1, 0xFF000088);
+        DrawLine(v1, v2, 0xFF000088);
+        DrawLine(v2, v0, 0xFF000088);
+      } else {
+        DrawLine(v0, v1, 0xFFFFFFAA);
+        DrawLine(v1, v2, 0xFFFFFFAA);
+        DrawLine(v2, v0, 0xFFFFFFAA);
+      }
+    }
+  }
+
+  TriangularMesh3D original_mesh;
+
+};
+
 struct UI {
+  Scene scene;
   Speed speed = Speed::PLAY;
   View view = View::ORTHOGRAPHIC;
   uint8_t current_gamepad = 0;
   int64_t frames_drawn = 0;
   uint8_t last_jhat = 0;
+  vec3 move = vec3{0, 0, 0};
 
-  UI();
+  UI(TriangularMesh3D mesh);
   void Loop();
   void Draw();
   void DrawGrid();
@@ -131,7 +235,7 @@ struct UI {
   std::unique_ptr<MovRecorder> mov;
 };
 
-UI::UI() : fps_per(1.0 / 60.0) {
+UI::UI(TriangularMesh3D mesh) : scene(std::move(mesh)), fps_per(1.0 / 60.0) {
   drawing.reset(new ImageRGBA(SCREENW, SCREENH));
   CHECK(drawing != nullptr);
   drawing->Clear32(0x000000FF);
@@ -173,6 +277,52 @@ UI::EventResult UI::HandleEvents() {
         ui_dirty = true;
       }
       #endif
+      break;
+    }
+
+    case SDL_JOYAXISMOTION: {
+      //   ^-            ^-
+      //   1  <2>        3  <4>
+      //   v+ - +        v+ - +
+
+      auto MapAxis = [](int a) {
+          bool neg = a < 0;
+          if (neg) a = -a;
+
+          // dead zone at top and bottom
+          constexpr int lo = 512;
+          constexpr int hi = 512;
+
+          if (a < 512) {
+            return 0.0;
+          } else {
+            double m = std::clamp((a - lo) / (32768.0 - lo - hi), 0.0, 1.0);
+            return neg ? -m : m;
+          }
+        };
+
+      SDL_JoyAxisEvent *j = (SDL_JoyAxisEvent *)&event;
+      switch (j->axis) {
+      case 1:
+        // forward and back
+        move.z = MapAxis(j->value);
+        break;
+      case 2:
+        // left and right
+        move.x = MapAxis(j->value);
+        break;
+
+      case 3:
+      case 4:
+        // TODO: Look
+        break;
+      }
+
+      if (TRACE) {
+        printf("%02x.%02x.%02x = %d\n",
+               j->type, j->which, j->axis,
+               (int)j->value);
+      }
       break;
     }
 
@@ -385,8 +535,8 @@ UI::EventResult UI::HandleEvents() {
 }
 
 void UI::Loop() {
+  bool ui_dirty = true;
   for (;;) {
-    bool ui_dirty = false;
 
     if (TRACE) printf("Handle events.\n");
 
@@ -396,7 +546,7 @@ void UI::Loop() {
     case EventResult::DIRTY: ui_dirty = true; break;
     }
 
-    if (ui_dirty) {
+    if (true || ui_dirty) {
       Draw();
       // printf("Flip.\n");
       SDL_Flip(screen);
@@ -416,6 +566,9 @@ void UI::Draw() {
   if (view == View::PERSPECTIVE) {
     // apply perspective transform
   }
+
+  scene.camera_pos += move * 0.01;
+  scene.Draw(drawing.get());
 
   drawing->BlendText32(5, 5, 0xFFFF00AA,
                        StringPrintf("Frames: %lld", frames_drawn));
@@ -502,7 +655,9 @@ int main(int argc, char **argv) {
 
   printf("Begin UI loop.\n");
 
-  UI ui;
+  TriangularMesh3D mesh = LoadSTL("../platonic-dodecahedron.stl");
+
+  UI ui(mesh);
   ui.Loop();
 
   printf("Quit!\n");
