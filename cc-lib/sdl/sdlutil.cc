@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <stdlib.h>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <utility>
 #include <cstdint>
@@ -423,6 +425,7 @@ void sdlutil::CopyRGBAToScreen(const ImageRGBA &img, SDL_Surface *screen) {
 }
 
 
+
 SDL_Surface *sdlutil::FromRGBA(const ImageRGBA &rgba) {
   SDL_Surface *surf = makesurface(rgba.Width(), rgba.Height(), true);
   if (surf == nullptr) {
@@ -482,28 +485,13 @@ SDL_Surface *sdlutil::FromRGBA(const ImageRGBA &rgba) {
 // Note: Avoid "LoadImage" since windows.h may #define the
 // symbol to LoadImageA etc. :(
 SDL_Surface *sdlutil::LoadImageFile(const string &filename) {
-  int width, height, bpp;
-  uint8_t *stb_rgba = stbi_load(filename.c_str(),
-                              &width, &height, &bpp, 4);
-  if (!stb_rgba) return nullptr;
-
-  vector<uint8_t> rgba;
-  rgba.reserve(width * height * 4);
-  for (int i = 0; i < width * height * 4; i++) {
-    rgba.push_back(stb_rgba[i]);
-  }
-  stbi_image_free(stb_rgba);
-
-  SDL_Surface *surf = makesurface(width, height, true);
-  if (!surf) {
-    return nullptr;
-  }
-  CopyRGBAVec(rgba, surf);
-
-  return surf;
+  std::unique_ptr<ImageRGBA> img(ImageRGBA::Load(filename));
+  if (img.get() == nullptr) return nullptr;
+  return FromRGBA(*img);
 }
 
 bool sdlutil::SavePNG(const string &filename, SDL_Surface *surf) {
+  // TODO: Can just use the ImageRGBA interface.
   // This could be implemented for other formats, of course.
   if (surf->format->BytesPerPixel != 4) return false;
   vector<uint8_t> rgba;
@@ -928,6 +916,27 @@ SDL_Surface *sdlutil::GrowX(SDL_Surface *src, int px) {
   return ret;
 }
 
+void sdlutil::SetIcon(std::string_view filename) {
+  std::unique_ptr<ImageRGBA> img(ImageRGBA::Load(filename));
+  if (img.get() != nullptr) {
+    SDL_Surface *icon = SDL_CreateRGBSurface(
+        0, 32, 32, 32,
+        // Something we know is supported by ByteOrder: ARGB.
+        0xFF0000, 0xFF00, 0xFF, 0xFF000000);
+    if (icon == nullptr) return;
+
+    CopyRGBARect(*img, 0, 0, 32, 32, 0, 0, icon);
+
+    // TODO: Could derive mask from alpha?
+    SDL_WM_SetIcon(icon, nullptr);
+
+    // TODO: Unclear from documentation whether SetIcon is taking
+    // ownership of the icon? Leaking a single 32x32 image is not
+    // a big deal, though.
+    // SDL_FreeSurface(ss);
+  }
+}
+
 
 /* try to make a hardware surface, and, failing that,
    make a software surface */
@@ -959,7 +968,9 @@ SDL_Surface *sdlutil::makesurface(int w, int h, bool alpha) {
     else rr = SDL_DisplayFormat(ss);
     SDL_FreeSurface(ss);
     return rr;
-  } else return nullptr;
+  } else {
+    return nullptr;
+  }
 # else
   return ss;
 # endif

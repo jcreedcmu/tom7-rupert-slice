@@ -12,6 +12,7 @@
 
 #include <string>
 #include <cstdint>
+#include <string_view>
 
 struct ImageRGBA;
 
@@ -43,6 +44,10 @@ struct sdlutil {
   // Note that the output image is only lightly compressed; pngcrush
   // or a similar tool can usually improve it quite a bit.
   static bool SavePNG(const std::string &filename, SDL_Surface *surf);
+
+  // Set the program's icon from an image file, which should be 32x32.
+  // This should be called before makescreen.
+  static void SetIcon(std::string_view filename);
 
   // Convert ImageRGBA into a new SDL surface.
   static SDL_Surface *FromRGBA(const ImageRGBA &rgba);

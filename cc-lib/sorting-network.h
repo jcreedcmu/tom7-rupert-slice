@@ -5,11 +5,14 @@
 // them in sorted order.
 //
 // Call FixedSort<N>(&arr).
+//
+// TODO: Especially when the argument is a tuple, it is useful
+// to have a functional version that returns the sorted tuple.
 
-#include <tuple>
 #include <array>
+#include <cstddef>
+#include <tuple>
 #include <utility>
-
 
 #define CAS(a, b) do {                              \
     if (!cmp(std::get<a>(*c), std::get<b>(*c)))     \
@@ -28,6 +31,7 @@ inline void FixedSort2(Cont *c, const Cmp &cmp) {
 template<class Cont, class Cmp>
 requires requires (Cont *c) {
   std::get<0>(*c);
+  // ...
   std::get<2>(*c);
 }
 inline void FixedSort3(Cont *c, const Cmp &cmp) {
@@ -35,6 +39,9 @@ inline void FixedSort3(Cont *c, const Cmp &cmp) {
   CAS(0, 1);
   CAS(1, 2);
 }
+
+// TODO: More sizes from here
+// https://bertdobbelaere.github.io/sorting_networks.html
 
 #undef CAS
 
