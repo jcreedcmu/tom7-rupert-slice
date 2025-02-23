@@ -281,7 +281,7 @@ base_test.exe : base_test.o $(BASE)
 array-util_test.exe : array-util_test.o ansi.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-sorting-network_test.exe : sorting-network_test.o ansi.o $(BASE)
+sorting-network_test.exe : sorting-network_test.o ansi.o $(BASE) $(TEST_UTIL)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 clean :
