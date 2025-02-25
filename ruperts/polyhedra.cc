@@ -2752,10 +2752,10 @@ Polyhedron DisdyakisTriacontahedron() {
     vertices.emplace_back(s1 * r, s2 * r, s3 * r);
   }
 
-  for (double s : {-1.0, 1.0}) {
-    vertices.emplace_back(s, 0.0, 0.0);
-    vertices.emplace_back(0.0, s, 0.0);
-    vertices.emplace_back(0.0, 0.0, s);
+  for (double sign : {-1.0, 1.0}) {
+    vertices.emplace_back(sign * s, 0.0, 0.0);
+    vertices.emplace_back(0.0, sign * s, 0.0);
+    vertices.emplace_back(0.0, 0.0, sign * s);
   }
 
   for (uint8_t bits = 0b00; bits < 0b100; bits++) {
