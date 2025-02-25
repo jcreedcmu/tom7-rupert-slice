@@ -1231,6 +1231,7 @@ static TriangularMesh3D ToTriangularMesh(const Polyhedron &poly) {
 
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename) {
   TriangularMesh3D mesh = ToTriangularMesh(poly);
+  OrientMesh(&mesh);
   return SaveAsSTL(mesh, filename, poly.name);
 }
 
@@ -2738,6 +2739,10 @@ Polyhedron DisdyakisTriacontahedron() {
   constexpr double sqrtp2 = Sqrt(phi + 2.0);
   constexpr double r = 5.0 / (3.0 * phi * sqrtp2);
   constexpr double s = ((7.0 * phi - 6.0) * sqrtp2) / 11.0;
+
+  // They should be close to the quoted values.
+  static_assert(Abs(r - 0.5415328270548438) < 1e-12);
+  static_assert(Abs(s - 0.9210096876986302) < 1e-12);
 
   // cube
   for (uint8_t bits = 0b000; bits < 0b1000; bits++) {
