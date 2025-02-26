@@ -6,18 +6,21 @@
 // Use block box optimizer to tweak the orientations and translation.
 // We can derive a rotation matrix without any square roots: An
 // exact representation of the points. This allows us to do
-// point-line side tests for the outer hull.
-
-#include "base/stringprintf.h"
-#include "big-polyhedra.h"
+// exact point-line side tests for the outer hull.
+//
+// Note that this does not save solutions in the database (since they
+// cannot necessarily be represented as doubles); it writes them to a
+// text file.
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
-#include <optional>
-#include <cstdint>
+#include <format>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -26,9 +29,11 @@
 #include "ansi.h"
 #include "arcfour.h"
 #include "atomic-util.h"
+#include "auto-histo.h"
+#include "base/stringprintf.h"
+#include "big-polyhedra.h"
 #include "bignum/big-overloads.h"
 #include "bignum/big.h"
-#include "auto-histo.h"
 #include "opt/opt.h"
 #include "periodically.h"
 #include "polyhedra.h"
@@ -141,8 +146,12 @@ struct BigSolver {
     status->Printf("Solved! %lld iters, %lld attempts, in %s\n", iters.Read(),
                    attempts.Read(), ANSI::Time(run_timer.Seconds()).c_str());
 
-    WriteImage(StringPrintf("solved-%s-%s.png", LowerMethod().c_str(),
-                            polyhedron.name),
+    std::string suffix = std::format("-{}-{}-{}",
+                                     LowerMethod(),
+                                     polyhedron.name,
+                                     time(nullptr));
+
+    WriteImage(std::format("solved-{}.png", suffix),
                outer_rot, inner_rot, translation);
 
     std::string contents =
@@ -153,10 +162,7 @@ struct BigSolver {
                    PlainQuatString(inner_rot).c_str(),
                    PlainVecString(translation).c_str());
 
-    std::string sfile = StringPrintf("solution-%s-%s.txt",
-                                     LowerMethod().c_str(),
-                                     polyhedron.name);
-
+    std::string sfile = std::format("solution-{}.txt", suffix);
     Util::WriteFile(sfile, contents);
     status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
 
@@ -170,8 +176,7 @@ struct BigSolver {
     ParallelFan(
       NUM_OUTER_THREADS,
       [&](int thread_idx) {
-        ArcFour rc(StringPrintf("ratperts.%d.%lld", thread_idx,
-                                time(nullptr)));
+        ArcFour rc(std::format("ratperts.{}.{}", thread_idx, time(nullptr)));
 
         for (;;) {
           {
@@ -418,6 +423,19 @@ static void Ratpert() {
 
 
   StatusBar status(NUM_OUTER_THREADS + 2);
+
+  if (false) {
+    // Solved
+    BigPoly triac(BigTriac(100));
+    printf("Made triac.\n");
+    for (const BigVec3 &v : triac.vertices) {
+      printf("  %s\n", VecString(v).c_str());
+    }
+    BigSolver solver(triac, &status, {60.0 * 60.0});
+    solver.Run();
+    return;
+  }
+
 
   for (;;) {
 

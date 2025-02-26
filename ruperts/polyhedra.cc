@@ -2616,7 +2616,7 @@ Polyhedron PentagonalIcositetrahedron() {
 
 static void AddCyclicPermutations(double a, double b, double c,
                                 std::vector<vec3> *vertices) {
-  // For three elements, the cyclic permutatinos are the same
+  // For three elements, the cyclic permutations are the same
   // as the even permutations!
   return AddEvenPermutations(a, b, c, vertices);
 }

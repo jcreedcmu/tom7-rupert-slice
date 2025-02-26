@@ -132,7 +132,8 @@ struct Threeperts {
         };
 
       auto InnerFrame = [&inner_rot](const std::array<double, D> &args) {
-          const auto &[/* di, dj, dk, dl, */ dx, dy] = SubArray<INNER_ARGS, 2>(args);
+          const auto &[/* di, dj, dk, dl, */ dx, dy] =
+            SubArray<INNER_ARGS, 2>(args);
           /*
           quat4 tweaked_rot = normalize(quat4{
               .x = inner_rot.x + di,
@@ -281,7 +282,8 @@ struct Threeperts {
       best = std::min(best, error);
 
       line_status_per.RunIf([&]() {
-          std::string line = std::format("{}. {} iters, " ABLUE("{:.6g}") " best",
+          std::string line = std::format("{}. {} iters, "
+                                         ABLUE("{:.6g}") " best",
                                          thread_idx,
                                          local_iters,
                                          best);
@@ -314,10 +316,17 @@ struct Threeperts {
 
         Rendering render(poly, 1920 * 2, 1080 * 2);
 
+        Polyhedron router = Rotate(poly, outer_frame);
+        Polyhedron rmiddle = Rotate(poly, middle_frame);
+        Polyhedron rinner = Rotate(poly, inner_frame);
 
-        Mesh2D souter = Shadow(Rotate(poly, outer_frame));
-        Mesh2D smiddle = Shadow(Rotate(poly, middle_frame));
-        Mesh2D sinner = Shadow(Rotate(poly, inner_frame));
+        SaveAsSTL(router, std::format("threeperts-{}-outer.stl", poly.name));
+        SaveAsSTL(rmiddle, std::format("threeperts-{}-middle.stl", poly.name));
+        SaveAsSTL(rinner, std::format("threeperts-{}-inner.stl", poly.name));
+
+        Mesh2D souter = Shadow(router);
+        Mesh2D smiddle = Shadow(rmiddle);
+        Mesh2D sinner = Shadow(rinner);
 
         render.RenderMesh(souter);
         render.DarkenBG();

@@ -885,6 +885,66 @@ BigPoly BigSdode(int digits) {
 }
 
 
+BigPoly BigTriac(int digits) {
+  std::vector<BigVec3> vertices;
+
+  const BigInt inv_epsilon = BigNumbers::Pow10(digits);
+
+  auto Sqrt = [&inv_epsilon](const BigRat &xx) {
+      return BigRat::Sqrt(xx, inv_epsilon);
+    };
+
+  const BigRat phi = (BigRat(1) + Sqrt(BigRat(5))) / BigRat(2);
+  const BigRat sqrtp2 = Sqrt(phi + BigRat(2));
+  const BigRat r = BigRat(5) / (BigRat(3) * phi * sqrtp2);
+  const BigRat s = ((BigRat(7) * phi - BigRat(6)) * sqrtp2) / BigRat(11);
+
+  // They should be close to the quoted values.
+  CHECK(std::abs(r.ToDouble() - 0.5415328270548438) < 1e-12);
+  CHECK(std::abs(s.ToDouble() - 0.9210096876986302) < 1e-12);
+
+  // cube
+  for (uint8_t bits = 0b000; bits < 0b1000; bits++) {
+    BigRat s1 = BigRat((bits & 0b100) ? -1 : +1);
+    BigRat s2 = BigRat((bits & 0b010) ? -1 : +1);
+    BigRat s3 = BigRat((bits & 0b001) ? -1 : +1);
+    vertices.emplace_back(s1 * r, s2 * r, s3 * r);
+  }
+
+  for (BigRat sign : {BigRat(-1), BigRat(1)}) {
+    vertices.emplace_back(sign * s, BigRat(0), BigRat(0));
+    vertices.emplace_back(BigRat(0), sign * s, BigRat(0));
+    vertices.emplace_back(BigRat(0), BigRat(0), sign * s);
+  }
+
+  for (uint8_t bits = 0b00; bits < 0b100; bits++) {
+    BigRat s1 = BigRat((bits & 0b10) ? -1 : +1);
+    BigRat s2 = BigRat((bits & 0b01) ? -1 : +1);
+    AddEvenPermutations(BigRat(0),
+                        s1 / sqrtp2,
+                        s2 * phi / sqrtp2,
+                        &vertices);
+
+    AddEvenPermutations(BigRat(0), s1 * phi * r, s2 * r / phi,
+                        &vertices);
+  }
+
+  for (uint8_t bits = 0b000; bits < 0b1000; bits++) {
+    BigRat s1 = BigRat((bits & 0b100) ? -1 : +1);
+    BigRat s2 = BigRat((bits & 0b010) ? -1 : +1);
+    BigRat s3 = BigRat((bits & 0b001) ? -1 : +1);
+    AddEvenPermutations(
+        s1 * s * phi / BigRat(2),
+        s2 * s / BigRat(2),
+        s3 * s / (BigRat(2) * phi),
+        &vertices);
+  }
+
+  CHECK(vertices.size() == 62);
+  return MakeBigPolyFromVertices(
+      std::move(vertices), "disdyakistriacontahedron");
+}
+
 BigPoly BigCube(int digits) {
   //                  +y
   //      a------b     | +z

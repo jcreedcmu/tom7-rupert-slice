@@ -103,6 +103,7 @@ std::string VecString(const vec2 &v);
 std::string Points2DString(const std::vector<vec2> &v);
 std::string QuatString(const quat4 &q);
 std::string FrameString(const frame3 &f);
+std::string MatString(const mat4 &m);
 std::string FormatNum(uint64_t n);
 
 inline bool TriangleIsDegenerate(const vec3 &v0,
@@ -352,6 +353,7 @@ inline bool AllZero(const frame3 &f) {
   return AllZero(f.x) && AllZero(f.y) && AllZero(f.z) && AllZero(f.o);
 }
 
+// Orient the mesh and save as STL.
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
 
 // Generate little tetrahedra at the points, for debugging.

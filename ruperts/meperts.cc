@@ -31,11 +31,52 @@ DECLARE_COUNTERS(iters, attempts);
 
 // A complex is a solid composed of multiple convex solids in
 // a rupert configuration. Rupert configuration means that one
-// solid can pass cleanly through another.
+// solid can pass cleanly through another. rupert(outer, inner)
+//
 
-// Here we want to find some kind of loop. The loop is like this:
-//  - complex passes through other
-//  - complex has a
+// Here we want to find some kind of loop. Suppose a sequence
+// of complexes:
+//  - complex_n passes through outer: rupert(outer, complex_n)
+//  - for some parameter dz (along the z axis), we fuse outer
+//    and complex_n, forming complex_(n+1).
+//  - complex_(n+1) also has the property.
+//
+// We can certainly do this for a few steps; 1 step is just
+// the original rupert problem, and it's pretty easy to get
+// infinite sequences (see e.g. threeperts).
+//
+// Since each time we pass a complex through, we can think of the
+// "drill bit" as an extrusion of infinite length, we would have a
+// sort of loop if we can fit any complex inside a previous extrusion.
+// Although when m > n, vol(complex_m) > vol(complex_n), (?? true ??)
+// hulls are not necessarily monotonic since the orientations may
+// be different.
+//
+// So, concretely, we have
+//  complex_0 = cube
+//  oframe0, iframe0, orientations that allow passing complex_0 through cube,
+//                    (and that set the z pos of complex_0)
+//  hole_0, the polygonal shape of the shape in the xy plane,
+//          with z projection axis
+//  complex_1 = transform(oframe0, complex_0) U transform(oframe1, cube)
+//  oframe1, iframe1, orientations that allow passing complex_1 through cube,
+//
+//  and finally,
+//  cframe, such that shadow(transform(complex_1)) fits inside hole_0.
+// Is this a loop? This means I can pass the complex through a previous
+// hole, but if I then unioned it, I would get a different shape than
+// I had before, and it wouldn't necessarily be possible to continue.
+//
+// Is it really true that vol(complex_m) > vol(complex_n)? When I union
+// two shapes it is of course monotonic, but what I'm actually doing
+// here is carving (first removing material along z axis) and then
+// unioning. The result has to have more volume than a cube, but it's
+// not obvious that it grows this way. (Yes: It's actually possible for the
+// volume to go down!)
+//
+// So is it interesting to look for a loop in the complexes?
+// You
+
 
 struct Meperts {
   static constexpr int NUM_THREADS = 1;

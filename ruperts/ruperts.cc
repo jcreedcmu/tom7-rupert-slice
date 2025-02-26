@@ -1309,6 +1309,8 @@ int main(int argc, char **argv) {
       SolveWith(poly, SolutionDB::METHOD_SIMUL, &status, 3600.0);
       SolveWith(poly, SolutionDB::METHOD_HULL, &status, 3600.0);
       SolveWith(poly, SolutionDB::METHOD_MAX, &status, 3600.0);
+      SolveWith(poly, SolutionDB::METHOD_PARALLEL, &status, 3600.0);
+      SolveWith(poly, SolutionDB::METHOD_SPECIAL, &status, 3600.0);
     }
   }
 
@@ -1317,7 +1319,7 @@ int main(int argc, char **argv) {
   }
 
   // Grind every unsolved cell.
-  if (false) {
+  if (true) {
     std::unordered_set<std::string> poly_filter;
     for (int i = 1; i < argc; i++) {
       poly_filter.insert(argv[i]);

@@ -142,7 +142,8 @@ static FaceType ClassifyTriangle(const TriangularMesh3D &mesh,
   else return ALL_BELOW;
 }
 
-static std::tuple<int, int, int> GetOrientedTriangle(const TriangularMesh3D &mesh) {
+static std::tuple<int, int, int> GetOrientedTriangle(
+    const TriangularMesh3D &mesh) {
   // Start by orienting one triangle. We find one for which the
   // entire rest of the mesh is on one side of it (or coplanar).
 

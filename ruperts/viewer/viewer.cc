@@ -184,19 +184,25 @@ struct Scene {
       vec3 v1 = mesh.vertices[b];
       vec3 v2 = mesh.vertices[c];
 
+      bool clipped =
+        (v0.z < 0 || v1.z < 0 || v2.z < 0) ||
+        (v0.z > 1 || v1.z > 1 || v2.z > 1);
+
       vec3 ctr = (v0 + v1 + v2) / 3.0;
       vec3 normal = normalize(cross(v1 - v0, v2 - v0)) * 0.25;
-      bool backface = normal.z < 0;
+      bool backface = normal.z > 0;
 
-      if (backface) {
-        DrawLine(v0, v1, 0xFF000088);
-        DrawLine(v1, v2, 0xFF000088);
-        DrawLine(v2, v0, 0xFF000088);
-      } else {
-        DrawLine(v0, v1, 0xFFFFFFAA);
-        DrawLine(v1, v2, 0xFFFFFFAA);
-        DrawLine(v2, v0, 0xFFFFFFAA);
+      uint32_t color = 0xFFFFFFAA;
+
+      if (clipped) {
+        color = 0x88000088;
+      } else if (backface) {
+        color = 0xFFFF0088;
       }
+
+      DrawLine(v0, v1, color);
+      DrawLine(v1, v2, color);
+      DrawLine(v2, v0, color);
     }
   }
 
@@ -290,10 +296,10 @@ UI::EventResult UI::HandleEvents() {
           if (neg) a = -a;
 
           // dead zone at top and bottom
-          constexpr int lo = 512;
-          constexpr int hi = 512;
+          constexpr int lo = 1024;
+          constexpr int hi = 1024;
 
-          if (a < 512) {
+          if (a < lo) {
             return 0.0;
           } else {
             double m = std::clamp((a - lo) / (32768.0 - lo - hi), 0.0, 1.0);
