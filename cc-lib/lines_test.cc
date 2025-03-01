@@ -169,8 +169,8 @@ static void TestReflect() {
 
 }
 
+#if 0
 // TODO: FIXME
-[[maybe_unused]]
 static void TestClipBresenham() {
   ArcFour rc("clip");
 
@@ -229,6 +229,7 @@ static void TestClipBresenham() {
   }
   printf("ClippedLine OK\n");
 }
+#endif
 
 // Check entire clipped line.
 #define CHECK_CLIPPED(clipped_arg, ex0, ey0, ex1, ey1) do {        \
@@ -348,80 +349,6 @@ static void TestClipRectangle() {
     CHECK(ix2.has_value());
     CHECK_CLIPPED(clipped, ix1->first, ix1->second, ix2->first, ix2->second);
   }
-}
-
-static void TestClipRectangleOld() {
-  ArcFour rc("clip");
-
-  for (int i = 0; i < 100; i++) {
-    std::unordered_map<std::pair<int, int>, float,
-                       Hashing<std::pair<int, int>>> expected;
-    std::unordered_map<std::pair<int, int>, float,
-                       Hashing<std::pair<int, int>>> actual;
-
-    int x0 = RandTo(&rc, 10);
-    int y0 = RandTo(&rc, 10);
-    int x1 = RandTo(&rc, 10);
-    int y1 = RandTo(&rc, 10);
-
-    int xcmin = 2;
-    int ycmin = 3;
-    int xcmax = 8;
-    int ycmax = 7;
-
-    LineAA::Draw<int, float>(x0, y0, x1, y1,
-                      [&](int x, int y, float f) {
-                        if (x >= xcmin - 1 && y >= ycmin - 1 &&
-                            x <= xcmax + 1 && y <= ycmax + 1) {
-                          expected[std::make_pair(x, y)] += f;
-                        }
-                      });
-
-    if (std::optional<std::tuple<float, float, float, float>> clip =
-        ClipLineToRectangle<float>(x0, y0, x1, y1,
-                                   xcmin, ycmin, xcmax, ycmax)) {
-      const auto &[fx0, fy0, fx1, fy1] = clip.value();
-      CHECK(fx0 >= xcmin && fx0 <= xcmax &&
-            fx1 >= xcmin && fx1 <= xcmax &&
-            fy0 >= ycmin && fy0 <= ycmax &&
-            fy1 >= ycmin && fy1 <= ycmax) <<
-        StringPrintf("(.3f,.3f) to (.3f,.3f) should be in (%d,%d)-(%d,%d)",
-                     fx0, fy0,
-                     fx1, fy1,
-                     xcmin, ycmin,
-                     xcmax, ycmax);
-
-      printf("Clipped (%d,%d)-(%d,%d) to (%.3f,%.3f)-(%.3f,%.3f).\n",
-             x0, y0, x1, y1,
-             fx0, fy0, fx1, fy1);
-
-      // We allow drawing slightly outside, since a pixel may need to
-      // be "anti-aliased" out of the strict clipping rectangle.
-      LineAA::Draw<int>(fx0, fy0, fx1, fy1,
-                        [&](int x, int y, float f) {
-                          CHECK(x >= xcmin - 1 && y >= ycmin - 1 &&
-                                x <= xcmax + 1 && y <= ycmax + 1) <<
-                            StringPrintf("%d,%d should be in (%d,%d)-(%d,%d)",
-                                         x, y,
-                                         xcmin, ycmin,
-                                         xcmax, ycmax);
-                          actual[std::make_pair(x, y)] += f;
-                        });
-    }
-
-    // Check that they are pretty close.
-    static constexpr float EPSILON = 0.05;
-    for (int y = ycmin - 1; y < ycmax + 1; y++) {
-      for (int x = xcmin - 1; x < xcmax + 1; x++) {
-        float ev = expected[std::make_pair(x, y)];
-        float av = actual[std::make_pair(x, y)];
-        CHECK(std::abs(ev - av) < EPSILON) <<
-          StringPrintf("At (%d,%d) wanted %.3f but got %.3f\n",
-                       x, y, ev, av);
-      }
-    }
-  }
-  printf("ClipLineToRectangle OK\n");
 }
 
 int main() {

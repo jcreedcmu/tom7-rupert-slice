@@ -29,10 +29,6 @@ class Line {
  public:
   static_assert(std::is_integral<Int>::value, "Line<T> requires integral T.");
   Line(Int x0, Int y0, Int x1, Int y1);
-  // Inclusive clip rectangle.
-  static Line<Int> ClippedLine(Int x0, Int y0, Int x1, Int y1,
-                               Int xmin, Int ymin,
-                               Int xmax, Int ymax);
   static Line<Int> Empty();
 
   // This iterator is only designed for ranged-for loops; the operators
@@ -50,6 +46,14 @@ class Line {
   };
   iterator begin() const;
   iterator end() const;
+
+  // TODO: Fix this!
+  #if 0
+  // Inclusive clip rectangle.
+  static Line<Int> ClippedLine(Int x0, Int y0, Int x1, Int y1,
+                               Int xmin, Int ymin,
+                               Int xmax, Int ymax);
+  #endif
 
  private:
   Line(Int x0, Int y0, Int x1, Int y1,
@@ -230,9 +234,6 @@ Line<Int>::Line(Int x0, Int y0, Int x1, Int y1) :
   } else {
     start_frac = dx - (dy >> 1);
   }
-
-  printf("Line(reg) (%d,%d)-(%d,%d) d: (%d,%d), step: (%d,%d), frac %d\n",
-         x0, y0, x1, y1, dx, dy, stepx, stepy, start_frac);
 }
 
 template<class Int>
@@ -266,8 +267,6 @@ Line<Int>::Line(Int x0, Int y0, Int x1, Int y1,
                                   dx(dx), dy(dy),
                                   stepx(stepx), stepy(stepy),
                                   start_frac(start_frac) {
-  printf("Line (%d,%d)-(%d,%d) d: (%d,%d), step: (%d,%d), frac %d\n",
-         x0, y0, x1, y1, dx, dy, stepx, stepy, start_frac);
 }
 
 template<class Int>
@@ -287,12 +286,6 @@ Line<Int>::Line<Int> Line<Int>::Empty() {
 
 template<class Int>
 bool Line<Int>::iterator::operator !=(const iterator &other) const {
-  if (parent.dx > parent.dy) {
-    printf("x: %d != %d\n", x, other.x);
-  } else {
-    printf("y: %d != %d\n", y, other.y);
-  }
-
   return parent.dx > parent.dy ?
     x != other.x :
     y != other.y;
@@ -300,7 +293,6 @@ bool Line<Int>::iterator::operator !=(const iterator &other) const {
 
 template<class Int>
 void Line<Int>::iterator::operator ++() {
-  printf("++ x=%d y=%d frac=%d \n", x, y, frac);
   if (parent.dx > parent.dy) {
     if (frac >= 0) {
       y += parent.stepy;
@@ -320,6 +312,7 @@ void Line<Int>::iterator::operator ++() {
 
 // FIXME: This is buggy :(
 // Inclusive clip rectangle.
+#if 0
 template<class Int>
 Line<Int>::Line<Int> Line<Int>::ClippedLine(Int x0, Int y0, Int x1, Int y1,
                                             Int clip_xmin, Int clip_ymin,
@@ -576,7 +569,7 @@ Line<Int>::Line<Int> Line<Int>::ClippedLine(Int x0, Int y0, Int x1, Int y1,
                 error);
   }
 }
-
+#endif
 
 // TODO: There may be some problem with the endpoint drawing;
 // there seem to be discontinuities when drawing a polyline.
