@@ -146,6 +146,7 @@ struct ImageRGBA {
   // This draws a crisp pixel line using Bresenham's algorithm.
   // Includes start and end point. (TODO: Version that does not include
   // the endpoint, for polylines with alpha.)
+  // Note: Clipping is linear time (PERF: Fix!).
   void BlendLine(int x1, int y1, int x2, int y2,
                  uint8 r, uint8 g, uint8 b, uint8 a);
   void BlendLine32(int x1, int y1, int x2, int y2, uint32 color);

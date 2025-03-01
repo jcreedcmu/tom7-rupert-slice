@@ -5,6 +5,7 @@
 #ifndef _CC_LIB_LINES_H
 #define _CC_LIB_LINES_H
 
+#include <cassert>
 #include <utility>
 #include <cmath>
 #include <type_traits>
@@ -28,6 +29,11 @@ class Line {
  public:
   static_assert(std::is_integral<Int>::value, "Line<T> requires integral T.");
   Line(Int x0, Int y0, Int x1, Int y1);
+  // Inclusive clip rectangle.
+  static Line<Int> ClippedLine(Int x0, Int y0, Int x1, Int y1,
+                               Int xmin, Int ymin,
+                               Int xmax, Int ymax);
+  static Line<Int> Empty();
 
   // This iterator is only designed for ranged-for loops; the operators
   // may have counter-intuitive behavior.
@@ -46,6 +52,9 @@ class Line {
   iterator end() const;
 
  private:
+  Line(Int x0, Int y0, Int x1, Int y1,
+       Int dx, Int dy, Int stepx, Int stepy,
+       Int start_frac);
   // All members morally const.
   const Int x0, y0, x1, y1;
   Int dx, dy;
@@ -71,6 +80,124 @@ public:
   static void Draw(Float x0, Float y0, Float x1, Float y1, Fn drawpixel);
 };
 
+
+// Compute the point of intersection between two line segments
+// (given as their endpoints), or return nullopt if they do
+// not intersect.
+//
+// (Note that even for double inputs, this does some float
+// calculations and returns float. TODO: Could make it
+// use double (or long double) if inputs are that type, with
+// significant added trickery.)
+// Ported from sml-lib.
+template<class Num = float>
+inline std::optional<std::pair<float, float>> LineIntersection(
+    // First segment
+    Num p0x, Num p0y, Num p1x, Num p1y,
+    // Second segment
+    Num p2x, Num p2y, Num p3x, Num p3y);
+
+// Return the closest point (to x,y) on the given line segment.
+// It may be one of the endpoints.
+inline std::pair<float, float>
+ClosestPointOnSegment(
+    // Line segment
+    float x0, float y0, float x1, float y1,
+    // Point to test
+    float x, float y);
+
+// Return the minimum distance between the point and the line segment.
+inline float PointLineDistance(
+    // Line segment
+    float x0, float y0, float x1, float y1,
+    // Point to test
+    float x, float y);
+
+// Same, but for a line that's known to be horizontal.
+inline float PointHorizLineDistance(
+    // Line segment
+    float x0, float y0, float x1, /* y1 = y0 */
+    // Point to test
+    float x, float y);
+
+// ... and vertical.
+inline float PointVertLineDistance(
+    // Line segment
+    float x0, float y0, /* x1 = x0 */ float y1,
+    // Point to test
+    float x, float y);
+
+template<class Num = float>
+std::pair<Num, Num> ReflectPointAboutLine(
+    // Line segment
+    Num x0, Num y0,
+    Num x1, Num y1,
+    // Point to reflect
+    Num x, Num y);
+
+// Return a vector of endpoints, not including the start point (but
+// including the end), to draw as individual line segments in order to
+// approximate the given quadratic Bezier curve.
+//
+// Num should work as integral (then all math is integral) or
+// floating-point types.
+template<class Num = float>
+inline std::vector<std::pair<Num, Num>> TesselateQuadraticBezier(
+    // starting vertex
+    Num x0, Num y0,
+    // control point
+    Num x1, Num y1,
+    // end point
+    Num x2, Num y2,
+    Num max_error_squared = Num(2),
+    int max_depth = 16);
+
+
+template<class Num = float>
+inline std::optional<std::tuple<Num, Num, Num, Num>>
+ClipLineToRectangle(Num x0, Num y0, Num x1, Num y1,
+                    Num xmin, Num ymin, Num xmax, Num ymax) {
+  // This would compile with integers, but the integer division
+  // is problematic, and the result would often not describe
+  // the same line.
+  static_assert(std::is_floating_point<Num>::value,
+                "ClipLineToRectangle needs a floating-point "
+                "template argument.");
+
+  // via "Another Simple but Faster Method for 2D Line Clipping",
+  // Matthes & Drakopoulos 2019
+  if (x0 < xmin && x1 < xmin) return std::nullopt;
+  if (x0 > xmax && x1 > xmax) return std::nullopt;
+  if (y0 < ymin && y1 < ymin) return std::nullopt;
+  if (y0 > ymax && y1 > ymax) return std::nullopt;
+
+  Num x[2] = {x0, x1};
+  Num y[2] = {y0, y1};
+
+  for (int i = 0; i < 2; i++) {
+    if (x[i] < xmin) {
+      x[i] = xmin;
+      y[i] = ((y1 - y0) / (x1 - x0)) * (xmin - x0) + y0;
+    } else if (x[i] > xmax) {
+      x[i] = xmax;
+      y[i] = ((y1 - y0) / (x1 - x0)) * (xmax - x0) + y0;
+    }
+
+    if (y[i] < ymin) {
+      y[i] = ymin;
+      x[i] = ((x1 - x0) / (y1 - y0)) * (ymin - y0) + x0;
+    } else if (y[i] > ymax) {
+      y[i] = ymax;
+      x[i] = ((x1 - x0) / (y1 - y0)) * (ymax - y0) + x0;
+    }
+  }
+
+  if (!(x[0] < xmin && x[1] < xmin) && !(x[0] > xmax && x[1] > xmax)) {
+    return std::make_tuple(x[0], y[0], x[1], y[1]);
+  } else {
+    return std::nullopt;
+  }
+}
 
 
 // Template implementations follow.
@@ -103,6 +230,9 @@ Line<Int>::Line(Int x0, Int y0, Int x1, Int y1) :
   } else {
     start_frac = dx - (dy >> 1);
   }
+
+  printf("Line(reg) (%d,%d)-(%d,%d) d: (%d,%d), step: (%d,%d), frac %d\n",
+         x0, y0, x1, y1, dx, dy, stepx, stepy, start_frac);
 }
 
 template<class Int>
@@ -129,7 +259,40 @@ typename Line<Int>::iterator Line<Int>::end() const {
 }
 
 template<class Int>
+Line<Int>::Line(Int x0, Int y0, Int x1, Int y1,
+                Int dx, Int dy, Int stepx, Int stepy,
+                Int start_frac) : x0(x0), y0(y0),
+                                  x1(x1), y1(y1),
+                                  dx(dx), dy(dy),
+                                  stepx(stepx), stepy(stepy),
+                                  start_frac(start_frac) {
+  printf("Line (%d,%d)-(%d,%d) d: (%d,%d), step: (%d,%d), frac %d\n",
+         x0, y0, x1, y1, dx, dy, stepx, stepy, start_frac);
+}
+
+template<class Int>
+Line<Int>::Line<Int> Line<Int>::Empty() {
+  // Any line such that .begin() == .end()
+  Line<int> empty(
+    // x0, y0, x1, y1 (we passed the end by one pixel)
+    1, 1, 0, 0,
+    // dx, dy, stepx, stepy
+    1, 1, 1, 1,
+    // start_frac
+    0);
+
+  assert(!(empty.begin() != empty.end()));
+  return empty;
+}
+
+template<class Int>
 bool Line<Int>::iterator::operator !=(const iterator &other) const {
+  if (parent.dx > parent.dy) {
+    printf("x: %d != %d\n", x, other.x);
+  } else {
+    printf("y: %d != %d\n", y, other.y);
+  }
+
   return parent.dx > parent.dy ?
     x != other.x :
     y != other.y;
@@ -137,6 +300,7 @@ bool Line<Int>::iterator::operator !=(const iterator &other) const {
 
 template<class Int>
 void Line<Int>::iterator::operator ++() {
+  printf("++ x=%d y=%d frac=%d \n", x, y, frac);
   if (parent.dx > parent.dy) {
     if (frac >= 0) {
       y += parent.stepy;
@@ -151,6 +315,265 @@ void Line<Int>::iterator::operator ++() {
     }
     y += parent.stepy;
     frac += parent.dx;
+  }
+}
+
+// FIXME: This is buggy :(
+// Inclusive clip rectangle.
+template<class Int>
+Line<Int>::Line<Int> Line<Int>::ClippedLine(Int x0, Int y0, Int x1, Int y1,
+                                            Int clip_xmin, Int clip_ymin,
+                                            Int clip_xmax, Int clip_ymax) {
+  auto floor_div = [](int a, int b) {
+      const int d = a / b;
+      const int r = a % b;
+      return r ? (d - ((a < 0) ^ (b < 0))) : d;
+    };
+
+  // Vertical line
+  if (x0 == x1) {
+    // TODO: Return empty line for cases where we miss the clip
+    // window completely.
+    if (x0 < clip_xmin || x0 > clip_xmax)
+      return Empty();
+
+    if (y0 <= y1) {
+      if (y1 < clip_ymin || y0 > clip_ymax)
+        return Empty();
+      y0 = std::max(y0, clip_ymin);
+      y1 = std::min(y1, clip_ymax);
+      return Line(x0, y0, x1, y1);
+    } else {
+      if (y0 < clip_ymin || y1 > clip_ymax)
+        return Empty();
+      y1 = std::max(y1, clip_ymin);
+      y0 = std::min(y0, clip_ymax);
+      return Line(x0, y0, x1, y1);
+    }
+  }
+
+  // Horizontal line
+  if (y0 == y1) {
+    if (y0 < clip_ymin || y0 > clip_ymax)
+      return Empty();
+
+    if (x0 <= x1) {
+      if (x1 < clip_xmin || x0 > clip_xmax)
+        return Empty();
+      x0 = std::max(x0, clip_xmin);
+      x1 = std::min(x1, clip_xmax);
+      return Line(x0, y0, x1, y1);
+    } else {
+      if (x0 < clip_xmin || x1 > clip_xmax)
+        return Empty();
+      x1 = std::max(x1, clip_xmin);
+      x0 = std::min(x0, clip_xmax);
+      return Line(x0, y0, x1, y1);
+    }
+  }
+
+  // General case. Flip signs as needed.
+  int sign_x = 0, sign_y = 0;
+
+  if (x0 < x1) {
+    if (x0 > clip_xmax || x1 < clip_xmin)
+      return Empty();
+    sign_x = 1;
+  } else {
+    if (x1 > clip_xmax || x0 < clip_xmin)
+      return Empty();
+    sign_x = -1;
+    x0 = -x0;
+    x1 = -x1;
+    clip_xmax = -clip_xmax;
+    clip_xmin = -clip_xmin;
+    std::swap(clip_xmax, clip_xmin);
+  }
+
+  if (y0 < y1) {
+    if (y0 > clip_ymax || y1 < clip_ymin)
+      return Empty();
+    sign_y = 1;
+  } else {
+    if (y1 > clip_ymax || y0 < clip_ymin)
+      return Empty();
+    sign_y = -1;
+
+    y0 = -y0;
+    y1 = -y1;
+    clip_ymax = -clip_ymax;
+    clip_ymin = -clip_ymin;
+    std::swap(clip_ymax, clip_ymin);
+  }
+
+  int delta_x = x1 - x0;
+  int delta_y = y1 - y0;
+
+  int delta_x_step = 2 * delta_x;
+  int delta_y_step = 2 * delta_y;
+
+  // Plotting values
+  int x_pos = x0;
+  int y_pos = y0;
+
+  if (delta_x >= delta_y) {
+    int error = delta_y_step - delta_x;
+    bool set_exit = false;
+
+    // Line starts below the clip window.
+    if (y0 < clip_ymin) {
+      int temp = (2 * (clip_ymin - y0) - 1) * delta_x;
+      int msd = floor_div(temp, delta_y_step);
+      x_pos += msd;
+
+      // Line misses the clip window entirely.
+      if (x_pos > clip_xmax)
+        return Empty();
+
+      // Line starts.
+      if (x_pos >= clip_xmin) {
+        int rem = temp - msd * delta_y_step;
+
+        y_pos = clip_ymin;
+        error -= rem + delta_x;
+
+        if (rem > 0) {
+          x_pos += 1;
+          error += delta_y_step;
+        }
+        set_exit = true;
+      }
+    }
+
+    // Line starts left of the clip window.
+    if (!set_exit && x0 < clip_xmin) {
+      int temp = delta_y_step * (clip_xmin - x0);
+      int msd = floor_div(temp, delta_x_step);
+      y_pos += msd;
+      int rem = temp % delta_x_step;
+
+      // Line misses clip window entirely.
+      if (y_pos > clip_ymax || (y_pos == clip_ymax && rem >= delta_x)) {
+        return Empty();
+      }
+
+      x_pos = clip_xmin;
+      error += rem;
+
+      if (rem >= delta_x) {
+        y_pos += 1;
+        error -= delta_x_step;
+      }
+    }
+
+    int x_pos_end = x1;
+
+    if (y1 > clip_ymax) {
+      int temp = delta_x_step * (clip_ymax - y0) + delta_x;
+      int msd = floor_div(temp, delta_y_step);
+      x_pos_end = x0 + msd;
+
+      if ((temp - msd * delta_y_step) == 0) {
+        x_pos_end--;
+      }
+    }
+
+    x_pos_end = std::min(x_pos_end, clip_xmax);
+
+    if (sign_y == -1) {
+      y_pos = -y_pos;
+    }
+    if (sign_x == -1) {
+      x_pos = -x_pos;
+      x_pos_end = -x_pos_end;
+    }
+    delta_x_step -= delta_y_step;
+
+    // Now do loop.
+    return Line(x_pos, y_pos, x_pos_end, 0,
+                delta_x_step, delta_y_step, sign_x, sign_y,
+                error);
+
+   } else {
+    // Line is steep '/' (delta_x < delta_y).
+    // Same as previous block of code with swapped x/y axis.
+
+    int error = delta_x_step - delta_y;
+    bool set_exit = false;
+
+    // Line starts left of the clip window.
+    if (x0 < clip_xmin) {
+      int temp = (2 * (clip_xmin - x0) - 1) * delta_y;
+      int msd = floor_div(temp, delta_x_step);
+      y_pos += msd;
+
+        // Line misses the clip window entirely.
+      if (y_pos > clip_ymax) {
+        return Empty();
+      }
+
+      // Line starts.
+      if (y_pos >= clip_ymin) {
+        int rem = temp - msd * delta_x_step;
+
+        x_pos = clip_xmin;
+        error -= rem + delta_y;
+
+        if (rem > 0) {
+          y_pos += 1;
+          error += delta_x_step;
+        }
+        set_exit = true;
+      }
+    }
+
+    // Line starts below the clip window.
+    if (!set_exit && y0 < clip_ymin) {
+      int temp = delta_x_step * (clip_ymin - y0);
+      int msd = floor_div(temp, delta_y_step);
+      x_pos += msd;
+      int rem = temp % delta_y_step;
+
+      // Line misses clip window entirely.
+      if (x_pos > clip_xmax || (x_pos == clip_xmax && rem >= delta_y)) {
+        return Empty();
+      }
+
+      y_pos = clip_ymin;
+      error += rem;
+
+      if (rem >= delta_y) {
+        x_pos++;
+        error -= delta_y_step;
+      }
+    }
+
+    int y_pos_end = y1;
+
+    if (x1 > clip_xmax) {
+      int temp = delta_y_step * (clip_xmax - x0) + delta_y;
+      int msd = floor_div(temp, delta_x_step);
+      y_pos_end = y0 + msd;
+
+      if ((temp - msd * delta_x_step) == 0) {
+        y_pos_end--;
+      }
+    }
+
+    y_pos_end = std::min(y_pos_end, clip_ymax);
+
+    if (sign_x == -1) {
+      x_pos = -x_pos;
+    }
+    if (sign_y == -1) {
+      y_pos = -y_pos;
+      y_pos_end = -y_pos_end;
+    }
+    delta_y_step -= delta_x_step;
+
+    return Line(x_pos, y_pos, 0, y_pos_end,
+                delta_x_step, delta_y_step, sign_x, sign_y,
+                error);
   }
 }
 
@@ -234,16 +657,7 @@ void LineAA::Draw(Float x0, Float y0, Float x1, Float y1, Fn drawpixel) {
   }
 }
 
-// Compute the point of intersection between two line segments
-// (given as their endpoints), or return nullopt if they do
-// not intersect.
-//
-// (Note that even for double inputs, this does some float
-// calculations and returns float. TODO: Could make it
-// use double (or long double) if inputs are that type, with
-// significant added trickery.)
-// Ported from sml-lib.
-template<class Num = float>
+template<class Num>
 std::optional<std::pair<float, float>> LineIntersection(
     // First segment
     Num p0x, Num p0y, Num p1x, Num p1y,
@@ -272,8 +686,7 @@ std::optional<std::pair<float, float>> LineIntersection(
   return std::nullopt;
 }
 
-// Return the closest point (to x,y) on the given line segment.
-// It may be one of the endpoints.
+
 inline std::pair<float, float>
 ClosestPointOnSegment(
     // Line segment
@@ -364,7 +777,7 @@ inline float PointVertLineDistance(
 }
 
 
-template<class Num = float>
+template<class Num>
 std::pair<Num, Num> ReflectPointAboutLine(
     // Line segment
     Num x0, Num y0,
@@ -387,22 +800,16 @@ std::pair<Num, Num> ReflectPointAboutLine(
 }
 
 
-// Return a vector of endpoints, not including the start point (but
-// including the end), to draw as individual line segments in order to
-// approximate the given quadratic Bezier curve.
-
-// Num should work as integral (then all math is integral) or
-// floating-point types.
-template<class Num = float>
-std::vector<std::pair<Num, Num>> TesselateQuadraticBezier(
+template<class Num>
+inline std::vector<std::pair<Num, Num>> TesselateQuadraticBezier(
     // starting vertex
     Num x0, Num y0,
     // control point
     Num x1, Num y1,
     // end point
     Num x2, Num y2,
-    Num max_error_squared = Num(2),
-    int max_depth = 16) {
+    Num max_error_squared,
+    int max_depth) {
 
   static_assert(std::is_arithmetic<Num>::value,
                 "TesselateQuadraticBezier needs an integral or floating-point "
@@ -414,7 +821,7 @@ std::vector<std::pair<Num, Num>> TesselateQuadraticBezier(
                                     Num x1, Num y1,
                                     Num x2, Num y2,
                                     int max_depth) {
-      // This is based on public-domain code from stb_truetype, thanks!
+      // This is based on public-domain code from stb_truetype; thanks!
 
       // Midpoint of the curve.
       // ("Midpoint" here likely means t/2, not the geometric midpoint?

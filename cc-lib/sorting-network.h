@@ -4,6 +4,14 @@
 // performs a fixed sequence of comparisons and swaps that put
 // them in sorted order.
 //
+// These are optimal in the number of comparisons, but note that
+// there are many cases where there is a known network with
+// fewer layers at the expense of more (parallel) comparisons.
+// e.g. for 10, we use the one with 29 compare-and-swaps in 8
+// parallel layers, but there also exists one with 7 layers and
+// 31 CASes.
+//
+//
 // Call FixedSort<N>(&arr).
 //
 // TODO: Especially when the argument is a tuple, it is useful
@@ -154,9 +162,6 @@ inline void FixedSort9(Cont *c, const Cmp &cmp) {
   CAS(1,2); CAS(3,4); CAS(5,6);
 }
 
-// n.b. for 10, we use the one with the fewest CAS
-// (29), but there also exists one with 7 layers and
-// 31 CASes.
 template<class Cont, class Cmp>
 requires requires (Cont *c) {
   std::get<0>(*c);

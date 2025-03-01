@@ -2,10 +2,14 @@
 #include "lines.h"
 
 #include <optional>
+#include <unordered_set>
 
-#include "base/logging.h"
 #include "arcfour.h"
+#include "base/logging.h"
+#include "base/stringprintf.h"
+#include "hashing.h"
 #include "randutil.h"
+#include "set-util.h"
 
 using namespace std;
 
@@ -38,6 +42,13 @@ static void TestBresenham() {
   }
 
   printf("\n--\n");
+}
+
+static void TestEmpty() {
+  for (auto [x, y] : Line<int>::Empty()) {
+    LOG(FATAL) << "Should not emit any points for empty line. Got "
+               << x << ", " << y;
+  }
 }
 
 static void TestWu() {
@@ -158,9 +169,267 @@ static void TestReflect() {
 
 }
 
+// TODO: FIXME
+[[maybe_unused]]
+static void TestClipBresenham() {
+  ArcFour rc("clip");
+
+  for (int i = 0; i < 100; i++) {
+    std::unordered_set<std::pair<int, int>,
+                       Hashing<std::pair<int, int>>> expected;
+    std::unordered_set<std::pair<int, int>,
+                       Hashing<std::pair<int, int>>> actual;
+
+    int x0 = RandTo(&rc, 10);
+    int y0 = RandTo(&rc, 10);
+    int x1 = RandTo(&rc, 10);
+    int y1 = RandTo(&rc, 10);
+
+    int xcmin = 2;
+    int ycmin = 3;
+    int xcmax = 8;
+    int ycmax = 7;
+
+    printf("Test clip: (%d,%d) to (%d,%d), clipped in box (%d,%d) to (%d,%d)\n",
+           x0, y0, x1, y1, xcmin, ycmin, xcmax, ycmax);
+
+    for (const auto &[x, y] : Line<int>(x0, y0, x1, y1)) {
+      if (x >= xcmin && y >= ycmin &&
+          x <= xcmax && y <= ycmax) {
+        expected.insert(std::make_pair(x, y));
+      }
+    }
+
+    printf("Done expected\n");
+
+    for (const auto &[x, y] : Line<int>::ClippedLine(x0, y0, x1, y1,
+                                                     xcmin, ycmin,
+                                                     xcmax, ycmax)) {
+      actual.insert(std::make_pair(x, y));
+      CHECK(x >= 0 && y >= 0 && x <= 10 && y <= 10);
+    }
+
+    printf("Done actual\n");
+
+    if (expected != actual) {
+      printf("Expected:");
+      for (const auto &[a, b] : SetToSortedVec(expected)) {
+        printf(" (%d,%d)", a, b);
+      }
+
+      printf("\nActual:");
+      for (const auto &[a, b] : SetToSortedVec(actual)) {
+        printf(" (%d,%d)", a, b);
+      }
+      printf("\n");
+
+      LOG(FATAL) << "Did not get expected points.\n";
+    }
+    printf("OK\n");
+  }
+  printf("ClippedLine OK\n");
+}
+
+// Check entire clipped line.
+#define CHECK_CLIPPED(clipped_arg, ex0, ey0, ex1, ey1) do {        \
+    auto clipped_ = (clipped_arg);                                 \
+    CHECK(clipped_.has_value());                                   \
+    const auto &[cx0, cy0, cx1, cy1] = clipped_.value();           \
+    static constexpr float EPSILON = 0.00001f;                     \
+    CHECK_ALMOST_EQ(cx0, ex0);                                     \
+    CHECK_ALMOST_EQ(cy0, ey0);                                     \
+    CHECK_ALMOST_EQ(cx1, ex1);                                     \
+    CHECK_ALMOST_EQ(cy1, ey1);                                     \
+  } while (0)
+
+static void TestClipRectangle() {
+  float xmin = 1.0f;
+  float ymin = 2.0f;
+  float xmax = 4.0f;
+  float ymax = 3.0f;
+
+  // 1. Completely Inside.
+  CHECK_CLIPPED(
+      ClipLineToRectangle(2.0f, 2.5f, 3.0f, 2.8f, xmin, ymin, xmax, ymax),
+      2.0f, 2.5f, 3.0f, 2.8f);
+
+  // 2. Completely Outside (left).
+  CHECK(!ClipLineToRectangle(-1.0f, 2.5f, 0.0f, 2.8f, xmin, ymin, xmax, ymax).
+        has_value());
+
+  // 3. Completely Outside (right).
+  CHECK(!ClipLineToRectangle(5.0f, 2.5f, 6.0f, 2.8f, xmin, ymin, xmax, ymax).
+        has_value());
+
+  // 4. Completely Outside (above).
+  CHECK(!ClipLineToRectangle(2.0f, 4.0f, 3.0f, 5.0f, xmin, ymin, xmax, ymax).
+        has_value());
+
+  // 5. Completely Outside (below).
+  CHECK(!ClipLineToRectangle(2.0f, 0.0f, 3.0f, 1.0f, xmin, ymin, xmax, ymax).
+        has_value());
+
+  // 6. Partially Inside (intersecting left).
+  CHECK_CLIPPED(
+      ClipLineToRectangle(0.0f, 2.5f, 2.0f, 2.5f, xmin, ymin, xmax, ymax),
+      1.0f, 2.5f, 2.0f, 2.5f);
+
+
+  // 7. Partially Inside (intersecting right).
+  CHECK_CLIPPED(
+      ClipLineToRectangle(3.0f, 2.5f, 5.0f, 2.5f, xmin, ymin, xmax, ymax),
+      3.0f, 2.5f, 4.0f, 2.5f);
+
+  // 8. Partially Inside (intersecting top).
+  CHECK_CLIPPED(
+      ClipLineToRectangle(2.5f, 2.5f, 2.5f, 4.0f, xmin, ymin, xmax, ymax),
+      2.5f, 2.5f, 2.5f, 3.0f);
+
+  // 9. Partially Inside (intersecting bottom).
+  CHECK_CLIPPED(
+      ClipLineToRectangle(2.5f, 1.0f, 2.5f, 2.5f, xmin, ymin, xmax, ymax),
+      2.5f, 2.0f, 2.5f, 2.5f);
+
+  // 10. Horizontal line, completely inside.
+  CHECK_CLIPPED(
+      ClipLineToRectangle(2.0f, 2.5f, 3.0f, 2.5f, xmin, ymin, xmax, ymax),
+      2.0f, 2.5f, 3.0f, 2.5f);
+
+  // 11. Vertical line, completely inside.
+  CHECK_CLIPPED(
+      ClipLineToRectangle(2.5f, 2.2f, 2.5f, 2.8f, xmin, ymin, xmax, ymax),
+      2.5f, 2.2f, 2.5f, 2.8f);
+
+  // 12. Horizontal line, intersecting left and right.
+  CHECK_CLIPPED(
+    ClipLineToRectangle(0.0f, 2.5f, 5.0f, 2.5f, xmin, ymin, xmax, ymax),
+    1.0f, 2.5f, 4.0f, 2.5f);
+
+  // 13. Vertical line, intersecting top and bottom.
+  CHECK_CLIPPED(
+      ClipLineToRectangle(2.5f, 1.0f, 2.5f, 4.0f, xmin, ymin, xmax, ymax),
+      2.5f, 2.0f, 2.5f, 3.0f);
+
+  // 14. Diagonal line, intersecting top and bottom.
+  {
+    auto clipped = ClipLineToRectangle(0.0f, 1.0f, 5.0f, 4.0f,
+                                       xmin, ymin, xmax, ymax);
+    auto ix1 = LineIntersection(0.0f, 1.0f, 5.0f, 4.0f, xmin, ymin, xmax, ymin);
+    auto ix2 = LineIntersection(0.0f, 1.0f, 5.0f, 4.0f, xmin, ymax, xmax, ymax);
+    CHECK(ix1.has_value());
+    CHECK(ix2.has_value());
+    CHECK_CLIPPED(clipped,
+                  ix1->first, ix1->second, ix2->first, ix2->second);
+  }
+
+  // 15. Diagonal line intersecting left and right.
+  {
+    auto clipped = ClipLineToRectangle(0.0f, 2.5f, 5.0f, 2.5f,
+                                       xmin, ymin, xmax, ymax);
+    auto ix1 = LineIntersection(0.0f, 2.5f, 5.0f, 2.5f, xmin, ymin, xmin, ymax);
+    auto ix2 = LineIntersection(0.0f, 2.5f, 5.0f, 2.5f, xmax, ymin, xmax, ymax);
+    CHECK(ix1.has_value());
+    CHECK(ix2.has_value());
+    CHECK_CLIPPED(clipped,
+                  ix1->first, ix1->second, ix2->first, ix2->second);
+  }
+
+  // 16. Diagonal line intersecting top and left
+  {
+    auto clipped = ClipLineToRectangle<double>(0.0, 2.0, 3.0, 4.0,
+                                               xmin, ymin, xmax, ymax);
+    // left
+    auto ix1 = LineIntersection<double>(
+        0.0, 2.0, 3.0, 4.0, xmin, ymin, xmin, ymax);
+    // top
+    auto ix2 = LineIntersection<double>(
+        0.0, 2.0, 3.0, 4.0, xmin, ymax, xmax, ymax);
+    CHECK(ix1.has_value());
+    CHECK(ix2.has_value());
+    CHECK_CLIPPED(clipped, ix1->first, ix1->second, ix2->first, ix2->second);
+  }
+}
+
+static void TestClipRectangleOld() {
+  ArcFour rc("clip");
+
+  for (int i = 0; i < 100; i++) {
+    std::unordered_map<std::pair<int, int>, float,
+                       Hashing<std::pair<int, int>>> expected;
+    std::unordered_map<std::pair<int, int>, float,
+                       Hashing<std::pair<int, int>>> actual;
+
+    int x0 = RandTo(&rc, 10);
+    int y0 = RandTo(&rc, 10);
+    int x1 = RandTo(&rc, 10);
+    int y1 = RandTo(&rc, 10);
+
+    int xcmin = 2;
+    int ycmin = 3;
+    int xcmax = 8;
+    int ycmax = 7;
+
+    LineAA::Draw<int, float>(x0, y0, x1, y1,
+                      [&](int x, int y, float f) {
+                        if (x >= xcmin - 1 && y >= ycmin - 1 &&
+                            x <= xcmax + 1 && y <= ycmax + 1) {
+                          expected[std::make_pair(x, y)] += f;
+                        }
+                      });
+
+    if (std::optional<std::tuple<float, float, float, float>> clip =
+        ClipLineToRectangle<float>(x0, y0, x1, y1,
+                                   xcmin, ycmin, xcmax, ycmax)) {
+      const auto &[fx0, fy0, fx1, fy1] = clip.value();
+      CHECK(fx0 >= xcmin && fx0 <= xcmax &&
+            fx1 >= xcmin && fx1 <= xcmax &&
+            fy0 >= ycmin && fy0 <= ycmax &&
+            fy1 >= ycmin && fy1 <= ycmax) <<
+        StringPrintf("(.3f,.3f) to (.3f,.3f) should be in (%d,%d)-(%d,%d)",
+                     fx0, fy0,
+                     fx1, fy1,
+                     xcmin, ycmin,
+                     xcmax, ycmax);
+
+      printf("Clipped (%d,%d)-(%d,%d) to (%.3f,%.3f)-(%.3f,%.3f).\n",
+             x0, y0, x1, y1,
+             fx0, fy0, fx1, fy1);
+
+      // We allow drawing slightly outside, since a pixel may need to
+      // be "anti-aliased" out of the strict clipping rectangle.
+      LineAA::Draw<int>(fx0, fy0, fx1, fy1,
+                        [&](int x, int y, float f) {
+                          CHECK(x >= xcmin - 1 && y >= ycmin - 1 &&
+                                x <= xcmax + 1 && y <= ycmax + 1) <<
+                            StringPrintf("%d,%d should be in (%d,%d)-(%d,%d)",
+                                         x, y,
+                                         xcmin, ycmin,
+                                         xcmax, ycmax);
+                          actual[std::make_pair(x, y)] += f;
+                        });
+    }
+
+    // Check that they are pretty close.
+    static constexpr float EPSILON = 0.05;
+    for (int y = ycmin - 1; y < ycmax + 1; y++) {
+      for (int x = xcmin - 1; x < xcmax + 1; x++) {
+        float ev = expected[std::make_pair(x, y)];
+        float av = actual[std::make_pair(x, y)];
+        CHECK(std::abs(ev - av) < EPSILON) <<
+          StringPrintf("At (%d,%d) wanted %.3f but got %.3f\n",
+                       x, y, ev, av);
+      }
+    }
+  }
+  printf("ClipLineToRectangle OK\n");
+}
+
 int main() {
 
   TestBresenham();
+  // TestClipBresenham();
+  TestClipRectangle();
+  TestEmpty();
   TestWu();
   TestIntersection();
   TestVertHoriz();
