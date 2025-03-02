@@ -105,7 +105,7 @@ static void SpaceLine() {
 static void MakeSimplePDF() {
   ArcFour rc("pdf");
 
-  static constexpr bool COMPRESS_TEST_PDF = true;
+  static constexpr bool COMPRESS_TEST_PDF = false;
 
   printf("Create PDF object.\n");
   PDF pdf(PDF::PDF_LETTER_WIDTH, PDF::PDF_LETTER_HEIGHT,
@@ -435,7 +435,12 @@ static void MakeSimplePDF() {
 
 static void MakeMinimalPDF() {
   printf("Create PDF object.\n");
-  PDF pdf(PDF::PDF_LETTER_WIDTH, PDF::PDF_LETTER_HEIGHT, PDF::Options{.use_compression = false});
+  PDF::Options opt;
+  opt.use_compression = false;
+  opt.encoding = PDF::Options::TextEncoding::UNICODE;
+  PDF pdf(PDF::PDF_LETTER_WIDTH,
+          PDF::PDF_LETTER_HEIGHT,
+          opt);
 
   [[maybe_unused]]
   PDF::Page *page = pdf.AppendNewPage();
@@ -451,7 +456,9 @@ static void MakeMinimalPDF() {
   std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf");
 
   pdf.SetFont(pasement_name);
-  CHECK(pdf.AddText("Title of PDF", 72,
+  CHECK(pdf.AddText(// "Title of PDF",
+            "Title",
+            72,
                     30, PDF::PDF_LETTER_HEIGHT - 72 - 36,
                     PDF_RGB(0, 0, 0)));
 

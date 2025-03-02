@@ -850,22 +850,27 @@ void ImageRGBA::BlendLine(int x1, int y1, int x2, int y2,
 
 void ImageRGBA::BlendLineAA32(float x1, float y1, float x2, float y2,
                               uint32 color) {
-  uint8 r, g, b, a;
-  std::tie(r, g, b, a) = Unpack32(color);
-  auto Plot = [this, r, g, b, a](int x, int y, float f) {
-      uint8 aa = f * a;
-      this->BlendPixel(x, y, r, g, b, aa);
-    };
-  LineAA::Draw<int>(x1, y1, x2, y2, Plot);
+  // Clip in case the line is really big. But we go one pixel outside
+  // the image rectangle to avoid edge artifacts when anti-aliasing.
+  if (const auto clip =
+      ClipLineToRectangle<float>(
+          x1, y1, x2, y2,
+          -1.0f, -1.0f, Width() + 1.0f, Height() + 1.0f)) {
+    const auto &[cx1, cy1, cx2, cy2] = clip.value();
+    uint8 r, g, b, a;
+    std::tie(r, g, b, a) = Unpack32(color);
+    auto Plot = [this, r, g, b, a](int x, int y, float f) {
+        uint8 aa = f * a;
+        this->BlendPixel(x, y, r, g, b, aa);
+      };
+
+    LineAA::Draw<int>(cx1, cy1, cx2, cy2, Plot);
+  }
 }
 
 void ImageRGBA::BlendLineAA(float x1, float y1, float x2, float y2,
                             uint8 r, uint8 g, uint8 b, uint8 a) {
-  auto Plot = [this, r, g, b, a](int x, int y, float f) {
-      uint8 aa = f * a;
-      this->BlendPixel(x, y, r, g, b, aa);
-    };
-  LineAA::Draw<int>(x1, y1, x2, y2, Plot);
+  BlendLineAA32(x1, y1, x2, y2, Pack32(r, g, b, a));
 }
 
 void ImageRGBA::BlendFilledCircle32(int x, int y, int r, uint32 color) {

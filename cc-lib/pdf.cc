@@ -93,6 +93,18 @@ static const char png_chunk_palette[] = "PLTE";
 static const char png_chunk_data[] = "IDAT";
 static const char png_chunk_end[] = "IEND";
 
+using TextEncoding = PDF::Options::TextEncoding;
+
+static const char *FontEncodingString(TextEncoding encoding) {
+  switch (encoding) {
+  case TextEncoding::UNICODE: return "/Identity-H";
+  case TextEncoding::WIN_ANSI: return "/WinAnsiEncoding";
+  default:
+    LOG(FATAL) << "Bad TextEncoding?";
+    return "";
+  }
+}
+
 static std::string Float(float f) {
   std::string s = StringPrintf("%.6f", f);
   for (;;) {
@@ -285,11 +297,11 @@ int PDF::GetErrCode() const {
   return errval;
 }
 
-PDF::Object *PDF::pdf_get_object(int index) {
+PDF::Object *PDF::GetObject(int index) {
   return objects[index];
 }
 
-void PDF::pdf_append_object(Object *obj) {
+void PDF::AppendObject(Object *obj) {
   int index = (int)objects.size();
   objects.push_back(obj);
 
@@ -307,16 +319,16 @@ void PDF::pdf_append_object(Object *obj) {
     first_objects[obj->type] = obj;
 }
 
-void PDF::pdf_object_destroy(Object *object) {
+void PDF::DestroyObject(Object *object) {
   delete object;
 }
 
-PDF::Object *PDF::pdf_add_object_internal(Object *obj) {
+PDF::Object *PDF::AddObjectInternal(Object *obj) {
   if (VERBOSE) {
     printf("Add object internal (%p, type %s)\n", obj, ObjTypeName(obj->type));
   }
   CHECK(obj != nullptr);
-  pdf_append_object(obj);
+  AppendObject(obj);
   return obj;
 }
 
@@ -344,7 +356,7 @@ void PDF::pdf_del_object(Object *obj) {
     }
   }
 
-  pdf_object_destroy(obj);
+  DestroyObject(obj);
 }
 
 void PDF::SetInfo(const PDF::Info &info) {
@@ -403,6 +415,13 @@ PDF::PDF(float width, float height, Options options) :
   CHECK(AddObject(new PagesObj) != nullptr);
   CHECK(AddObject(new CatalogObj) != nullptr);
   SetFont(TIMES_ROMAN);
+
+  if (options.encoding == TextEncoding::UNICODE) {
+    // We need this to explain what the character ids
+    // mean (identity mapping to unicode) when we are
+    // using UTF encoding.
+    CHECK(AddObject(new CMapObj) != nullptr);
+  }
 }
 
 float PDF::Width() const { return document_width; }
@@ -410,7 +429,7 @@ float PDF::Height() const { return document_height; }
 
 PDF::~PDF() {
   for (Object *obj : objects)
-    pdf_object_destroy(obj);
+    DestroyObject(obj);
   objects.clear();
 }
 
@@ -547,8 +566,8 @@ const char *PDF::BuiltInFontName(BuiltInFont f) {
   }
 }
 
-int PDF::pdf_save_object(FILE *fp, int index) {
-  Object *object = pdf_get_object(index);
+int PDF::SaveObject(FILE *fp, int index) {
+  Object *object = GetObject(index);
   if (!object)
     return -ENOENT;
 
@@ -761,17 +780,72 @@ int PDF::pdf_save_object(FILE *fp, int index) {
     break;
   }
 
+  case OBJ_cmap: {
+    // Always the identity cmap.
+    #if 0
+    fprintf(fp,
+              "<<\n"
+              "  /CIDInit /ProcSet findresource begin\n"
+              "  12 dict begin\n"
+              "  begincmap\n"
+              "  /CIDSystemInfo <<\n"
+              "    /Registry (Adobe)\n"
+              "    /Ordering (UCS)\n"
+              "    /Supplement 0\n"
+              "  >> def\n"
+              "  /CMapName /IdentityToUnicode def\n"
+              "  /CMapType 2 def\n"
+              "  1 begincodespacerange\n"
+              "  <0000><FFFF>\n"
+              "  endcodespacerange\n"
+              "  1 beginbfrange\n"
+              "  <0000><FFFF><0000>\n"
+              "  endbfrange\n"
+              "  endcmap\n"
+              "  CMapName currentdict /CMap defineresource pop\n"
+              "  end\n"
+              "  end\n"
+              ">>\n");
+#endif
+    fprintf(fp,
+            "<<\n"
+            "  /Type /CMap\n"
+            "  /CMapName /IdentityToUnicode\n"
+            "  /CMapType 2\n"
+            "  /CIDSystemInfo <<\n"
+            "    /Registry (Adobe)\n"
+            "    /Ordering (UCS)\n"
+            "    /Supplement 0\n"
+            "  >>\n"
+            "  /WMode 0\n"
+            "  /CodespaceRange [<0000> <FFFF>]\n"
+            "  /CIDToGIDMap /Identity\n"
+            ">>\n");
+    break;
+  }
+
   case OBJ_font: {
     const FontObj *fobj = (const FontObj*)object;
     if (fobj->ttf != nullptr) {
       CHECK(fobj->widths_obj != nullptr);
+
+      std::string cmap;
+      if (options.encoding == TextEncoding::UNICODE) {
+        const CMapObj *co = (const CMapObj *)pdf_find_first_object(OBJ_cmap);
+        CHECK(co != nullptr) << "We should have a CMap object "
+          "when using Unicode text encoding.";
+        cmap = StringPrintf("  /ToUnicode %d 0 R\n",
+                            co->index);
+      }
+
       // An embedded font.
       fprintf(fp,
               "<<\n"
               "  /Type /Font\n"
               "  /Subtype /TrueType\n"
               "  /BaseFont /Font%d\n"
-              "  /Encoding /WinAnsiEncoding\n"
+              "  /Encoding %s\n"
+              "%s"
               "  /FontDescriptor <<\n"
               "    /Type /FontDescriptor\n"
               "    /FontName /FontName%d\n"
@@ -783,6 +857,8 @@ int PDF::pdf_save_object(FILE *fp, int index) {
               ">>\n",
               // Basefont: Just needs a unique name.
               fobj->index,
+              FontEncodingString(options.encoding),
+              cmap.c_str(),
               // FontName; we just FontName<id>
               fobj->index,
               // Refers to the embedded file in its own stream.
@@ -801,9 +877,12 @@ int PDF::pdf_save_object(FILE *fp, int index) {
               "  /Type /Font\n"
               "  /Subtype /Type1\n"
               "  /BaseFont /%s\n"
-              "  /Encoding /WinAnsiEncoding\n"
+              "  /Encoding %s\n"
               ">>\n",
-              BuiltInFontName(fobj->builtin_font.value()));
+              BuiltInFontName(fobj->builtin_font.value()),
+              // TODO: Identity-H encoding is supposedly not supported
+              // for the built-in fonts?
+              FontEncodingString(options.encoding));
 
       // TODO: Built-in fonts are now supposed to have widths
       // as well.
@@ -899,7 +978,7 @@ static uint64_t hash(uint64_t hash, const void *data, size_t len) {
   return hash;
 }
 
-int PDF::pdf_save_file(FILE *fp) {
+int PDF::SaveFile(FILE *fp) {
   int xref_offset;
   int xref_count = 0;
   uint64_t id1, id2;
@@ -914,7 +993,7 @@ int PDF::pdf_save_file(FILE *fp) {
 
   /* Dump all the objects & get their file offsets */
   for (int i = 0; i < (int)objects.size(); i++) {
-    int err = pdf_save_object(fp, i);
+    int err = SaveObject(fp, i);
     if (err >= 0) {
       xref_count++;
     } else if (err == -ENOENT) {
@@ -970,7 +1049,7 @@ bool PDF::Save(const std::string &filename) {
     return false;
   }
 
-  int e = pdf_save_file(fp);
+  int e = SaveFile(fp);
 
   if (fp != stdout) {
     if (fclose(fp) != 0 && e >= 0) {
@@ -1889,7 +1968,7 @@ int PDF::AddBookmark(const std::string &name, int parent, Page *page) {
   bobj->name = name;
   bobj->page = page;
   if (parent >= 0) {
-    BookmarkObj *parent_obj = (BookmarkObj *)pdf_get_object(parent);
+    BookmarkObj *parent_obj = (BookmarkObj *)GetObject(parent);
     if (!parent_obj) {
       SetErr(-EINVAL, "Invalid parent ID %d supplied", parent);
       return false;
@@ -2337,9 +2416,12 @@ bool PDF::AddFilledPolygon(
 
   // TODO: Use Float() in here.
   StringAppendF(&str, "%f %f %f RG ",
-                PDF_RGB_R_FLOAT(color), PDF_RGB_G_FLOAT(color), PDF_RGB_B_FLOAT(color));
+                PDF_RGB_R_FLOAT(color),
+                PDF_RGB_G_FLOAT(color),
+                PDF_RGB_B_FLOAT(color));
   StringAppendF(&str, "%f %f %f rg ",
-                PDF_RGB_R_FLOAT(color), PDF_RGB_G_FLOAT(color), PDF_RGB_B_FLOAT(color));
+                PDF_RGB_R_FLOAT(color), PDF_RGB_G_FLOAT(color),
+                PDF_RGB_B_FLOAT(color));
   StringAppendF(&str, "%f w ", border_width);
   StringAppendF(&str, "%f %f m ", points[0].first, points[0].second);
   for (int i = 1; i < (int)points.size(); i++) {
@@ -2351,39 +2433,62 @@ bool PDF::AddFilledPolygon(
   return true;
 }
 
-static std::optional<std::string> EncodePDFText(const std::string &text) {
-  std::string ret;
-  ret.reserve(text.size());
-  for (int i = 0; i < (int)text.size(); /* in loop */) {
-    uint8_t pdf_char = 0;
-    const int code_len =
-      utf8_to_pdfencoding(text.data() + i, text.size() - i, &pdf_char);
-    if (code_len < 0) {
-      return std::nullopt;
-    }
+// Encode the text using the given encoding, including the surrounding
+// () or <> characters as appropriate.
+static std::optional<std::string> EncodePDFText(std::string_view text,
+                                                TextEncoding encoding) {
+  if (encoding == TextEncoding::WIN_ANSI) {
+    std::string ret = "(";
+    ret.reserve(text.size() + 2);
+    while (!text.empty()) {
+      uint8_t pdf_char = 0;
+      const int code_len =
+        utf8_to_pdfencoding(text.data(), text.size(), &pdf_char);
+      if (code_len < 0) {
+        return std::nullopt;
+      }
+      text.remove_prefix(code_len);
 
-    switch (pdf_char) {
-    case '(':
-    case ')':
-    case '\\':
-      // Escape these.
-      ret.push_back('\\');
-      ret.push_back(pdf_char);
-      break;
-    case '\n':
-    case '\r':
-    case '\t':
-    case '\b':
-    case '\f':
-      // Skip over these characters.
-      break;
-    default:
-      ret.push_back(pdf_char);
+      switch (pdf_char) {
+      case '(':
+      case ')':
+      case '\\':
+        // Escape these.
+        ret.push_back('\\');
+        ret.push_back(pdf_char);
+        break;
+      case '\n':
+      case '\r':
+      case '\t':
+      case '\b':
+      case '\f':
+        // Skip over these characters.
+        break;
+      default:
+        ret.push_back(pdf_char);
+      }
     }
+    ret.push_back(')');
+    return ret;
 
-    i += code_len;
+  } else {
+
+    std::string ret = "<";
+    ret.reserve(text.size() * 4 + 2);
+    while (!text.empty()) {
+      uint32_t codepoint = 0;
+      int code_len = utf8_to_utf32(text.data(), text.size(), &codepoint);
+      if (code_len < 0) return std::nullopt;
+      text.remove_prefix(code_len);
+
+      CHECK(codepoint <= 0xFFFF) << "Only 16-bit codepoints are "
+        "currently supported. You need something like 'surrogate pairs' "
+        "here. Got: U+" << StringPrintf("%08x", codepoint);
+      StringAppendF(&ret, "%04x", codepoint);
+    }
+    ret.push_back('>');
+    return ret;
   }
-  return ret;
 }
 
 static void SetTextPositionAndAngle(std::string *str,
@@ -2437,9 +2542,9 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
                   Float(PDF_COLOR_FLOAT(b)).c_str());
   }
   StringAppendF(&str, "%s Tc ", Float(spacing).c_str());
-  StringAppendF(&str, "(");
 
-  if (const std::optional<std::string> encoded_text = EncodePDFText(text)) {
+  if (const std::optional<std::string> encoded_text =
+      EncodePDFText(text, options.encoding)) {
     str.append(encoded_text.value());
   } else {
     SetErr(-EINVAL, "Could not encode text in PDF encoding.");
@@ -2447,7 +2552,7 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
   }
 
   StringAppendF(&str,
-                ") Tj "
+                " Tj "
                 "ET");
 
   AppendDrawCommand(page, std::move(str));
@@ -2499,8 +2604,9 @@ bool PDF::AddSpacedLine(const SpacedLine &line,
 
   for (int i = 0; i < (int)line.size(); i++) {
     const auto &[text, gap] = line[i];
-    if (const std::optional<std::string> encoded_text = EncodePDFText(text)) {
-      StringAppendF(&str, "(%s) ", encoded_text.value().c_str());
+    if (const std::optional<std::string> encoded_text =
+            EncodePDFText(text, options.encoding)) {
+      StringAppendF(&str, "%s ", encoded_text.value().c_str());
     } else {
       SetErr(-EINVAL, "Could not encode text in PDF encoding.");
       return false;

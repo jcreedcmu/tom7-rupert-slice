@@ -27,7 +27,7 @@
 // All colors are specified as a packed 32-bit value - see @ref PDF_RGB.
 // Text strings are interpreted as UTF-8 encoded, but only a small subset of
 // characters beyond 7-bit ascii are supported (see @ref pdf_add_text for
-// details).
+// details). (XXX update docs)
 
 static constexpr inline float PDF_INCH_TO_POINT(float inch) {
   return inch * 72.0f;
@@ -40,14 +40,26 @@ static constexpr inline float PDF_MM_TO_POINT(float mm) {
 namespace internal {
 // This is hoisted out to work around a GCC bug. Call it PDF::Options.
 struct PDFOptions {
+  enum class TextEncoding {
+    WIN_ANSI,
+    UNICODE,
+  };
+
+  // WIN_ANSI has the best historic compatibility, but can't encode
+  // all characters. UNICODE is recommended, which at least supports
+  // the Basic Multilingual Plane.
+  TextEncoding encoding = TextEncoding::UNICODE;
+
   // If compression is enabled, the amount to compress in [1, 9]. Higher
   // gives more compression, but the default is a good choice.
   int compression_level = 7;
+
   // If true, use flate compression on embedded streams. There's not really
   // any reason to turn off compression except that it makes it harder to
   // debug by looking at the generated PDF.
   bool use_compression = true;
-  // TODO: Might want to give options for only compressing binary data (e.g. TTFs)
+  // TODO: Might want to give options for only compressing binary data
+  // (e.g. TTFs)
   // TODO: Use object streams for better compression (PDF 1.5+).
 };
 }
@@ -69,6 +81,7 @@ private:
     OBJ_image,
     OBJ_link,
     OBJ_widths,
+    OBJ_cmap,
 
     OBJ_count,
   };
@@ -592,6 +605,10 @@ private:
     Info info;
   };
 
+  struct CMapObj : public Object {
+    CMapObj() : Object(OBJ_cmap) {}
+  };
+
   struct LinkObj : public Object {
     LinkObj() : Object(OBJ_link) {}
     // Page containing link.
@@ -639,15 +656,15 @@ private:
   void FlushDrawCommands(Page *page);
 
   int SetErr(int errval, const char *buffer, ...);
-  Object *pdf_get_object(int index);
-  void pdf_append_object(Object *obj);
+  Object *GetObject(int index);
+  void AppendObject(Object *obj);
   // Perhaps can just be destructor, or static
-  void pdf_object_destroy(Object *object);
+  void DestroyObject(Object *object);
   // Add a new-ly allocated object; takes ownership.
-  Object *pdf_add_object_internal(Object *obj);
+  Object *AddObjectInternal(Object *obj);
   // Convenience method that casts back to the derived class.
   template<class T> inline T *AddObject(T *t) {
-    return (T*)pdf_add_object_internal(t);
+    return (T*)AddObjectInternal(t);
   }
   void pdf_del_object(Object *obj);
   Object *pdf_find_first_object(int type);
@@ -658,8 +675,8 @@ private:
   void pdf_add_stream(Page *page, std::string str);
   void pdf_add_stream_raw(Page *page, std::string str);
 
-  int pdf_save_file(FILE *fp);
-  int pdf_save_object(FILE *fp, int index);
+  int SaveFile(FILE *fp);
+  int SaveObject(FILE *fp, int index);
 
   bool pdf_text_point_width(const char *text,
                             ptrdiff_t text_len, float size,
