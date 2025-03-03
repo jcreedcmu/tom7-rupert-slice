@@ -65,8 +65,8 @@ struct Util {
   // and strips leading whitespace from the rest. Ignores empty lines.
   static std::map<string, string> ReadFileToMap(const string &f);
 
-  static std::vector<uint8_t> ReadFileBytes(const string &f);
-  static bool WriteFileBytes(const string &f,
+  static std::vector<uint8_t> ReadFileBytes(std::string_view filename);
+  static bool WriteFileBytes(std::string_view filename,
                              const std::vector<uint8_t> &b);
 
   // Read/write a vector of uint64s in big-endian byte order.
@@ -288,7 +288,7 @@ struct Util {
   static string tempfile(const string &suffix);
 
   /* does this file exist and is it a directory? */
-  static bool isdir(const string &s);
+  static bool isdir(std::string_view s);
 
   /* same as isdir */
   static bool existsdir(const string &d);

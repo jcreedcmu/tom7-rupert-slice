@@ -142,8 +142,9 @@ std::string Util::HexString(const std::string &s,
   return out;
 }
 
-bool Util::isdir(const string &f) {
+bool Util::isdir(std::string_view filename) {
   struct stat st;
+  std::string f{filename};
   return (0 == stat(f.c_str(), &st)) && (st.st_mode & S_IFDIR);
 }
 
@@ -437,10 +438,11 @@ string Util::PadEx(int n, string s, char c) {
   return PadWith(n, std::move(s), c);
 }
 
-vector<uint8> Util::ReadFileBytes(const string &s) {
-  if (Util::isdir(s)) return {};
-  if (s == "") return {};
+vector<uint8> Util::ReadFileBytes(std::string_view filename) {
+  if (Util::isdir(filename)) return {};
+  if (filename.empty()) return {};
 
+  std::string s{filename};
   FILE *f = fopen(s.c_str(), "rb");
   if (!f) return {};
   return ReadAndCloseFile<vector<uint8>>(f, nullptr);
@@ -508,8 +510,9 @@ bool Util::WriteFile(std::string_view fn, std::string_view s) {
   return len == wrote_len;
 }
 
-bool Util::WriteFileBytes(const string &fn,
+bool Util::WriteFileBytes(std::string_view filename,
                           const vector<uint8> &bytes) {
+  std::string fn{filename};
   FILE *f = fopen(fn.c_str(), "wb");
   if (!f) return false;
 
