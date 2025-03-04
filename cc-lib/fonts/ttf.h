@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <string_view>
 
 #include "stb_truetype.h"
 #include "utf8.h"
@@ -27,11 +28,9 @@
 // TODO: Only expose normalized coordinates, to reduce confusion.
 // TODO: Use int codepoints, not char, in interface.
 struct TTF {
-  using string = std::string;
-
   const stbtt_fontinfo *FontInfo() const { return &font; }
 
-  explicit TTF(const string &filename);
+  explicit TTF(std::string_view filename);
 
   // Normalizes an input coordinate (which is usually int16) to be
   // *nominally* in the unit rectangle.
@@ -67,7 +66,7 @@ struct TTF {
   // Prefer BlitStringFloat.
   template<class DP>
   void BlitString(int x, int y, int size_px,
-                  const std::string &text, const DP &DrawPixel,
+                  std::string_view text, const DP &DrawPixel,
                   bool subpixel = true) const;
 
   // This is generally preferable to the above, which I should probably
@@ -76,7 +75,7 @@ struct TTF {
   // y position is baseline.
   template<class DP>
   void BlitStringFloat(float x, float y, float size_px,
-                       const std::string &text, const DP &DrawPixel,
+                       std::string_view text, const DP &DrawPixel,
                        bool kern);
 
 
@@ -85,7 +84,7 @@ struct TTF {
   // method as above. (This does not mean that all pixels lie within
   // the rectangle.)
   std::pair<int, int>
-  MeasureString(const std::string &text, int size_px,
+  MeasureString(std::string_view text, int size_px,
                 bool subpixel = true) const;
 
   enum class PathType {
@@ -371,7 +370,7 @@ private:
 
 template<class DP>
 void TTF::BlitString(int x, int y, int size_px,
-                     const std::string &text, const DP &DrawPixel,
+                     std::string_view text, const DP &DrawPixel,
                      bool subpixel) const {
   const float scale = stbtt_ScaleForPixelHeight(&font, size_px);
 
@@ -432,7 +431,7 @@ void TTF::BlitString(int x, int y, int size_px,
 
 template<class DP>
 void TTF::BlitStringFloat(float x, float y, float size_px,
-                          const std::string &text, const DP &DrawPixel,
+                          std::string_view text, const DP &DrawPixel,
                           bool kern) {
   const float scale = stbtt_ScaleForPixelHeight(&font, size_px);
 

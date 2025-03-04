@@ -45,7 +45,7 @@ TEST_UTIL=ansi.o util.o arcfour.o
 ansi_test.exe : ansi_test.o ansi.o util.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-stb_truetype_test.exe : stb_truetype.o stb_truetype_test.o
+stb_truetype_test.exe : stb_truetype.o stb_truetype_test.o hexdump.o $(BASE) $(TEST_UTIL)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 stb_image_bench.o : stb_image_bench.cc

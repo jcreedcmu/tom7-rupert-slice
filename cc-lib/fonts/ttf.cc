@@ -1,25 +1,26 @@
 #include "fonts/ttf.h"
 
-#include <string>
-#include <vector>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <tuple>
 #include <unordered_map>
+#include <vector>
 
-#include "util.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "stb_truetype.h"
+#include "util.h"
 
 using namespace std;
 
-TTF::TTF(const string &filename) {
+TTF::TTF(std::string_view filename) {
   ttf_bytes = Util::ReadFileBytes(filename);
   CHECK(!ttf_bytes.empty()) << filename;
 
   int offset = stbtt_GetFontOffsetForIndex(ttf_bytes.data(), 0);
   CHECK(offset != -1);
-  CHECK(stbtt_InitFont(&font, ttf_bytes.data(), offset)) <<
+  CHECK(stbtt_InitFont(&font, ttf_bytes.data(), ttf_bytes.size(), offset)) <<
     "Failed to load " << filename;
   stbtt_GetFontVMetrics(
       &font, &native_ascent, &native_descent, &native_linegap);
@@ -80,7 +81,7 @@ TTF::TTF(const string &filename) {
 
 
 std::pair<int, int>
-TTF::MeasureString(const string &text, int size_px, bool subpixel) const {
+TTF::MeasureString(std::string_view text, int size_px, bool subpixel) const {
   const float scale = stbtt_ScaleForPixelHeight(&font, size_px);
 
   int ascent = 0, descent = 0, line_gap = 0;

@@ -1,93 +1,70 @@
-//////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////
-////
-////  SAMPLE PROGRAMS
-////
 
-#include <stdio.h>
-#include <cstdint>
 #include <cmath>
-
-#include "stb_truetype.h"
-
-//
-//  Incomplete text-in-3d-api example, which draws quads properly aligned to be lossless
-//
-#if 0
-#define STB_TRUETYPE_IMPLEMENTATION  // force following include to generate implementation
-#include "stb_truetype.h"
-
-unsigned char ttf_buffer[1<<20];
-unsigned char temp_bitmap[512*512];
-
-stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
-GLuint ftex;
-
-void my_stbtt_initfont(void)
-{
-   fread(ttf_buffer, 1, 1<<20, fopen("c:/windows/fonts/times.ttf", "rb"));
-   stbtt_BakeFontBitmap(ttf_buffer,0, 32.0, temp_bitmap,512,512, 32,96, cdata); // no guarantee this fits!
-   // can free ttf_buffer at this point
-   glGenTextures(1, &ftex);
-   glBindTexture(GL_TEXTURE_2D, ftex);
-   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, 512,512, 0, GL_ALPHA, GL_UNSIGNED_BYTE, temp_bitmap);
-   // can free temp_bitmap at this point
-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-}
-
-void my_stbtt_print(float x, float y, char *text)
-{
-   // assume orthographic projection with units = screen pixels, origin at top left
-   glEnable(GL_TEXTURE_2D);
-   glBindTexture(GL_TEXTURE_2D, ftex);
-   glBegin(GL_QUADS);
-   while (*text) {
-      if (*text >= 32 && *text < 128) {
-         stbtt_aligned_quad q;
-         stbtt_GetBakedQuad(cdata, 512,512, *text-32, &x,&y,&q,1);//1=opengl & d3d10+,0=d3d9
-         glTexCoord2f(q.s0,q.t1); glVertex2f(q.x0,q.y0);
-         glTexCoord2f(q.s1,q.t1); glVertex2f(q.x1,q.y0);
-         glTexCoord2f(q.s1,q.t0); glVertex2f(q.x1,q.y1);
-         glTexCoord2f(q.s0,q.t0); glVertex2f(q.x0,q.y1);
-      }
-      ++text;
-   }
-   glEnd();
-}
-#endif
-//
-//
-//////////////////////////////////////////////////////////////////////////////
-//
-// Complete program (this compiles): get a single bitmap, print as ASCII art
-//
-#if 0
+#include <cstdint>
 #include <stdio.h>
-#define STB_TRUETYPE_IMPLEMENTATION  // force following include to generate implementation
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "ansi.h"
+#include "base/logging.h"
+#include "hexdump.h"
 #include "stb_truetype.h"
+#include "util.h"
+#include "base/stringprintf.h"
 
-char ttf_buffer[1<<25];
+static std::array<const char *, 8> shades = {
+  " ",
+  "⋅",
+  "·",
+  "⏹",
+  "░",
+  "▒",
+  "▓",
+  "█",
+};
 
-int main(int argc, char **argv)
-{
-   stbtt_fontinfo font;
-   unsigned char *bitmap;
-   int w,h,i,j,c = (argc > 1 ? atoi(argv[1]) : 'a'), s = (argc > 2 ? atoi(argv[2]) : 20);
+static void ShowBitmap(const stbtt_fontinfo *font, int size,
+                       int ch) {
+  int w = 0, h = 0;
+  unsigned char *bitmap = stbtt_GetCodepointBitmap(
+      font, 0,
+      stbtt_ScaleForPixelHeight(font, size), ch, &w, &h, 0, 0);
 
-   fread(ttf_buffer, 1, 1<<25, fopen(argc > 3 ? argv[3] : "c:/windows/fonts/arialbd.ttf", "rb"));
-
-   stbtt_InitFont(&font, ttf_buffer, stbtt_GetFontOffsetForIndex(ttf_buffer,0));
-   bitmap = stbtt_GetCodepointBitmap(&font, 0,stbtt_ScaleForPixelHeight(&font, s), c, &w, &h, 0,0);
-
-   for (j=0; j < h; ++j) {
-      for (i=0; i < w; ++i)
-         putchar(" .:ioVM@"[bitmap[j*w+i]>>5]);
-      putchar('\n');
-   }
-   return 0;
+  for (int j = 0; j < h; ++j) {
+    for (int i = 0; i < w; ++i) {
+      printf("%s", shades[7 & (bitmap[j*w+i]>>5)]);
+    }
+    putchar('\n');
+  }
+  stbtt_FreeBitmap(bitmap, nullptr);
 }
-#endif
-//
+
+static void ShowBitmapForGlyph(const stbtt_fontinfo *font, int size,
+                               int glyph) {
+  int w = 0, h = 0;
+  unsigned char *bitmap = stbtt_GetGlyphBitmap(
+      font, 0,
+      stbtt_ScaleForPixelHeight(font, size), glyph, &w, &h, 0, 0);
+
+  for (int j = 0; j < h; ++j) {
+    for (int i = 0; i < w; ++i) {
+      printf("%s", shades[7 & (bitmap[j*w+i]>>5)]);
+    }
+    putchar('\n');
+  }
+  stbtt_FreeBitmap(bitmap, nullptr);
+}
+
+static void TestA() {
+  std::vector<uint8_t> contents =
+    Util::ReadFileBytes("c:/windows/fonts/arialbd.ttf");
+  stbtt_fontinfo font;
+  stbtt_InitFont(&font, contents.data(), contents.size(), 0);
+  ShowBitmap(&font, 20, 'a');
+}
+
+
 // Output:
 //
 //     .ii.
@@ -100,52 +77,135 @@ int main(int argc, char **argv)
 //  :@@.  M@M
 //   @@@o@@@@
 //   :M@@V:@@.
-//
-//////////////////////////////////////////////////////////////////////////////
-//
-// Complete program: print "Hello World!" banner, with bugs
-//
-#if 1
-static uint8_t buffer[24<<20];
-static unsigned char screen[20][79];
 
-int main(int arg, char **argv)
-{
-   stbtt_fontinfo font;
-   int i,j,ascent,baseline,ch=0;
-   float scale, xpos=2; // leave a little padding in case the character extends left
-   // intentionally misspelled to show 'lj' brokenness
-   const char *text = "Heljo World!";
 
-   fread(buffer, 1, 1000000, fopen("c:/windows/fonts/arialbd.ttf", "rb"));
-   stbtt_InitFont(&font, buffer, 0);
+static void ASCIIDemo() {
+  // from stbtt
+  static unsigned char screen[20][79];
 
-   scale = stbtt_ScaleForPixelHeight(&font, 15);
-   stbtt_GetFontVMetrics(&font, &ascent,0,0);
-   baseline = (int) (ascent*scale);
+  stbtt_fontinfo font;
+  int i,j,ascent,baseline,ch=0;
+  // leave a little padding in case the character extends left
+  float scale, xpos=2;
+  // intentionally misspelled to show 'lj' brokenness
+  const char *text = "Heljo World!";
 
-   while (text[ch]) {
-      int advance,lsb,x0,y0,x1,y1;
-      float x_shift = xpos - (float) floor(xpos);
-      stbtt_GetCodepointHMetrics(&font, text[ch], &advance, &lsb);
-      stbtt_GetCodepointBitmapBoxSubpixel(&font, text[ch], scale,scale,x_shift,0, &x0,&y0,&x1,&y1);
-      stbtt_MakeCodepointBitmapSubpixel(&font, &screen[baseline + y0][(int) xpos + x0], x1-x0,y1-y0, 79, scale,scale,x_shift,0, text[ch]);
-      // note that this stomps the old data, so where character boxes overlap (e.g. 'lj') it's wrong
-      // because this API is really for baking character bitmaps into textures. if you want to render
-      // a sequence of characters, you really need to render each bitmap to a temp buffer, then
-      // "alpha blend" that into the working buffer
-      xpos += (advance * scale);
-      if (text[ch+1])
-         xpos += scale*stbtt_GetCodepointKernAdvance(&font, text[ch],text[ch+1]);
-      ++ch;
-   }
+  std::vector<uint8_t> contents =
+    Util::ReadFileBytes("c:/windows/fonts/arialbd.ttf");
 
-   for (j=0; j < 20; ++j) {
-      for (i=0; i < 78; ++i)
-         putchar(" .:ioVM@"[screen[j][i]>>5]);
-      putchar('\n');
-   }
+  stbtt_InitFont(&font, contents.data(), contents.size(), 0);
 
-   return 0;
+  scale = stbtt_ScaleForPixelHeight(&font, 15);
+  stbtt_GetFontVMetrics(&font, &ascent,0,0);
+  baseline = (int) (ascent*scale);
+
+  while (text[ch]) {
+    int advance, lsb, x0, y0, x1, y1;
+    float x_shift = xpos - (float)floor(xpos);
+    stbtt_GetCodepointHMetrics(&font, text[ch], &advance, &lsb);
+    stbtt_GetCodepointBitmapBoxSubpixel(&font, text[ch], scale, scale, x_shift,
+                                        0, &x0, &y0, &x1, &y1);
+    stbtt_MakeCodepointBitmapSubpixel(
+        &font, &screen[baseline + y0][(int)xpos + x0], x1 - x0, y1 - y0, 79,
+        scale, scale, x_shift, 0, text[ch]);
+    // note that this stomps the old data, so where character boxes overlap
+    // (e.g. 'lj') it's wrong because this API is really for baking character
+    // bitmaps into textures. if you want to render a sequence of characters,
+    // you really need to render each bitmap to a temp buffer, then "alpha
+    // blend" that into the working buffer
+    xpos += (advance * scale);
+    if (text[ch + 1])
+      xpos += scale * stbtt_GetCodepointKernAdvance(
+          &font, text[ch], text[ch + 1]);
+    ++ch;
+  }
+
+  for (j = 0; j < 20; ++j) {
+    for (i = 0; i < 78; ++i)
+      putchar(" .:ioVM@"[screen[j][i] >> 5]);
+    putchar('\n');
+  }
 }
-#endif
+
+static void TestCMap() {
+  std::vector<uint8_t> contents =
+    Util::ReadFileBytes("fonts/DFXPasement9px.ttf");
+
+  stbtt_fontinfo font;
+  stbtt_InitFont(&font, contents.data(), contents.size(), 0);
+
+  std::unordered_map<uint16_t, uint32_t> codepoint_from_glyph =
+    stbtt_GetGlyphs(&font);
+
+  CHECK(!codepoint_from_glyph.empty());
+  printf("There are %d glyphs with codepoints.\n",
+         (int)codepoint_from_glyph.size());
+
+  std::unordered_set<uint32_t> codepoints_found;
+
+  for (const auto &[glyph, codepoint] : codepoint_from_glyph) {
+    CHECK(codepoint > 0);
+    codepoints_found.insert(codepoint);
+    CHECK(stbtt_FindGlyphIndex(&font, codepoint) == glyph);
+  }
+
+  CHECK(codepoints_found.contains('*'));
+  // Some non-ascii characters I know are in the font.
+  CHECK(codepoints_found.contains(0x2665));
+  CHECK(codepoints_found.contains(0x221E));
+
+  printf("glyph/codepoint mapping OK!\n");
+}
+
+[[maybe_unused]]
+static void DebugFont() {
+  std::vector<uint8_t> contents = Util::ReadFileBytes("aj.ttf");
+
+  stbtt_fontinfo font;
+  stbtt_InitFont(&font, contents.data(), contents.size(), 0);
+
+  std::unordered_map<uint16_t, uint32_t> codepoint_from_glyph =
+    stbtt_GetGlyphs(&font);
+
+  CHECK(!codepoint_from_glyph.empty()) << "No glyphs. Musta failed";
+  printf("There are %d glyphs with codepoints.\n",
+         (int)codepoint_from_glyph.size());
+
+  std::unordered_set<uint32_t> codepoints_found;
+
+  int correct = 0;
+  for (const auto &[glyph, codepoint] : codepoint_from_glyph) {
+    CHECK(codepoint > 0);
+    codepoints_found.insert(codepoint);
+    int stb_glyph = stbtt_FindGlyphIndex(&font, codepoint);
+    if (stb_glyph != glyph) {
+      printf("\nstb glyph:\n");
+      ShowBitmapForGlyph(&font, 40, stb_glyph);
+      printf("\n\nmy glyph:\n");
+      ShowBitmapForGlyph(&font, 40, glyph);
+      printf("\n");
+      printf("For U+%04x stb got %04x, but I got %04x. Correct so far: %d\n",
+             codepoint, stb_glyph, glyph, correct);
+      LOG(FATAL) << "Failed";
+    }
+    correct++;
+  }
+
+  CHECK(codepoints_found.contains('*'));
+
+  printf("glyph/codepoint mapping OK!\n");
+}
+
+int main(int argc, char **argv) {
+  ANSI::Init();
+
+  TestCMap();
+  // DebugFont();
+
+  printf("Need to have arialbd.ttf in windows directory, and need to "
+         "inspect the output:\n");
+  TestA();
+  ASCIIDemo();
+
+  return 0;
+}

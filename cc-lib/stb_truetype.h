@@ -3,6 +3,8 @@
 // Minor local modifications by Tom 7 for cc-lib:
 //  - Split into header, cc, test.
 //  - Assume C++
+//  - Add possibility of bounds checking on the input file
+//  - Added some additional functionality
 //
 // =======================================================================
 //
@@ -270,6 +272,10 @@
 #ifndef _CC_LIB_STB_TRUETYPE_H
 #define _CC_LIB_STB_TRUETYPE_H
 
+#include <cstdint>
+#include <unordered_map>
+#include <cstddef>
+
 #ifdef STBTT_STATIC
 #define STBTT_DEF static
 #else
@@ -297,11 +303,18 @@ typedef struct
    float xoff,yoff,xadvance;
 } stbtt_bakedchar;
 
-STBTT_DEF int stbtt_BakeFontBitmap(const unsigned char *data, int offset,  // font location (use offset=0 for plain .ttf)
-                                float pixel_height,                     // height of font in pixels
-                                unsigned char *pixels, int pw, int ph,  // bitmap to be filled in
-                                int first_char, int num_chars,          // characters to bake
-                                stbtt_bakedchar *chardata);             // you allocate this, it's num_chars long
+STBTT_DEF int stbtt_BakeFontBitmap(
+    const unsigned char *data, size_t size,
+    // font location (use offset=0 for plain .ttf)
+    int offset,
+    // height of font in pixels
+    float pixel_height,
+    // bitmap to be filled in
+    unsigned char *pixels, int pw, int ph,
+    // characters to bake
+    int first_char, int num_chars,
+    // you allocate this, it's num_chars long
+    stbtt_bakedchar *chardata);
 // if return is positive, the first unused row of the bitmap
 // if return is negative, returns the negative of the number of characters that fit
 // if return is 0, no characters fit and no rows were used
@@ -328,7 +341,7 @@ STBTT_DEF void stbtt_GetBakedQuad(const stbtt_bakedchar *chardata, int pw, int p
 //
 // It's inefficient; you might want to c&p it and optimize it.
 
-STBTT_DEF void stbtt_GetScaledFontVMetrics(const unsigned char *fontdata, int index, float size, float *ascent, float *descent, float *lineGap);
+STBTT_DEF void stbtt_GetScaledFontVMetrics(const unsigned char *fontdata, size_t fontdata_size, int index, float size, float *ascent, float *descent, float *lineGap);
 // Query the font vertical metrics without having to create a font first.
 
 
@@ -393,7 +406,7 @@ typedef struct
    unsigned char h_oversample, v_oversample; // don't set these, they're used internally
 } stbtt_pack_range;
 
-STBTT_DEF int  stbtt_PackFontRanges(stbtt_pack_context *spc, const unsigned char *fontdata, int font_index, stbtt_pack_range *ranges, int num_ranges);
+STBTT_DEF int  stbtt_PackFontRanges(stbtt_pack_context *spc, const unsigned char *fontdata, size_t data_size, int font_index, stbtt_pack_range *ranges, int num_ranges);
 // Creates character bitmaps from multiple ranges of characters stored in
 // ranges. This will usually create a better-packed bitmap than multiple
 // calls to stbtt_PackFontRange. Note that you can call this multiple
@@ -461,6 +474,8 @@ struct stbtt_pack_context {
 //
 //
 
+// TODO(tom7): These should take the size of the data as an argument, too.
+
 STBTT_DEF int stbtt_GetNumberOfFonts(const unsigned char *data);
 // This function will determine the number of fonts in a font file.  TrueType
 // collection (.ttc) files may contain multiple fonts, while TrueType font
@@ -482,6 +497,7 @@ struct stbtt_fontinfo
    void           * userdata;
    unsigned char  * data;              // pointer to .ttf file
    int              fontstart;         // offset of start of font
+   size_t           data_length;       // from data start.
 
    int numGlyphs;                     // number of glyphs, needed for range checking
 
@@ -497,13 +513,15 @@ struct stbtt_fontinfo
    stbtt__buf fdselect;               // map from glyph to fontdict
 };
 
-STBTT_DEF int stbtt_InitFont(stbtt_fontinfo *info, const unsigned char *data, int offset);
+STBTT_DEF int stbtt_InitFont(stbtt_fontinfo *info,
+                             const unsigned char *data,
+                             size_t length,
+                             int offset);
 // Given an offset into the file that defines a font, this function builds
 // the necessary cached info for the rest of the system. You must allocate
 // the stbtt_fontinfo yourself, and stbtt_InitFont will fill it out. You don't
 // need to do anything special to free it, because the contents are pure
 // value data with no additional data structures. Returns 0 on failure.
-
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -516,6 +534,12 @@ STBTT_DEF int stbtt_FindGlyphIndex(const stbtt_fontinfo *info, int unicode_codep
 // codepoint-based functions.
 // Returns 0 if the character codepoint is not defined in the font.
 
+// Added by tom 7.
+// Compute the full mapping of 16-bit glyph id to unicode codepoint.
+// Should be the inverse of the above. The .notdef glyph 0 is absent.
+STBTT_DEF std::unordered_map<uint16_t, uint32_t> stbtt_GetGlyphs(const stbtt_fontinfo *info);
+// For debugging. Get the "format" used to decode the cmap.
+STBTT_DEF int stbtt_GetEncodingFormat(const stbtt_fontinfo *info);
 
 //////////////////////////////////////////////////////////////////////////////
 //
