@@ -375,9 +375,6 @@ static void MakeSimplePDF() {
     CHECK(pdf.AddQRCode(rx, ry, qp * 3, "so nosy :("));
 
     y -= QR_SIZE + GAP;
-
-
-
   }
 
   {
@@ -437,7 +434,6 @@ static void MakeMinimalPDF() {
   printf("Create PDF object.\n");
   PDF::Options opt;
   opt.use_compression = false;
-  opt.encoding = PDF::Options::TextEncoding::UNICODE;
   PDF pdf(PDF::PDF_LETTER_WIDTH,
           PDF::PDF_LETTER_HEIGHT,
           opt);
@@ -453,12 +449,12 @@ static void MakeMinimalPDF() {
   snprintf(info.date, 63, "8 Jun 2024");
   pdf.SetInfo(info);
 
-  std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf");
+  std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf",
+                                         PDF::FontEncoding::WIN_ANSI);
 
   pdf.SetFont(pasement_name);
-  CHECK(pdf.AddText(// "Title of PDF",
-            "Title",
-            72,
+  CHECK(pdf.AddText("Title of PDF",
+                    72,
                     30, PDF::PDF_LETTER_HEIGHT - 72 - 36,
                     PDF_RGB(0, 0, 0)));
 

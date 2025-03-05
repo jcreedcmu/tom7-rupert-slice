@@ -40,16 +40,6 @@ static constexpr inline float PDF_MM_TO_POINT(float mm) {
 namespace internal {
 // This is hoisted out to work around a GCC bug. Call it PDF::Options.
 struct PDFOptions {
-  enum class TextEncoding {
-    WIN_ANSI,
-    UNICODE,
-  };
-
-  // WIN_ANSI has the best historic compatibility, but can't encode
-  // all characters. UNICODE is recommended, which at least supports
-  // the Basic Multilingual Plane.
-  TextEncoding encoding = TextEncoding::UNICODE;
-
   // If compression is enabled, the amount to compress in [1, 9]. Higher
   // gives more compression, but the default is a good choice.
   int compression_level = 7;
@@ -81,7 +71,7 @@ private:
     OBJ_image,
     OBJ_link,
     OBJ_widths,
-    OBJ_cmap,
+    // OBJ_cmap,
 
     OBJ_count,
   };
@@ -102,8 +92,10 @@ private:
 
   struct StreamObj;
   struct WidthsObj;
+  // XXX probably not needed. it's just a stream
+  struct CMapObj;
 
-public:
+ public:
 
   // PDF has 14 built-in fonts.
   enum BuiltInFont {
@@ -172,6 +164,16 @@ public:
   // TJ command uses -1/1000 points.
   using SpacedLine = std::vector<std::pair<std::string, float>>;
 
+  // A font also specifies how text streams should be encoded.
+  // For built-in fonts, this has to be WIN_ANSI. For embedded
+  // fonts, you almost always want UNICODE, although this makes
+  // files somewhat larger and more complicated.
+  enum class FontEncoding {
+    WIN_ANSI,
+    // XXX: Experimental! Doesn't work yet!
+    UNICODE,
+  };
+
   // Just kidding. There's also FontObj!
   struct FontObj : public Object {
     FontObj() : Object(OBJ_font) {}
@@ -201,9 +203,13 @@ public:
     // The width of the string at 1pt.
     double GetKernedWidth(const std::string &text) const;
 
+    FontEncoding GetEncoding() const;
+
   private:
     // The font's index, like 3 for /F3.
     int font_index = 0;
+
+    FontEncoding encoding = FontEncoding::WIN_ANSI;
 
     // For built-in fonts, the font.
     std::optional<BuiltInFont> builtin_font = std::nullopt;
@@ -212,6 +218,14 @@ public:
     StreamObj *ttf = nullptr;
     // For all fonts, the required widths array.
     WidthsObj *widths_obj = nullptr;
+    // For embedded fonts with unicode encoding, the CMap.
+    StreamObj *cmap_obj = nullptr;
+    // XXX actually, don't need to store this
+    std::string cmap_name;
+
+    // For UNICODE fonts.
+    std::unordered_map<uint32_t, uint16_t> glyph_from_codepoint;
+
     // For embedded fonts, the table of widths.
     // These widths are scaled to "14pt".
     std::vector<uint16_t> widths;
@@ -560,8 +574,13 @@ public:
 
   // TODO: Add support for RGBA images with actual alpha channels!
 
-  // Document
-  std::string AddTTF(const std::string &filename);
+  // Add a TTF to the document, loading it from the filename. Probably
+  // also works with OpenType. The encoding will determine what
+  // strings can be written with the font, but text is always
+  // represented with UTF-8 in this interface.
+  std::string AddTTF(const std::string &filename,
+                     // XXX use UNICODE when working
+                     FontEncoding encoding = FontEncoding::WIN_ANSI);
 
   static const char *ObjTypeName(ObjType t);
 
@@ -587,6 +606,8 @@ private:
 
   struct WidthsObj : public Object {
     WidthsObj() : Object(OBJ_widths) {}
+
+
     // Inclusive!
     int firstchar = 0, lastchar = 255;
     // Scaled by 1000.
@@ -605,9 +626,17 @@ private:
     Info info;
   };
 
+  #if 0
   struct CMapObj : public Object {
     CMapObj() : Object(OBJ_cmap) {}
+    // This maps between glyph id (16-bit; specific to the font) and
+    // 32-bit unicode codepoint. The CMap that we output in the PDF
+    // is actually the inverse, but we store this in the codepoint ->
+    // glyph direction because we need to convert codepoints to
+    // glyph ids to write text streams in the PDF.
+    std::unordered_map<uint32_t, uint16_t> glyph_from_codepoint;
   };
+  #endif
 
   struct LinkObj : public Object {
     LinkObj() : Object(OBJ_link) {}
@@ -666,6 +695,10 @@ private:
   template<class T> inline T *AddObject(T *t) {
     return (T*)AddObjectInternal(t);
   }
+  StreamObj *AddStreamObject(
+          const std::vector<std::pair<std::string, std::string>> &keys,
+          const std::string &s);
+
   void pdf_del_object(Object *obj);
   Object *pdf_find_first_object(int type);
   Object *pdf_find_last_object(int type);

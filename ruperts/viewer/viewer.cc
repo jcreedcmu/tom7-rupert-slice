@@ -40,6 +40,7 @@
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "image.h"
+#include "lines.h"
 #include "periodically.h"
 #include "randutil.h"
 #include "threadutil.h"
@@ -48,7 +49,6 @@
 
 #include "mesh.h"
 #include "yocto_matht.h"
-
 
 #include "mov.h"
 #include "mov-recorder.h"
@@ -137,12 +137,18 @@ struct ScopeExit {
 
 struct Scene {
   vec3 camera_pos = vec3{-1.0, -.03, 4.0};
+  const vec3 object_pos = vec3{0.0, 0.0, 0.0};
+
+  void Reset() {
+    camera_pos = vec3{-1.0, -.03, 4.0};
+  }
 
   explicit Scene(TriangularMesh3D mesh) : original_mesh(std::move(mesh)) {
     OrientMesh(&original_mesh);
+    Reset();
   }
 
-  void Draw(ImageRGBA *img) {
+  void Draw(RediImageRGBA *img) {
     img->Clear32(0x000000FF);
 
     constexpr double SCALE = 300.0;
@@ -159,7 +165,12 @@ struct Scene {
                         uint32_t color) {
         const auto &[x0, y0] = ToScreen(a);
         const auto &[x1, y1] = ToScreen(b);
-        img->BlendLine32(x0, y0, x1, y1, color);
+        auto clip = ClipLineToRectangle<float>(x0, y0, x1, y1,
+                                               0, 0, SCREENW, SCREENH);
+        if (clip.has_value()) {
+          const auto &[cx0, cy0, cx1, cy1] = clip.value();
+          img->BlendLine32(cx0, cy0, cx1, cy1, color);
+        }
       };
 
     constexpr double FOVY = 1.0; // 1 radian is about 60 deg
@@ -169,7 +180,10 @@ struct Scene {
     mat4 persp = yocto::perspective_mat(FOVY, ASPECT_RATIO, NEAR_PLANE,
                                         FAR_PLANE);
 
-    frame3 frame = translation_frame(-camera_pos);
+    // frame3 frame = translation_frame(-camera_pos);
+
+    frame3 frame = inverse(lookat_frame(camera_pos, object_pos,
+                                        vec3{0.0, 1.0, 0.0}));
 
     TriangularMesh3D mesh = TransformMesh(persp,
                                           TransformMesh(frame, original_mesh));
@@ -217,7 +231,7 @@ struct UI {
   uint8_t current_gamepad = 0;
   int64_t frames_drawn = 0;
   uint8_t last_jhat = 0;
-  vec3 move = vec3{0, 0, 0};
+  vec3 vel = vec3{0, 0, 0};
 
   UI(TriangularMesh3D mesh);
   void Loop();
@@ -231,7 +245,7 @@ struct UI {
   enum class EventResult { NONE, DIRTY, EXIT, };
   EventResult HandleEvents();
 
-  std::unique_ptr<ImageRGBA> drawing;
+  std::unique_ptr<RediImageRGBA> drawing;
   int mousex = 0, mousey = 0;
   bool dragging = false;
 
@@ -242,7 +256,7 @@ struct UI {
 };
 
 UI::UI(TriangularMesh3D mesh) : scene(std::move(mesh)), fps_per(1.0 / 60.0) {
-  drawing.reset(new ImageRGBA(SCREENW, SCREENH));
+  drawing.reset(new RediImageRGBA(SCREENW, SCREENH));
   CHECK(drawing != nullptr);
   drawing->Clear32(0x000000FF);
 }
@@ -288,7 +302,7 @@ UI::EventResult UI::HandleEvents() {
 
     case SDL_JOYAXISMOTION: {
       //   ^-            ^-
-      //   1  <2>        3  <4>
+      //   1  <0>        3  <4>
       //   v+ - +        v+ - +
 
       auto MapAxis = [](int a) {
@@ -296,7 +310,7 @@ UI::EventResult UI::HandleEvents() {
           if (neg) a = -a;
 
           // dead zone at top and bottom
-          constexpr int lo = 1024;
+          constexpr int lo = 8192;
           constexpr int hi = 1024;
 
           if (a < lo) {
@@ -309,13 +323,13 @@ UI::EventResult UI::HandleEvents() {
 
       SDL_JoyAxisEvent *j = (SDL_JoyAxisEvent *)&event;
       switch (j->axis) {
+      case 0:
+        // left and right
+        vel.x = MapAxis(j->value);
+        break;
       case 1:
         // forward and back
-        move.z = MapAxis(j->value);
-        break;
-      case 2:
-        // left and right
-        move.x = MapAxis(j->value);
+        vel.z = MapAxis(j->value);
         break;
 
       case 3:
@@ -339,7 +353,7 @@ UI::EventResult UI::HandleEvents() {
         return EventResult::EXIT;
 
       case SDLK_HOME: {
-        // TODO: Restart level...
+        // TODO: Reset pos
 
         speed = Speed::PAUSE;
         ui_dirty = true;
@@ -573,14 +587,15 @@ void UI::Draw() {
     // apply perspective transform
   }
 
-  scene.camera_pos += move * 0.01;
+  scene.camera_pos += vel * 0.01;
   scene.Draw(drawing.get());
 
   drawing->BlendText32(5, 5, 0xFFFF00AA,
                        StringPrintf("Frames: %lld", frames_drawn));
   sdlutil::CopyRGBAToScreen(*drawing, screen);
 
-  font->draw(30, 30, "hi it is ^3me ^6:)");
+  font->draw(30, 30, StringPrintf("%.5f, %.5f, %.5f",
+                                  vel.x, vel.y, vel.z));
 
   if (mov.get()) {
     // TODO: Enqueue this.

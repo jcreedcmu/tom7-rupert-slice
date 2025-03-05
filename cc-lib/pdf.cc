@@ -1,11 +1,15 @@
 // PDF output, based on Andre Renaud's public domain PDFGen:
 //   https://github.com/AndreRenaud/PDFGen/tree/master
 //
-// Local changes:
+// I made a large number of local edits. Some notable ones:
 //   - "fixed" some printf format parameter warnings
 //   - Ported to C++.
 //   - Fix bug with text justification: Denominator should be
 //      len - 1, not len - 2.
+//   - Removed many things I didn't want
+//   - Added compression
+//   - Added QR codes
+//   - Added support for embedded TrueType fonts
 
 // PERF: Output will have a lot of 200.00000000 stuff; use smarter
 // float to text routine.
@@ -25,6 +29,7 @@
 
 #endif
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <ctype.h>
@@ -93,12 +98,18 @@ static const char png_chunk_palette[] = "PLTE";
 static const char png_chunk_data[] = "IDAT";
 static const char png_chunk_end[] = "IEND";
 
-using TextEncoding = PDF::Options::TextEncoding;
+using FontEncoding = PDF::FontEncoding;
 
-static const char *FontEncodingString(TextEncoding encoding) {
+static const char *FontEncodingString(FontEncoding encoding) {
   switch (encoding) {
-  case TextEncoding::UNICODE: return "/Identity-H";
-  case TextEncoding::WIN_ANSI: return "/WinAnsiEncoding";
+  case FontEncoding::UNICODE:
+    // Identity means we just use 16-bit glyph codes (two bytes each)
+    // from the font. The PDF understands what codepoints these are
+    // because of the /ToUnicode CMAP.
+    return "/Identity-H";
+  case FontEncoding::WIN_ANSI:
+    // This is a built-in mapping from bytes to codepoints.
+    return "/WinAnsiEncoding";
   default:
     LOG(FATAL) << "Bad TextEncoding?";
     return "";
@@ -416,12 +427,15 @@ PDF::PDF(float width, float height, Options options) :
   CHECK(AddObject(new CatalogObj) != nullptr);
   SetFont(TIMES_ROMAN);
 
-  if (options.encoding == TextEncoding::UNICODE) {
+  #if 0
+  // XXX added by fonts.
+  if (options.encoding == FontEncoding::UNICODE) {
     // We need this to explain what the character ids
     // mean (identity mapping to unicode) when we are
     // using UTF encoding.
     CHECK(AddObject(new CMapObj) != nullptr);
   }
+  #endif
 }
 
 float PDF::Width() const { return document_width; }
@@ -780,9 +794,13 @@ int PDF::SaveObject(FILE *fp, int index) {
     break;
   }
 
-  case OBJ_cmap: {
-    // Always the identity cmap.
     #if 0
+    // deleteme
+  case OBJ_cmap: {
+
+    std::string stream;
+
+    // Always the identity cmap.
     fprintf(fp,
               "<<\n"
               "  /CIDInit /ProcSet findresource begin\n"
@@ -806,7 +824,7 @@ int PDF::SaveObject(FILE *fp, int index) {
               "  end\n"
               "  end\n"
               ">>\n");
-#endif
+
     fprintf(fp,
             "<<\n"
             "  /Type /CMap\n"
@@ -822,51 +840,75 @@ int PDF::SaveObject(FILE *fp, int index) {
             "  /CIDToGIDMap /Identity\n"
             ">>\n");
     break;
+
   }
+#endif
 
   case OBJ_font: {
     const FontObj *fobj = (const FontObj*)object;
     if (fobj->ttf != nullptr) {
       CHECK(fobj->widths_obj != nullptr);
 
-      std::string cmap;
-      if (options.encoding == TextEncoding::UNICODE) {
-        const CMapObj *co = (const CMapObj *)pdf_find_first_object(OBJ_cmap);
-        CHECK(co != nullptr) << "We should have a CMap object "
-          "when using Unicode text encoding.";
-        cmap = StringPrintf("  /ToUnicode %d 0 R\n",
-                            co->index);
+      const char *subtype = "/TrueType";
+      // XXX - if the font is encoded this way
+      if (fobj->encoding == FontEncoding::UNICODE) {
+        subtype = "/CIDFontType2";
       }
 
-      // An embedded font.
+      // Basics that are always present.
       fprintf(fp,
               "<<\n"
               "  /Type /Font\n"
-              "  /Subtype /TrueType\n"
+              "  /Subtype %s\n"
               "  /BaseFont /Font%d\n"
               "  /Encoding %s\n"
-              "%s"
               "  /FontDescriptor <<\n"
               "    /Type /FontDescriptor\n"
               "    /FontName /FontName%d\n"
               "    /FontFile2 %d 0 R\n"
-              "  >>\n"
-              "  /FirstChar %d\n"
-              "  /LastChar %d\n"
-              "  /Widths %d 0 R\n"
-              ">>\n",
+              "  >>\n",
+              // TrueType either way. But a CIDFontType2 has
+              // its CIDs (basically glyph ids) specified instead
+              // of using a pdf encoding like win_ansi; we use this
+              // for unicode fonts.
+              subtype,
               // Basefont: Just needs a unique name.
               fobj->index,
-              FontEncodingString(options.encoding),
-              cmap.c_str(),
+              FontEncodingString(fobj->encoding),
               // FontName; we just FontName<id>
               fobj->index,
               // Refers to the embedded file in its own stream.
-              fobj->ttf->index,
-              fobj->widths_obj->firstchar,
-              fobj->widths_obj->lastchar,
-              // Array of widths in its own object.
-              fobj->widths_obj->index);
+              fobj->ttf->index);
+
+      if (fobj->encoding == FontEncoding::UNICODE) {
+        CHECK(fobj->cmap_obj != nullptr) << "We should have a CMap object "
+          "when using Unicode text encoding.";
+        fprintf(fp, "  /ToUnicode %d 0 R\n", fobj->cmap_obj->index);
+
+        // XXX Actually it sounds like we also need to wrap this in
+        // a Type 0 font!
+        // This is boilerplate saying that we want CID = glyph id.
+        fprintf(fp,
+                "  /CIDSystemInfo <<\n"
+                "    /Registry (Adobe)\n"
+                "    /Ordering (Identity)\n"
+                "  /Supplement 0\n"
+                "  >>\n"
+                "  /CIDToGIDMap /Identity\n");
+
+      } else {
+        fprintf(fp,
+                "  /FirstChar %d\n"
+                "  /LastChar %d\n"
+                "  /Widths %d 0 R\n",
+                // XXX Probably not for CIDfonts?
+                fobj->widths_obj->firstchar,
+                fobj->widths_obj->lastchar,
+                // Array of widths in its own object.
+                fobj->widths_obj->index);
+      }
+
+      fprintf(fp, ">>\n");
 
     } else {
       CHECK(fobj->builtin_font.has_value()) << "A FontObj should "
@@ -882,7 +924,7 @@ int PDF::SaveObject(FILE *fp, int index) {
               BuiltInFontName(fobj->builtin_font.value()),
               // TODO: Identity-H encoding is supposedly not supported
               // for the built-in fonts?
-              FontEncodingString(options.encoding));
+              FontEncodingString(fobj->encoding));
 
       // TODO: Built-in fonts are now supposed to have widths
       // as well.
@@ -1097,8 +1139,49 @@ void PDF::pdf_add_stream(Page *page, std::string str) {
   pdf_add_stream_raw(page, std::move(str));
 }
 
-void PDF::pdf_add_stream_raw(Page *page, std::string str) {
+PDF::StreamObj *PDF::AddStreamObject(
+    // Like {{"/Type", "/CMap"}}
+    const std::vector<std::pair<std::string, std::string>> &keys,
+    const std::string &contents) {
+  StreamObj *sobj = AddObject(new StreamObj);
+  CHECK(sobj != nullptr);
 
+  sobj->stream = "<< ";
+  for (const auto &[k, v] : keys) {
+    CHECK(!k.empty() && k[0] == '/' && !v.empty());
+    AppendFormat(&sobj->stream, "{} {} ", k, v);
+  }
+
+  // Note: Stream /Length does not include the \n after stream or
+  // before endstream.
+  if (options.use_compression) {
+    std::string flate_bytes =
+      ZIP::ZlibString(contents, options.compression_level);
+    // /Filter /FlateDecode
+    // 012345678901234567890
+    if (flate_bytes.size() + 20 < contents.size()) {
+      AppendFormat(&sobj->stream,
+                   "/Length {} /Filter /FlateDecode >>stream\n",
+                   (int)flate_bytes.size());
+      sobj->stream.append(flate_bytes);
+    } else {
+      // If it's not smaller (which is common for very short streams,
+      // for example) then don't bother compressing it.
+      AppendFormat(&sobj->stream,
+                   "/Length {} >>stream\n", (int)contents.size());
+      sobj->stream.append(contents);
+    }
+  } else {
+    AppendFormat(&sobj->stream, "/Length {} >>stream\n",
+                 (int)contents.size());
+    sobj->stream.append(contents);
+  }
+  StringAppendF(&sobj->stream, "\nendstream\n");
+
+  return sobj;
+}
+
+void PDF::pdf_add_stream_raw(Page *page, std::string str) {
   CHECK(page != nullptr) << "You may need to add a page to the document "
     "first.";
 
@@ -1110,30 +1193,7 @@ void PDF::pdf_add_stream_raw(Page *page, std::string str) {
     str.resize(str.size() - 1);
   }
 
-  StreamObj *sobj = AddObject(new StreamObj);
-  CHECK(sobj != nullptr);
-
-  if (options.use_compression) {
-    std::string flate_bytes = ZIP::ZlibString(str, options.compression_level);
-    // /Filter /FlateDecode
-    // 012345678901234567890
-    if (flate_bytes.size() + 20 < str.size()) {
-      sobj->stream = StringPrintf(
-          "<< /Length %d /Filter /FlateDecode >>stream\n", (int)flate_bytes.size());
-      sobj->stream.append(flate_bytes);
-    } else {
-      // If it's not smaller (which is common for very short streams, for example)
-      // then don't bother compressing it.
-      sobj->stream = StringPrintf("<< /Length %d >>stream\n", (int)str.size());
-      sobj->stream.append(str);
-    }
-  } else {
-    sobj->stream = StringPrintf("<< /Length %d >>stream\n", (int)str.size());
-    sobj->stream.append(str);
-  }
-  StringAppendF(&sobj->stream, "\nendstream\n");
-
-  page->children.push_back(sobj);
+  page->children.push_back(AddStreamObject({}, str));
 }
 
 namespace {
@@ -2435,9 +2495,11 @@ bool PDF::AddFilledPolygon(
 
 // Encode the text using the given encoding, including the surrounding
 // () or <> characters as appropriate.
-static std::optional<std::string> EncodePDFText(std::string_view text,
-                                                TextEncoding encoding) {
-  if (encoding == TextEncoding::WIN_ANSI) {
+static std::optional<std::string> EncodePDFText(
+    std::string_view text,
+    FontEncoding encoding,
+    const std::unordered_map<uint32_t, uint16_t> &cmap) {
+  if (encoding == FontEncoding::WIN_ANSI) {
     std::string ret = "(";
     ret.reserve(text.size() + 2);
     while (!text.empty()) {
@@ -2472,7 +2534,6 @@ static std::optional<std::string> EncodePDFText(std::string_view text,
     return ret;
 
   } else {
-
     std::string ret = "<";
     ret.reserve(text.size() * 4 + 2);
     while (!text.empty()) {
@@ -2484,7 +2545,14 @@ static std::optional<std::string> EncodePDFText(std::string_view text,
       CHECK(codepoint <= 0xFFFF) << "Only 16-bit codepoints are "
         "currently supported. You need something like 'surrogate pairs' "
         "here. Got: U+" << StringPrintf("%08x", codepoint);
-      StringAppendF(&ret, "%04x", codepoint);
+      if (auto it = cmap.find(codepoint); it != cmap.end()) {
+        StringAppendF(&ret, "%04x", it->second);
+      } else {
+        if (VERBOSE) {
+          printf("Missing glyph for U+%04x\n", codepoint);
+        }
+        StringAppendF(&ret, "0000");
+      }
     }
     ret.push_back('>');
     return ret;
@@ -2544,7 +2612,8 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
   StringAppendF(&str, "%s Tc ", Float(spacing).c_str());
 
   if (const std::optional<std::string> encoded_text =
-      EncodePDFText(text, options.encoding)) {
+      EncodePDFText(text, current_font->encoding,
+                    current_font->glyph_from_codepoint)) {
     str.append(encoded_text.value());
   } else {
     SetErr(-EINVAL, "Could not encode text in PDF encoding.");
@@ -2605,7 +2674,8 @@ bool PDF::AddSpacedLine(const SpacedLine &line,
   for (int i = 0; i < (int)line.size(); i++) {
     const auto &[text, gap] = line[i];
     if (const std::optional<std::string> encoded_text =
-            EncodePDFText(text, options.encoding)) {
+        EncodePDFText(text, current_font->encoding,
+                      current_font->glyph_from_codepoint)) {
       StringAppendF(&str, "%s ", encoded_text.value().c_str());
     } else {
       SetErr(-EINVAL, "Could not encode text in PDF encoding.");
@@ -3985,14 +4055,15 @@ PDF::SpacedLine PDF::FontObj::KernText(const std::string &text) const {
 }
 
 
-std::string PDF::AddTTF(const std::string &filename) {
+std::string PDF::AddTTF(const std::string &filename,
+                        FontEncoding encoding) {
   std::vector<uint8_t> ttf_bytes = Util::ReadFileBytes(filename);
   CHECK(!ttf_bytes.empty()) << filename;
 
   stbtt_fontinfo font;
   int offset = stbtt_GetFontOffsetForIndex(ttf_bytes.data(), 0);
   CHECK(offset != -1);
-  CHECK(stbtt_InitFont(&font, ttf_bytes.data(), offset)) <<
+  CHECK(stbtt_InitFont(&font, ttf_bytes.data(), ttf_bytes.size(), offset)) <<
     "Failed to load " << filename;
 
   // Needed?
@@ -4048,10 +4119,14 @@ std::string PDF::AddTTF(const std::string &filename) {
       }
     };
 
-  for (int cp = 0; cp < 128; cp++)
-    SetCodepointWidth(cp);
-  for (uint16_t cp : MAPPED_CODEPOINTS)
-    SetCodepointWidth(cp);
+  if (encoding == FontEncoding::WIN_ANSI) {
+    for (int cp = 0; cp < 128; cp++)
+      SetCodepointWidth(cp);
+    for (uint16_t cp : MAPPED_CODEPOINTS)
+      SetCodepointWidth(cp);
+  } else {
+    LOG(FATAL) << "Need to generate widths";
+  }
 
   if (VERBOSE) {
     // XXX
@@ -4067,26 +4142,25 @@ std::string PDF::AddTTF(const std::string &filename) {
     stbtt__print_tables(&font);
   }
 
-  // Glyph -> codepoint(s) map. We just use this temporarily to
-  // load the kerning table in terms of codepoints.
-  std::unordered_map<int, std::vector<int>> codepoints_from_glyph;
-  // The set of all glyphs we can access with the PDF-supported codepoints.
-  std::unordered_set<int> all_glyphs;
-  {
-    // Would be nice to add something to stb_truetype that told us
-    // all the codepoints defined. But we know what's supported in
-    // the PDF encoding, so just try those.
-    auto GetGlyphs = [&font, &codepoints_from_glyph, &all_glyphs](int cp) {
-        if (int glyph = stbtt_FindGlyphIndex(&font, cp)) {
-          codepoints_from_glyph[glyph].push_back(cp);
-          all_glyphs.insert(glyph);
-        }
-      };
+  // Glyph -> codepoint(s) map. We use this temporarily to
+  // load the kerning table in terms of codepoints, and then
+  // to populate the ToUnicode CMap.
+  //
+  // In principle the same glyph can be used for multiple
+  // codepoints. We store the kerning tables using codepoints,
+  // but only for the "canonical" codepoint (whatever this
+  // maps the glyph to). This might get kerning wrong in the
+  // weird case where we have the same glyph for multiple
+  // codepoints, but for some reason want to display them
+  // with different kerning. (Could be fixed with some added
+  // complexity; an earlier version of this code did it.)
+  std::unordered_map<uint16_t, uint32_t> codepoint_from_glyph =
+    stbtt_GetGlyphs(&font);
 
-    for (int cp = 0; cp < 128; cp++)
-      GetGlyphs(cp);
-    for (uint16_t cp : MAPPED_CODEPOINTS)
-      GetGlyphs(cp);
+  // The set of all glyphs we can access.
+  std::unordered_set<int> all_glyphs;
+  for (const auto &[glyph, _] : codepoint_from_glyph) {
+    all_glyphs.insert(glyph);
   }
 
   // Load the Kerning table.
@@ -4110,12 +4184,14 @@ std::string PDF::AddTTF(const std::string &filename) {
     // codepoints.
     for (const stbtt_kerningentry &kern : table) {
       double advance = kerning_scale * kern.advance;
-      for (int c1 : codepoints_from_glyph[kern.glyph1]) {
-        for (int c2 : codepoints_from_glyph[kern.glyph2]) {
-          kerning[std::make_pair(c1, c2)] = advance;
-          if (VERBOSE) {
-            printf("'%c' '%c': %d (= %.5f)\n", c1, c2, kern.advance, advance);
-          }
+      auto cit1 = codepoint_from_glyph.find(kern.glyph1);
+      auto cit2 = codepoint_from_glyph.find(kern.glyph2);
+      if (cit1 != codepoint_from_glyph.end() &&
+          cit2 != codepoint_from_glyph.end()) {
+        kerning[std::make_pair(cit1->second, cit2->second)] = advance;
+        if (VERBOSE) {
+          printf("'%c' '%c': %d (= %.5f)\n",
+                 cit1->second, cit2->second, kern.advance, advance);
         }
       }
     }
@@ -4135,16 +4211,18 @@ std::string PDF::AddTTF(const std::string &filename) {
         // this as no kerning entry.
         if (kern != 0) {
           double advance = kerning_scale * kern;
-          for (int c1 : codepoints_from_glyph[g1]) {
-            for (int c2 : codepoints_from_glyph[g2]) {
-              kerning[std::make_pair(c1, c2)] = advance;
-              if (VERBOSE) {
-                printf("U+%04x U+%04x = '%s' '%s': %d (= %.5f)\n",
-                       c1, c2,
-                       UTF8::Encode(c1).c_str(),
-                       UTF8::Encode(c2).c_str(),
-                       kern, advance);
-              }
+          // XXX just loop over the glyph -> codepoint mapping?
+          auto cit1 = codepoint_from_glyph.find(g1);
+          auto cit2 = codepoint_from_glyph.find(g2);
+          if (cit1 != codepoint_from_glyph.end() &&
+              cit2 != codepoint_from_glyph.end()) {
+            kerning[std::make_pair(cit1->second, cit2->second)] = advance;
+            if (VERBOSE) {
+              printf("U+%04x U+%04x = '%s' '%s': %d (= %.5f)\n",
+                     cit1->second, cit2->second,
+                     UTF8::Encode(cit1->second).c_str(),
+                     UTF8::Encode(cit2->second).c_str(),
+                     kern, advance);
             }
           }
         }
@@ -4157,12 +4235,9 @@ std::string PDF::AddTTF(const std::string &filename) {
          (int)kerning.size());
 
   // Create the stream for the embedded data.
-  // const int stream_index = (int)objects.size();
+  // XXX just use AddStreamObject here, although we need
+  // to pass keys for to set the /Type and /Length1 etc.
   StreamObj *obj = AddObject(new StreamObj);
-
-  // PERF: We could deflate the font data here; we'd probably
-  // save about 50%.
-  std::string str;
 
   StringAppendF(&obj->stream,
                 "<<\n"
@@ -4194,6 +4269,79 @@ std::string PDF::AddTTF(const std::string &filename) {
 
   fobj->ttf = obj;
   fobj->kerning = std::move(kerning);
+
+  // Create the stream for the cmap, if applicable.
+  StreamObj *cmap = nullptr;
+  if (encoding == FontEncoding::UNICODE) {
+    fobj->cmap_name = StringPrintf("CMap%d", fobj->font_index);
+    std::string resource;
+
+    AppendFormat(
+        &resource,
+        "%!PS-Adobe-3.0 Resource-CMap\n"
+        "%%DocumentNeededResources: ProcSet (CIDInit)\n"
+        "%%IncludeResource: ProcSet (CIDInit)\n"
+        "%%BeginResource: CMap ({})\n"
+        "%%Title: ({} 0 1)\n"
+        "%%Version: 1.0\n"
+        "%%EndComments\n", fobj->cmap_name, fobj->cmap_name);
+
+    AppendFormat(
+        &resource,
+        "/CIDInit /ProcSet findresource begin\n"
+        "12 dict begin\n"
+        "begincmap\n"
+        "/CIDSystemInfo 3 dict dup begin\n"
+        // These are supposedly required; just use a unique name.
+        "  /Registry (Reg{}) def\n"
+        "  /Ordering (Ordering{}) def\n"
+        "  /Supplement 0 def\n"
+        "end def\n", fobj->font_index, fobj->font_index);
+
+    AppendFormat(
+        &resource,
+        "/CMapName /{} def\n"
+        // type 2 is a ToUnicode CMap.
+        "/CMapType 2 def\n", fobj->cmap_name);
+
+    AppendFormat(
+        &resource,
+        // This basically says that we are using 16-bit CIDs.
+        "begincodespacerange\n"
+        "<0000> <FFFF>\n"
+        "endcodespacerange\n");
+
+    std::vector<std::pair<uint16_t, uint32_t>> mapping;
+    mapping.reserve(codepoint_from_glyph.size());
+    for (const auto &[glyph, codepoint] : codepoint_from_glyph) {
+      mapping.emplace_back(glyph, codepoint);
+    }
+    std::sort(mapping.begin(), mapping.end(),
+              [](const auto &a, const auto &b) {
+                return a.first < b.first;
+              });
+
+    resource.append("beginbfchar\n");
+    for (const auto &[glyph, codepoint] : mapping) {
+      AppendFormat(&resource, "<{:04x}> <{:08x}>\n", glyph, codepoint);
+    }
+    resource.append("endbfchar\n");
+
+    resource.append(
+        "end\n"
+        "end\n"
+        "%%EndResource\n"
+        "%%EOF\n");
+
+    cmap = AddStreamObject({{"/Type", "/CMap"}}, resource);
+
+    // Only need this for unicode compression.
+    for (const auto &[glyph, codepoint] : codepoint_from_glyph) {
+      fobj->glyph_from_codepoint[codepoint] = glyph;
+    }
+  }
+  fobj->encoding = encoding;
+  fobj->cmap_obj = cmap;
 
   // Output the widths object for this font.
   WidthsObj *wobj = AddObject(new WidthsObj);

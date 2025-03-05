@@ -194,7 +194,9 @@ struct BigSolver {
               iters.Reset();
               attempts.Reset();
               status->Printf(
-                  "[" AWHITE("rational") "] Time limit exceeded after %s\n",
+                  "[" AWHITE("rational") " " APURPLE("%s")
+                  "] Time limit exceeded after %s\n",
+                  polyhedron.name,
                   ANSI::Time(run_timer.Seconds()).c_str());
               return;
             }
@@ -293,12 +295,15 @@ struct BigSolver {
     Jitter(&translation.x);
     Jitter(&translation.y);
 
-    // For more precision, we could have a "scale" parameter
-    // which we use to scale down every argument?
-    //
-    // Or we can set this randomly.
-    const int SCALE = 64 + RandTo(rc, 1024 * 1024);
-    const BigRat scale_down(1, SCALE);
+    // We optimize in the space of doubles, but we scale the
+    // double down to add precision. Each parameter gets a
+    // different scale (it might be better to use a non-linear
+    // mapping?)
+    std::vector<BigRat> scale_down;
+    for (int i = 0; i < 10; i++) {
+      const int SCALE = 64 + RandTo(rc, 1024 * 1024 * 1024);
+      scale_down.emplace_back(1, SCALE);
+    }
 
     int local_best_errors = 9999999;
 
@@ -311,18 +316,18 @@ struct BigSolver {
         const auto &[ox, oy, oz, ow,
                      ix, iy, iz, iw,
                      tx, ty] = args;
-        orot.x += BigRat::FromDouble(ox) * scale_down;
-        orot.y += BigRat::FromDouble(oy) * scale_down;
-        orot.z += BigRat::FromDouble(oz) * scale_down;
-        orot.w += BigRat::FromDouble(ow) * scale_down;
+        orot.x += BigRat::FromDouble(ox) * scale_down[0];
+        orot.y += BigRat::FromDouble(oy) * scale_down[1];
+        orot.z += BigRat::FromDouble(oz) * scale_down[2];
+        orot.w += BigRat::FromDouble(ow) * scale_down[3];
 
-        irot.x += BigRat::FromDouble(ix) * scale_down;
-        irot.y += BigRat::FromDouble(iy) * scale_down;
-        irot.z += BigRat::FromDouble(iz) * scale_down;
-        irot.w += BigRat::FromDouble(iw) * scale_down;
+        irot.x += BigRat::FromDouble(ix) * scale_down[4];
+        irot.y += BigRat::FromDouble(iy) * scale_down[5];
+        irot.z += BigRat::FromDouble(iz) * scale_down[6];
+        irot.w += BigRat::FromDouble(iw) * scale_down[7];
 
-        itrans.x += BigRat::FromDouble(tx) * scale_down;
-        itrans.y += BigRat::FromDouble(ty) * scale_down;
+        itrans.x += BigRat::FromDouble(tx) * scale_down[8];
+        itrans.y += BigRat::FromDouble(ty) * scale_down[9];
 
         return std::make_tuple(std::move(orot),
                                std::move(irot),
