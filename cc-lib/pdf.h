@@ -206,6 +206,9 @@ private:
     FontEncoding GetEncoding() const;
 
   private:
+    // Width of the cid when the font is at 1pt.
+    double CIDWidth(uint16_t cid) const;
+
     // The font's index, like 3 for /F3.
     int font_index = 0;
 
@@ -226,14 +229,21 @@ private:
     // For UNICODE fonts.
     std::unordered_map<uint32_t, uint16_t> glyph_from_codepoint;
 
-    // For embedded fonts, the table of widths.
+    // For embedded fonts, the table of widths. This is indexed
+    // by CID (for unicode fonts, this is the same as glyph), not
+    // codepoint.
+    //
     // These widths are scaled to "14pt".
-    std::vector<uint16_t> widths;
+    // WAS: std::vector<uint16_t> widths;
+    std::unordered_map<uint16_t, int> widths;
+
     // Map from a pair of codepoints to the additional space.
     // This space is scaled to "1pt".
     std::unordered_map<std::pair<int, int>, double,
       Hashing<std::pair<int, int>>> kerning;
 
+    // Or zero if not found.
+    uint16_t GetCID(uint32_t codepoint) const;
     const uint16_t *GetWidths() const;
 
     friend struct PDF;
@@ -607,11 +617,17 @@ private:
   struct WidthsObj : public Object {
     WidthsObj() : Object(OBJ_widths) {}
 
+    FontEncoding encoding = FontEncoding::WIN_ANSI;
 
+    // For WIN_ANSI. These are CIDs.
     // Inclusive!
     int firstchar = 0, lastchar = 255;
     // Scaled by 1000.
-    std::vector<int> widths;
+    std::vector<int> widths8;
+
+    // For UNICODE. Keys are glyph ids (and CIDs).
+    int default_width = 0;
+    std::unordered_map<uint16_t, int> widths16;
   };
 
   // Port note: This originally used the "stream" entry in the union.
@@ -625,18 +641,6 @@ private:
     InfoObj() : Object(OBJ_info) {}
     Info info;
   };
-
-  #if 0
-  struct CMapObj : public Object {
-    CMapObj() : Object(OBJ_cmap) {}
-    // This maps between glyph id (16-bit; specific to the font) and
-    // 32-bit unicode codepoint. The CMap that we output in the PDF
-    // is actually the inverse, but we store this in the codepoint ->
-    // glyph direction because we need to convert codepoints to
-    // glyph ids to write text streams in the PDF.
-    std::unordered_map<uint32_t, uint16_t> glyph_from_codepoint;
-  };
-  #endif
 
   struct LinkObj : public Object {
     LinkObj() : Object(OBJ_link) {}
@@ -711,9 +715,10 @@ private:
   int SaveFile(FILE *fp);
   int SaveObject(FILE *fp, int index);
 
-  bool pdf_text_point_width(const char *text,
-                            ptrdiff_t text_len, float size,
-                            const uint16_t *widths, float *point_width);
+  bool PointWidthOfText(const char *text,
+                        ptrdiff_t text_len, float size,
+                        const FontObj *font,
+                        float *point_width);
 
   bool pdf_add_text_spacing(const std::string &text, float size, float xoff,
                             float yoff, uint32_t color, float spacing,

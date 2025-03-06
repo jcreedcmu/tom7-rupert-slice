@@ -53,6 +53,43 @@ static ImageRGB RandomRGB(ArcFour *rc, int width, int height) {
   return img;
 }
 
+static void BuiltInWidths() {
+  PDF pdf(PDF::PDF_LETTER_WIDTH, PDF::PDF_LETTER_HEIGHT);
+
+  for (const PDF::BuiltInFont bif : {
+      PDF::HELVETICA,
+      PDF::HELVETICA_BOLD,
+      PDF::HELVETICA_OBLIQUE,
+      PDF::HELVETICA_BOLD_OBLIQUE,
+      PDF::COURIER,
+      PDF::COURIER_BOLD,
+      PDF::COURIER_OBLIQUE,
+      PDF::COURIER_BOLD_OBLIQUE,
+      PDF::TIMES_ROMAN,
+      PDF::TIMES_BOLD,
+      PDF::TIMES_ITALIC,
+      PDF::TIMES_BOLD_ITALIC,
+      PDF::SYMBOL,
+      PDF::ZAPF_DINGBATS }) {
+
+    const FontObj *font = pdf.GetBuiltInFont(bif);
+    CHECK(font->CharWidth('M') > 0) << PDF::BuiltInFontName(bif);
+
+    {
+      double w1 = font->GetKernedWidth("Portable");
+      double w2 = font->GetKernedWidth("Potable");
+      CHECK(w1 > w2) << w1 << " " << w2;
+    }
+
+    {
+      float w1 = -1.0, w2 = -1.0;
+      CHECK(pdf.GetTextWidth("Congenital", 14.0, &w1, font));
+      CHECK(pdf.GetTextWidth("Congenial", 14.0, &w2, font));
+      CHECK(w1 > 32.0f && w2 > 32.0f && w1 > w2) << w1 << " " << w2;
+    }
+  }
+}
+
 static void SpaceLine() {
   PDF pdf(PDF::PDF_LETTER_WIDTH, PDF::PDF_LETTER_HEIGHT);
   PDF::Info info;
@@ -460,12 +497,12 @@ static void MakeMinimalPDF() {
 
   pdf.Save("minimal.pdf");
   printf("Wrote " AGREEN("minimal.pdf") "\n");
-
 }
 
 int main(int argc, char **argv) {
   ANSI::Init();
 
+  BuiltInWidths();
   SpaceLine();
 
   MakeMinimalPDF();

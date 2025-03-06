@@ -56,6 +56,7 @@
 #include "image.h"
 #include "qr-code.h"
 #include "stb_truetype.h"
+#include "map-util.h"
 #include "utf8.h"
 #include "zip.h"
 
@@ -97,6 +98,8 @@ static const char png_chunk_header[] = "IHDR";
 static const char png_chunk_palette[] = "PLTE";
 static const char png_chunk_data[] = "IDAT";
 static const char png_chunk_end[] = "IEND";
+
+static const uint16_t *find_font_widths(PDF::BuiltInFont font);
 
 using FontEncoding = PDF::FontEncoding;
 
@@ -426,16 +429,6 @@ PDF::PDF(float width, float height, Options options) :
   CHECK(AddObject(new PagesObj) != nullptr);
   CHECK(AddObject(new CatalogObj) != nullptr);
   SetFont(TIMES_ROMAN);
-
-  #if 0
-  // XXX added by fonts.
-  if (options.encoding == FontEncoding::UNICODE) {
-    // We need this to explain what the character ids
-    // mean (identity mapping to unicode) when we are
-    // using UTF encoding.
-    CHECK(AddObject(new CMapObj) != nullptr);
-  }
-  #endif
 }
 
 float PDF::Width() const { return document_width; }
@@ -484,6 +477,23 @@ const PDF::FontObj *PDF::GetBuiltInFont(BuiltInFont f) {
   fobj->font_index = next_font_index;
   next_font_index++;
   builtin_fonts[f] = fobj;
+
+  const uint16_t *widths_table = find_font_widths(f);
+  CHECK(widths_table != nullptr) << "Missing widths table "
+    "for built-in font?";
+
+  WidthsObj *wobj = AddObject(new WidthsObj);
+  wobj->encoding = FontEncoding::WIN_ANSI;
+  wobj->firstchar = 0;
+  wobj->lastchar = 255;
+  wobj->widths8.resize(256);
+  for (int cid = 0; cid < 256; cid++) {
+    int w = widths_table[cid];
+    wobj->widths8[cid] = w;
+    fobj->widths[cid] = w;
+  }
+
+  fobj->widths_obj = wobj;
 
   return fobj;
 }
@@ -591,6 +601,8 @@ int PDF::SaveObject(FILE *fp, int index) {
            ObjTypeName(object->type));
   }
 
+  // This is a special placeholder object in slot 0.
+  // It does not get written out.
   if (object->type == OBJ_none)
     return -ENOENT;
 
@@ -794,60 +806,12 @@ int PDF::SaveObject(FILE *fp, int index) {
     break;
   }
 
-    #if 0
-    // deleteme
-  case OBJ_cmap: {
-
-    std::string stream;
-
-    // Always the identity cmap.
-    fprintf(fp,
-              "<<\n"
-              "  /CIDInit /ProcSet findresource begin\n"
-              "  12 dict begin\n"
-              "  begincmap\n"
-              "  /CIDSystemInfo <<\n"
-              "    /Registry (Adobe)\n"
-              "    /Ordering (UCS)\n"
-              "    /Supplement 0\n"
-              "  >> def\n"
-              "  /CMapName /IdentityToUnicode def\n"
-              "  /CMapType 2 def\n"
-              "  1 begincodespacerange\n"
-              "  <0000><FFFF>\n"
-              "  endcodespacerange\n"
-              "  1 beginbfrange\n"
-              "  <0000><FFFF><0000>\n"
-              "  endbfrange\n"
-              "  endcmap\n"
-              "  CMapName currentdict /CMap defineresource pop\n"
-              "  end\n"
-              "  end\n"
-              ">>\n");
-
-    fprintf(fp,
-            "<<\n"
-            "  /Type /CMap\n"
-            "  /CMapName /IdentityToUnicode\n"
-            "  /CMapType 2\n"
-            "  /CIDSystemInfo <<\n"
-            "    /Registry (Adobe)\n"
-            "    /Ordering (UCS)\n"
-            "    /Supplement 0\n"
-            "  >>\n"
-            "  /WMode 0\n"
-            "  /CodespaceRange [<0000> <FFFF>]\n"
-            "  /CIDToGIDMap /Identity\n"
-            ">>\n");
-    break;
-
-  }
-#endif
-
   case OBJ_font: {
     const FontObj *fobj = (const FontObj*)object;
+    CHECK(fobj->widths_obj != nullptr) << "All fonts should have "
+      "a widths object. Even built-in ones!";
+
     if (fobj->ttf != nullptr) {
-      CHECK(fobj->widths_obj != nullptr);
 
       const char *subtype = "/TrueType";
       // XXX - if the font is encoded this way
@@ -897,11 +861,12 @@ int PDF::SaveObject(FILE *fp, int index) {
                 "  /CIDToGIDMap /Identity\n");
 
       } else {
+        CHECK(fobj->encoding == FontEncoding::WIN_ANSI);
+
         fprintf(fp,
                 "  /FirstChar %d\n"
                 "  /LastChar %d\n"
                 "  /Widths %d 0 R\n",
-                // XXX Probably not for CIDfonts?
                 fobj->widths_obj->firstchar,
                 fobj->widths_obj->lastchar,
                 // Array of widths in its own object.
@@ -913,21 +878,26 @@ int PDF::SaveObject(FILE *fp, int index) {
     } else {
       CHECK(fobj->builtin_font.has_value()) << "A FontObj should "
         "be either an embedded font or built-in one?";
+
+      CHECK(fobj->encoding == FontEncoding::WIN_ANSI) << "Built-in "
+        "fonts are WIN_ANSI by definition.";
+
       // A built-in font (BaseFont).
       fprintf(fp,
               "<<\n"
               "  /Type /Font\n"
               "  /Subtype /Type1\n"
               "  /BaseFont /%s\n"
-              "  /Encoding %s\n"
+              "  /Encoding /WinAnsiEncoding\n"
+              "  /FirstChar %d\n"
+              "  /LastChar %d\n"
+              "  /Widths %d 0 R\n"
               ">>\n",
               BuiltInFontName(fobj->builtin_font.value()),
-              // TODO: Identity-H encoding is supposedly not supported
-              // for the built-in fonts?
-              FontEncodingString(fobj->encoding));
-
-      // TODO: Built-in fonts are now supposed to have widths
-      // as well.
+              fobj->widths_obj->firstchar,
+              fobj->widths_obj->lastchar,
+              // Array of widths in its own object.
+              fobj->widths_obj->index);
     }
     break;
   }
@@ -991,11 +961,50 @@ int PDF::SaveObject(FILE *fp, int index) {
   case OBJ_widths: {
     const WidthsObj *wobj = (WidthsObj *)object;
 
-    fprintf(fp, "[");
-    for (int w : wobj->widths) {
-      fprintf(fp, " %d", w);
+    // The format of the object depends on the encoding.
+    // It could be a /Widths (win ansi) or /W (unicode).
+    // Probably it would be cleaner to have different object
+    // types, or to just do this in the font obj code.
+    if (wobj->encoding == FontEncoding::WIN_ANSI) {
+      fprintf(fp, "[");
+      for (int w : wobj->widths8) {
+        fprintf(fp, " %d", w);
+      }
+      fprintf(fp, " ]\n");
+    } else {
+      CHECK(wobj->encoding == FontEncoding::UNICODE);
+      std::vector<std::pair<uint16_t, int>> sorted =
+        MapToSortedVec(wobj->widths16);
+
+      // PERF: The W format supports runs and anti-runs [ ].
+      // We generate runs here, but we could also detect
+      // cases where there are a consecutive series of distinct widths
+      // and use this syntax. Note that it should clear prev_width,
+      // not set it to the last element in the antirun.
+      //
+      // (We also could use the default width /DW to save space.
+      // In situations where prev_width is {}, it actually behaves
+      // like the default width.)
+      fprintf(fp, "[\n");
+      std::optional<int> prev_width = {};
+      for (int i = 0; i < (int)sorted.size(); i++) {
+        const auto &[cid, width] = sorted[i];
+        // Always output the last one exactly, since otherwise
+        // we won't imply runs up to it.
+        if (i == (int)sorted.size() - 1) {
+          fprintf(fp, "%d %d\n", cid, width);
+          prev_width = std::nullopt;
+        } else if (prev_width.has_value() &&
+                   width == prev_width.value()) {
+          // Just continue the run in this case.
+          continue;
+        } else {
+          fprintf(fp, "%d %d\n", cid, width);
+          prev_width = {width};
+        }
+      }
+      fprintf(fp, "]\n");
     }
-    fprintf(fp, " ]\n");
     break;
   }
 
@@ -1186,7 +1195,7 @@ void PDF::pdf_add_stream_raw(Page *page, std::string str) {
     "first.";
 
   // We don't want any trailing whitespace in the stream.
-  // (Is this OK for non-text streams? -tom7)
+  // (XXX: Is this OK for non-text streams? -tom7)
   while (!str.empty() &&
          (str.back() == '\r' ||
           str.back() == '\n')) {
@@ -1481,16 +1490,16 @@ static void pdf_barcode_eanupc_calc_dims(BarcodeType type, float width, float he
                                          float *new_width, float *new_height,
                                          float *x, float *bar_height,
                                          float *bar_ext, float *font_size) {
-  float aspectRect = width / height;
-  float aspectBarcode = eanupc_dimensions[type].modules *
+  float aspect_rect = width / height;
+  float aspect_barcode = eanupc_dimensions[type].modules *
     EANUPC_X /
     eanupc_dimensions[type].height_outer;
-  if (aspectRect > aspectBarcode) {
+  if (aspect_rect > aspect_barcode) {
     *new_height = height;
-    *new_width = height * aspectBarcode;
-  } else if (aspectRect < aspectBarcode) {
+    *new_width = height * aspect_barcode;
+  } else if (aspect_rect < aspect_barcode) {
     *new_width = width;
-    *new_height = width / aspectBarcode;
+    *new_height = width / aspect_barcode;
   } else {
     *new_width = width;
     *new_height = height;
@@ -2119,16 +2128,15 @@ static constexpr std::initializer_list<uint16_t> MAPPED_CODEPOINTS = {
   0x00BF, 0x00E9, 0x00F4, 0x00F1, 0x00D7,
 };
 
-static constexpr std::optional<int> MapCodepoint(int codepoint) {
+static constexpr std::optional<int> MapCodepointWinAnsi(int codepoint) {
   // Note this does not match the code below, which I think is a bug.
   if (codepoint < 128) return {codepoint};
   switch (codepoint) {
-    // TODO: Include a more complete mapping, or use UTF-8 encoding (later
-    // pdf versions support it).
+    // TODO: Include a more complete mapping.
     // We support *some* minimal UTF-8 characters.
     // See Appendix D of
-    // opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf
-    // These are all in WinAnsiEncoding
+    // opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/
+    //    pdfreference1.7old.pdf
   case 0x152: // Latin Capital Ligature OE
     return {0214};
   case 0x153: // Latin Small Ligature oe
@@ -2200,7 +2208,7 @@ static constexpr std::optional<int> MapCodepoint(int codepoint) {
   return std::nullopt;
 }
 
-static int utf8_to_pdfencoding(const char *utf8, int len, uint8_t *res) {
+static int UTF8ToWinAnsiEncoding(const char *utf8, int len, uint8_t *res) {
   *res = 0;
 
   uint32_t code = 0;
@@ -2209,7 +2217,7 @@ static int utf8_to_pdfencoding(const char *utf8, int len, uint8_t *res) {
 
   // XXX Bug? Does this encoding really map U+0080 to U+00FF?
   if (code > 255) {
-    const auto co = MapCodepoint(code);
+    const auto co = MapCodepointWinAnsi(code);
     CHECK(co.has_value()) <<
       StringPrintf("Unsupported UTF-8 character: 0x%x 0o%o %s",
                    code, code, utf8);
@@ -2493,6 +2501,56 @@ bool PDF::AddFilledPolygon(
   return true;
 }
 
+// Convert to a vector of CIDs (which are glyphs for unicode encoding).
+// If the text is invalid or can't be encoded, returns nullopt.
+// For WIN_ANSI encoding, the results will all be 8-bit.
+static std::optional<std::vector<uint16_t>> TextToCIDs(
+    std::string_view utf8_text,
+    FontEncoding encoding,
+    const std::unordered_map<uint32_t, uint16_t> &cmap) {
+  std::vector<uint16_t> ret;
+  // Typical string is ascii, so one utf-8 byte is one CID.
+  ret.reserve(utf8_text.size());
+
+  if (encoding == FontEncoding::WIN_ANSI) {
+    while (!utf8_text.empty()) {
+      uint8_t pdf_char = 0;
+      const int code_len =
+        UTF8ToWinAnsiEncoding(utf8_text.data(), utf8_text.size(), &pdf_char);
+      if (code_len < 0) {
+        return std::nullopt;
+      }
+      utf8_text.remove_prefix(code_len);
+
+      ret.push_back(pdf_char);
+    }
+
+  } else {
+
+    while (!utf8_text.empty()) {
+      uint32_t codepoint = 0;
+      int code_len = utf8_to_utf32(utf8_text.data(), utf8_text.size(),
+                                   &codepoint);
+      if (code_len < 0) {
+        return std::nullopt;
+      }
+      utf8_text.remove_prefix(code_len);
+
+      if (codepoint > 0xFFFF) return std::nullopt;
+
+      if (auto it = cmap.find(codepoint); it != cmap.end()) {
+        ret.push_back(it->second);
+      } else {
+        return {};
+      }
+    }
+
+  }
+
+  return {ret};
+}
+
+
 // Encode the text using the given encoding, including the surrounding
 // () or <> characters as appropriate.
 static std::optional<std::string> EncodePDFText(
@@ -2505,7 +2563,7 @@ static std::optional<std::string> EncodePDFText(
     while (!text.empty()) {
       uint8_t pdf_char = 0;
       const int code_len =
-        utf8_to_pdfencoding(text.data(), text.size(), &pdf_char);
+        UTF8ToWinAnsiEncoding(text.data(), text.size(), &pdf_char);
       if (code_len < 0) {
         return std::nullopt;
       }
@@ -2856,7 +2914,8 @@ std::vector<PDF::SpacedLine> PDF::SpaceLines(const std::string &text,
       const double penalty_break = penalty_word + penalty_slack + p_rest;
 
       if (LOCAL_VERBOSE) {
-        printf("  width used " ABLUE("%.4f") ". Word penalty " APURPLE("%.4f") ".\n"
+        printf("  width used "
+               ABLUE("%.4f") ". Word penalty " APURPLE("%.4f") ".\n"
                "    w/break " AORANGE("%.4f")
                " " AGREY("(slack)") " + " AYELLOW("%.4f")
                " " AGREY("(rest)") " = " ARED("%.4f") "\n",
@@ -2869,7 +2928,8 @@ std::vector<PDF::SpacedLine> PDF::SpaceLines(const std::string &text,
         const double p_rest_nobreak = Get(word_idx + 1, words_before + 1).first;
         const double penalty_nobreak = penalty_word + p_rest_nobreak;
         if (LOCAL_VERBOSE) {
-          printf("    or without break: " AGREEN("%.4f") " = " ARED("%.4f") "\n",
+          printf("    or without break: "
+                 AGREEN("%.4f") " = " ARED("%.4f") "\n",
                  p_rest_nobreak, penalty_nobreak);
         }
 
@@ -3177,38 +3237,9 @@ static constexpr const uint16_t courier_widths[256] = {
   604,
 };
 
-bool PDF::pdf_text_point_width(const char *text,
-                               ptrdiff_t text_len, float size,
-                               const uint16_t *widths, float *point_width) {
-  uint32_t len = 0;
-  if (text_len < 0)
-    text_len = strlen(text);
-  *point_width = 0.0f;
-
-  for (int i = 0; i < (int)text_len;) {
-    uint8_t pdf_char = 0;
-    const int code_len =
-      utf8_to_pdfencoding(&text[i], text_len - i, &pdf_char);
-    if (code_len < 0) {
-      SetErr(code_len,
-             "Invalid unicode string at position %d in %s",
-             i, text);
-      return false;
-    }
-    i += code_len;
-
-    if (pdf_char != '\n' && pdf_char != '\r') {
-      len += widths[pdf_char];
-    }
-  }
-
-  /* Our widths arrays are for 14pt fonts */
-  *point_width = len * size / (14.0f * 72.0f);
-
-  return true;
-}
-
 // PERF for fixed-width fonts, no need for table.
+// We only use this to fill in the widths obj, so it could take a
+// std::array<uint16_t, 256> to fill in, or something like that.
 static const uint16_t *find_font_widths(PDF::BuiltInFont font) {
   switch (font) {
   case PDF::HELVETICA: return helvetica_widths;
@@ -3232,25 +3263,68 @@ static const uint16_t *find_font_widths(PDF::BuiltInFont font) {
   }
 }
 
-const uint16_t *PDF::FontObj::GetWidths() const {
-  if (builtin_font.has_value()) {
-    // Built-in fonts get their widths from compiled-in tables.
-    return find_font_widths(builtin_font.value());
+bool PDF::PointWidthOfText(const char *text,
+                           ptrdiff_t text_len, float size,
+                           const FontObj *font,
+                           float *point_width) {
+  // Width at 1 point.
+  double norm_width = 0;
+  if (text_len < 0)
+    text_len = strlen(text);
+  *point_width = 0.0f;
+
+  // XXX just pass string_view
+  std::string_view utf8_text(text, text_len);
+
+  if (VERBOSE) {
+    printf("PointWidthOfText [%s]\n", std::string(utf8_text).c_str());
+  }
+
+  std::optional<std::vector<uint16_t>> ocids =
+    TextToCIDs(utf8_text, font->encoding, font->glyph_from_codepoint);
+  if (!ocids.has_value()) return false;
+
+  if (VERBOSE) {
+    printf("CIDs:\n");
+    for (uint16_t cid : ocids.value()) printf("%04x ", cid);
+    printf("\n");
+  }
+
+  // Note: This used to filter out \n, \r. I think that was
+  // probably not best, but it could be the cause of issues?
+  for (uint16_t cid : ocids.value()) {
+    double w = font->CIDWidth(cid);
+    norm_width += w;
+  }
+
+  *point_width = norm_width * size;
+  return true;
+}
+
+uint16_t PDF::FontObj::GetCID(uint32_t codepoint) const {
+  if (encoding == FontEncoding::WIN_ANSI) {
+    return MapCodepointWinAnsi(codepoint).value_or(0);
   } else {
-    CHECK(widths.size() >= 256) << "Bug: Font missing widths?";
-    return widths.data();
+    CHECK(encoding == FontEncoding::UNICODE);
+    auto it = glyph_from_codepoint.find(codepoint);
+    if (it == glyph_from_codepoint.end()) return 0;
+    return it->second;
   }
 }
 
 double PDF::FontObj::CharWidth(int codepoint) const {
-  const uint16_t *ws = GetWidths();
+  return CIDWidth(GetCID(codepoint));
+}
 
-  if (const auto co = MapCodepoint(codepoint)) {
-    return ws[co.value()] * (1.0 / (14.0 * 72.0));
-  } else {
-    // Unmapped codepoint.
+double PDF::FontObj::CIDWidth(uint16_t cid) const {
+  auto it = widths.find(cid);
+  // Unmapped codepoint or no width.
+  if (it == widths.end()) {
     return 0.0;
   }
+
+  const int w = it->second;
+  return w * (1.0 / (14.0 * 72.0));
 }
 
 bool PDF::GetTextWidth(const std::string &text,
@@ -3259,10 +3333,7 @@ bool PDF::GetTextWidth(const std::string &text,
   if (font == nullptr) font = current_font;
   CHECK(font != nullptr);
 
-  const uint16_t *widths = font->GetWidths();
-  CHECK(widths != nullptr);
-
-  return pdf_text_point_width(text.c_str(), -1, size, widths, text_width);
+  return PointWidthOfText(text.c_str(), -1, size, font, text_width);
 }
 
 static const char *find_word_break(const char *str) {
@@ -3289,9 +3360,6 @@ bool PDF::AddTextWrap(const std::string &text,
   char line[512];
   float orig_yoff = yoff;
 
-  const uint16_t *widths = current_font->GetWidths();
-  CHECK(widths != nullptr);
-
   while (start && *start) {
     const char *new_end = find_word_break(end + 1);
     float line_width;
@@ -3300,8 +3368,8 @@ bool PDF::AddTextWrap(const std::string &text,
 
     end = new_end;
 
-    if (!pdf_text_point_width(start, end - start, size, widths,
-                              &line_width)) {
+    if (!PointWidthOfText(start, end - start, size,
+                          current_font, &line_width)) {
       return false;
     }
 
@@ -3318,7 +3386,8 @@ bool PDF::AddTextWrap(const std::string &text,
               ((start[i - 1] & 0xc0) == 0x80 &&
                (start[i] & 0xc0) == 0x80))
             continue;
-          if (!pdf_text_point_width(start, i, size, widths, &this_width)) {
+          if (!PointWidthOfText(start, i, size,
+                                current_font, &this_width)) {
             return false;
           }
           if (this_width < wrap_width) {
@@ -3351,8 +3420,8 @@ bool PDF::AddTextWrap(const std::string &text,
       strncpy(line, start, len);
       line[len] = '\0';
 
-      if (!pdf_text_point_width(start, len, size, widths,
-                                &line_width)) {
+      if (!PointWidthOfText(start, len, size,
+                            current_font, &line_width)) {
         return false;
       }
 
@@ -4091,52 +4160,6 @@ std::string PDF::AddTTF(const std::string &filename,
     printf("Scale 14pt: %.6f\n", scale_14pt);
   }
 
-  // Get widths for mapped codepoints.
-  fobj->widths.resize(256, (uint16_t)std::round(space_width * scale_14pt));
-
-  auto GetWidth = [&font, space_width](int codepoint) {
-      // Treat missing glyphs as the space character.
-      // (Perhaps should be space/2?)
-      if (stbtt_FindGlyphIndex(&font, codepoint) == 0)
-        return space_width;
-
-      int width = 0;
-      stbtt_GetCodepointHMetrics(&font, codepoint, &width, nullptr);
-      return width;
-    };
-
-  auto SetCodepointWidth = [&](int codepoint) {
-      if (std::optional<int> co = MapCodepoint(codepoint)) {
-        int pdf_idx = co.value();
-        CHECK(pdf_idx >= 0 && pdf_idx < 256) << codepoint << " " << pdf_idx;
-        int width_unscaled = GetWidth(codepoint);
-        float width = scale_14pt * width_unscaled;
-        fobj->widths[pdf_idx] = (uint16_t)std::round(width);
-        if (VERBOSE && isalnum(codepoint)) {
-          printf("'%c' (%d): %d -> %.5f\n",
-                 codepoint, codepoint, width_unscaled, width);
-        }
-      }
-    };
-
-  if (encoding == FontEncoding::WIN_ANSI) {
-    for (int cp = 0; cp < 128; cp++)
-      SetCodepointWidth(cp);
-    for (uint16_t cp : MAPPED_CODEPOINTS)
-      SetCodepointWidth(cp);
-  } else {
-    LOG(FATAL) << "Need to generate widths";
-  }
-
-  if (VERBOSE) {
-    // XXX
-    printf("%s Widths:\n", filename.c_str());
-    for (int i = 0; i < 256; i++) {
-      printf("%d ", fobj->widths[i]);
-    }
-    printf("\n");
-  }
-
   if (VERBOSE) {
     printf("[%s] font tables:\n", filename.c_str());
     stbtt__print_tables(&font);
@@ -4161,6 +4184,60 @@ std::string PDF::AddTTF(const std::string &filename,
   std::unordered_set<int> all_glyphs;
   for (const auto &[glyph, _] : codepoint_from_glyph) {
     all_glyphs.insert(glyph);
+  }
+
+  // Get widths for mapped codepoints.
+  // fobj->widths.resize(256, (uint16_t)std::round(space_width * scale_14pt));
+  auto ScaleWidth = [scale_14pt](int width_unscaled) {
+      return scale_14pt * width_unscaled;
+  };
+
+  if (encoding == FontEncoding::WIN_ANSI) {
+    auto GetWidth = [&font, space_width](int codepoint) {
+        // Treat missing glyphs as the space character.
+        // (Perhaps should be space/2?)
+        if (stbtt_FindGlyphIndex(&font, codepoint) == 0)
+          return space_width;
+
+        int width = 0;
+        stbtt_GetCodepointHMetrics(&font, codepoint, &width, nullptr);
+        return width;
+      };
+
+    auto SetCodepointWidth = [&](int codepoint) {
+        if (std::optional<int> co = MapCodepointWinAnsi(codepoint)) {
+          int cid = co.value();
+          CHECK(cid >= 0 && cid < 256) << codepoint << " " << cid;
+          int width_unscaled = GetWidth(codepoint);
+          float width = ScaleWidth(width_unscaled);
+          fobj->widths[cid] = (uint16_t)std::round(width);
+          if (VERBOSE && isalnum(codepoint)) {
+            printf("'%c' (%d): %d -> %.5f\n",
+                   codepoint, codepoint, width_unscaled, width);
+          }
+        }
+      };
+
+    for (int cp = 0; cp < 128; cp++)
+      SetCodepointWidth(cp);
+    for (uint16_t cp : MAPPED_CODEPOINTS)
+      SetCodepointWidth(cp);
+  } else {
+
+    for (const auto &[glyph_id, cp_] : codepoint_from_glyph) {
+      int width_unscaled = 0;
+      stbtt_GetGlyphHMetrics(&font, glyph_id, &width_unscaled, nullptr);
+      fobj->widths[glyph_id] = ScaleWidth(width_unscaled);
+    }
+  }
+
+  if (VERBOSE) {
+    // XXX
+    printf("%s Widths:\n", filename.c_str());
+    for (const auto &[cid, w] : fobj->widths) {
+      printf("%04x=%d ", cid, w);
+    }
+    printf("\n");
   }
 
   // Load the Kerning table.
@@ -4345,12 +4422,19 @@ std::string PDF::AddTTF(const std::string &filename,
 
   // Output the widths object for this font.
   WidthsObj *wobj = AddObject(new WidthsObj);
-  // We only use pdf encoding for now.
-  wobj->firstchar = 0;
-  wobj->lastchar = 255;
-  wobj->widths.reserve(256);
-  for (int i = wobj->firstchar; i < wobj->lastchar + 1; i++) {
-    wobj->widths.push_back(fobj->widths[i]);
+  wobj->encoding = encoding;
+  if (encoding == FontEncoding::WIN_ANSI) {
+    // We only use pdf encoding for now.
+    wobj->firstchar = 0;
+    wobj->lastchar = 255;
+    wobj->widths8.reserve(256);
+    for (int i = wobj->firstchar; i < wobj->lastchar + 1; i++) {
+      wobj->widths8.push_back(fobj->widths[i]);
+    }
+  } else {
+    // Need the whole map.
+    // XXX set default_width? how?
+    wobj->widths16 = fobj->widths;
   }
   fobj->widths_obj = wobj;
 
