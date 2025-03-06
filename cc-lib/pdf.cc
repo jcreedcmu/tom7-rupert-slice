@@ -23,7 +23,6 @@
 #include <errno.h>
 #include <format>
 #include <inttypes.h>
-#include <locale.h>
 #include <math.h>
 #include <numbers>
 #include <stdarg.h>
@@ -87,22 +86,6 @@ static const char png_chunk_end[] = "IEND";
 static const uint16_t *find_font_widths(PDF::BuiltInFont font);
 
 using FontEncoding = PDF::FontEncoding;
-
-static const char *FontEncodingString(FontEncoding encoding) {
-  switch (encoding) {
-  case FontEncoding::UNICODE:
-    // Identity means we just use 16-bit glyph codes (two bytes each)
-    // from the font. The PDF understands what codepoints these are
-    // because of the /ToUnicode CMAP.
-    return "/Identity-H";
-  case FontEncoding::WIN_ANSI:
-    // This is a built-in mapping from bytes to codepoints.
-    return "/WinAnsiEncoding";
-  default:
-    LOG(FATAL) << "Bad TextEncoding?";
-    return "";
-  }
-}
 
 static std::string Float(float f) {
   std::string s = StringPrintf("%.6f", f);
@@ -594,7 +577,7 @@ int PDF::SaveObject(FILE *fp, int index) {
     // transparency levels used as we draw stuff, and allow arbitrary
     // levels.
     //
-    // We trim transparency to just 4-bits
+    // We trim transparency to just 4 bits.
     fprintf(fp, "    /ExtGState <<\n");
     for (int i = 0; i < 16; i++) {
       fprintf(fp, "      /GS%d <</ca %f>>\n", i,
@@ -725,44 +708,36 @@ int PDF::SaveObject(FILE *fp, int index) {
 
     if (fobj->ttf != nullptr) {
 
-      const char *subtype = "/TrueType";
-      // XXX - if the font is encoded this way
       if (fobj->encoding == FontEncoding::UNICODE) {
-        subtype = "/CIDFontType2";
-      }
+        // Annoyingly, we have to wrap a CIDFontType2 inside a
+        // Type 0 font. :(
 
-      // Basics that are always present.
-      fprintf(fp,
-              "<<\n"
-              "  /Type /Font\n"
-              "  /Subtype %s\n"
-              "  /BaseFont /Font%d\n"
-              "  /Encoding %s\n"
-              "  /FontDescriptor <<\n"
-              "    /Type /FontDescriptor\n"
-              "    /FontName /FontName%d\n"
-              "    /FontFile2 %d 0 R\n"
-              "  >>\n",
-              // TrueType either way. But a CIDFontType2 has
-              // its CIDs (basically glyph ids) specified instead
-              // of using a pdf encoding like win_ansi; we use this
-              // for unicode fonts.
-              subtype,
-              // Basefont: Just needs a unique name.
-              fobj->index,
-              FontEncodingString(fobj->encoding),
-              // FontName; we just FontName<id>
-              fobj->index,
-              // Refers to the embedded file in its own stream.
-              fobj->ttf->index);
+        fprintf(fp,
+                "<<\n"
+                "  /Type /Font\n"
+                "  /Subtype /CIDFontType2\n"
+                "  /BaseFont /Font%d\n"
+                // Identity means we just use 16-bit glyph codes (two
+                // bytes each) from the font. The PDF understands what
+                // codepoints these are because of the /ToUnicode
+                // CMAP.
+                "  /Encoding /Identity-H\n"
+                "  /FontDescriptor <<\n"
+                "    /Type /FontDescriptor\n"
+                "    /FontName /FontName%d\n"
+                "    /FontFile2 %d 0 R\n"
+                "  >>\n",
+                // Basefont: Just needs a unique name.
+                fobj->index,
+                // FontName; we just FontName<id>
+                fobj->index,
+                // Refers to the embedded file in its own stream.
+                fobj->ttf->index);
 
-      if (fobj->encoding == FontEncoding::UNICODE) {
         CHECK(fobj->cmap_obj != nullptr) << "We should have a CMap object "
           "when using Unicode text encoding.";
         fprintf(fp, "  /ToUnicode %d 0 R\n", fobj->cmap_obj->index);
 
-        // XXX Actually it sounds like we also need to wrap this in
-        // a Type 0 font!
         // This is boilerplate saying that we want CID = glyph id.
         fprintf(fp,
                 "  /CIDSystemInfo <<\n"
@@ -770,22 +745,39 @@ int PDF::SaveObject(FILE *fp, int index) {
                 "    /Ordering (Identity)\n"
                 "  /Supplement 0\n"
                 "  >>\n"
-                "  /CIDToGIDMap /Identity\n");
+                "  /CIDToGIDMap /Identity\n"
+                ">>\n");
 
       } else {
         CHECK(fobj->encoding == FontEncoding::WIN_ANSI);
 
         fprintf(fp,
+                "<<\n"
+                "  /Type /Font\n"
+                "  /Subtype /TrueType\n"
+                "  /BaseFont /Font%d\n"
+                "  /Encoding /WinAnsiEncoding\n"
+                "  /FontDescriptor <<\n"
+                "    /Type /FontDescriptor\n"
+                "    /FontName /FontName%d\n"
+                "    /FontFile2 %d 0 R\n"
+                "  >>\n"
                 "  /FirstChar %d\n"
                 "  /LastChar %d\n"
-                "  /Widths %d 0 R\n",
+                "  /Widths %d 0 R\n"
+                ">>\n",
+                // Basefont: Just needs a unique name.
+                fobj->index,
+                // FontName; we just use FontName<id>
+                fobj->index,
+                // Refers to the embedded file in its own stream.
+                fobj->ttf->index,
+                // Widths
                 fobj->widths_obj->firstchar,
                 fobj->widths_obj->lastchar,
                 // Array of widths in its own object.
                 fobj->widths_obj->index);
       }
-
-      fprintf(fp, ">>\n");
 
     } else {
       CHECK(fobj->builtin_font.has_value()) << "A FontObj should "
