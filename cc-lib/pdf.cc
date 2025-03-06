@@ -16,52 +16,37 @@
 
 #include "pdf.h"
 
-#if defined(_MSC_VER)
-#define _CRT_SECURE_NO_WARNINGS 1 // Drop the MSVC complaints about snprintf
-#define _USE_MATH_DEFINES
-#include <BaseTsd.h>
-
-#else
-
-#ifndef _POSIX_SOURCE
-#define _POSIX_SOURCE /* For localtime_r */
-#endif
-
-#endif
-
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <ctype.h>
 #include <errno.h>
+#include <format>
 #include <inttypes.h>
 #include <locale.h>
 #include <math.h>
+#include <numbers>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string_view>
 #include <sys/stat.h>
 #include <time.h>
-#include <numbers>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <string_view>
 
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "image.h"
+#include "map-util.h"
 #include "qr-code.h"
 #include "stb_truetype.h"
-#include "map-util.h"
 #include "utf8.h"
 #include "zip.h"
-
-// XXX maybe should avoid this dependency. Just
-// need to read file to a vector.
 #include "util.h"
 
 // XXX just for debugging output
@@ -169,8 +154,8 @@ struct PNGHeader {
   // Dimensions in pixels.
   uint32_t width;
   uint32_t height;
-  uint8_t bitDepth;
-  PNGColorType colorType;
+  uint8_t bit_depth;
+  PNGColorType color_type;
   uint8_t deflate;
   uint8_t filtering;
   uint8_t interlace;
@@ -213,8 +198,8 @@ inline static PNGHeader ReadPngHeader(const uint8_t *data) {
   PNGHeader ret;
   ret.width = Read32(header + 0);
   ret.height = Read32(header + 4);
-  ret.bitDepth = header[8];
-  ret.colorType = (PNGColorType)header[9];
+  ret.bit_depth = header[8];
+  ret.color_type = (PNGColorType)header[9];
   ret.deflate = header[10];
   ret.filtering = header[11];
   ret.interlace = header[12];
@@ -249,61 +234,24 @@ const char *PDF::ObjTypeName(ObjType t) {
   case OBJ_pages: return "pages";
   case OBJ_image: return "image";
   case OBJ_link: return "link";
+  case OBJ_widths: return "widths";
   default: break;
   }
   return "???";
 }
 
-// Locales can replace the decimal character with a ','.
-// This breaks the PDF output, so we force a 'safe' locale.
-static void force_locale(char *buf, int len)
-{
-  char *saved_locale = setlocale(LC_ALL, nullptr);
-
-  if (!saved_locale) {
-    *buf = '\0';
-  } else {
-    strncpy(buf, saved_locale, len - 1);
-    buf[len - 1] = '\0';
-  }
-
-  setlocale(LC_NUMERIC, "POSIX");
-}
-
-static void restore_locale(char *buf)
-{
-  setlocale(LC_ALL, buf);
-}
-
-// XXX just use StringPrintf.
-int PDF::SetErr(int errval, const char *buffer, ...) {
-  va_list ap;
-  int len;
-
-  va_start(ap, buffer);
-  len = vsnprintf(errstr, sizeof(errstr) - 1, buffer, ap);
-  va_end(ap);
-
-  if (len < 0) {
-    errstr[0] = '\0';
-    return errval;
-  }
-
-  if (len >= (int)(sizeof(errstr) - 1))
-    len = (int)(sizeof(errstr) - 1);
-
-  errstr[len] = '\0';
+int PDF::SetErr(int errval, std::string s) {
   this->errval = errval;
-
+  this->error_message = std::move(s);
   return errval;
 }
 
 std::string PDF::GetErr() const {
-  return errstr;
+  return error_message;
 }
 
 void PDF::ClearErr() {
-  errstr[0] = '\0';
+  error_message[0] = '\0';
   errval = 0;
 }
 
@@ -346,35 +294,8 @@ PDF::Object *PDF::AddObjectInternal(Object *obj) {
   return obj;
 }
 
-void PDF::pdf_del_object(Object *obj) {
-  const ObjType type = obj->type;
-  CHECK(obj->index >= 0 && obj->index < (int)objects.size());
-  objects[obj->index] = nullptr;
-
-  if (last_objects[type] == obj) {
-    last_objects[type] = nullptr;
-    for (Object *o : objects) {
-      if (o != nullptr && o->type == type) {
-        last_objects[type] = o;
-      }
-    }
-  }
-
-  if (first_objects[type] == obj) {
-    first_objects[type] = nullptr;
-    for (Object *o : objects) {
-      if (o && o->type == type) {
-        first_objects[type] = o;
-        break;
-      }
-    }
-  }
-
-  DestroyObject(obj);
-}
-
 void PDF::SetInfo(const PDF::Info &info) {
-  InfoObj *obj = (InfoObj*)pdf_find_first_object(OBJ_info);
+  InfoObj *obj = (InfoObj*)FindFirstObject(OBJ_info);
   CHECK(obj != nullptr) << "This is created by the "
     "constructor!";
 
@@ -390,7 +311,7 @@ void PDF::SetInfo(const PDF::Info &info) {
 }
 
 const PDF::Info &PDF::GetInfo() const {
-  const InfoObj *obj = (const InfoObj*)pdf_find_first_object(OBJ_info);
+  const InfoObj *obj = (const InfoObj*)FindFirstObject(OBJ_info);
   CHECK(obj != nullptr) << "This is created by the "
     "constructor!";
   return obj->info;
@@ -406,25 +327,15 @@ PDF::PDF(float width, float height, Options options) :
   InfoObj *obj = AddObject(new InfoObj);
   CHECK(obj != nullptr);
 
+  // XXX: Should be quoting PDF strings?
   strncpy(obj->info.creator, "pdf.cc", 64);
   strncpy(obj->info.producer, "pdf.cc", 64);
   strncpy(obj->info.title, "Untitled", 64);
   strncpy(obj->info.author, "", 64);
   strncpy(obj->info.subject, "", 64);
 
-  // XXX: Should be quoting PDF strings?
-  time_t now = time(nullptr);
-  struct tm tm;
-#ifdef _WIN32
-  struct tm *tmp;
-  tmp = localtime(&now);
-  tm = *tmp;
-#else
-  localtime_r(&now, &tm);
-#endif
-  strftime(obj->info.date, sizeof(obj->info.date),
-           "%Y%m%d%H%M%SZ",
-           &tm);
+  std::string t = Util::FormatTime("%Y%m%d%H%M%SZ", time(nullptr));
+  strncpy(obj->info.date, t.c_str(), 64);
 
   CHECK(AddObject(new PagesObj) != nullptr);
   CHECK(AddObject(new CatalogObj) != nullptr);
@@ -440,19 +351,19 @@ PDF::~PDF() {
   objects.clear();
 }
 
-PDF::Object *PDF::pdf_find_first_object(int type) {
+PDF::Object *PDF::FindFirstObject(int type) {
   return first_objects[type];
 }
 
-PDF::Object *PDF::pdf_find_last_object(int type) {
+PDF::Object *PDF::FindLastObject(int type) {
   return last_objects[type];
 }
 
-const PDF::Object *PDF::pdf_find_first_object(int type) const {
+const PDF::Object *PDF::FindFirstObject(int type) const {
   return first_objects[type];
 }
 
-const PDF::Object *PDF::pdf_find_last_object(int type) const {
+const PDF::Object *PDF::FindLastObject(int type) const {
   return last_objects[type];
 }
 
@@ -506,9 +417,10 @@ bool PDF::SetFont(const std::string &font_name) {
   }
 
   SetErr(-ENOENT,
-         "The font '%s' has not been loaded. "
-         "For built-in fonts, use the version of SetFont "
-         "that takes an enum.", font_name.c_str());
+         std::format(
+             "The font '{}' has not been loaded. "
+             "For built-in fonts, use the version of SetFont "
+             "that takes an enum.", font_name));
   return false;
 }
 
@@ -538,7 +450,7 @@ PDF::Page *PDF::GetPage(int page_number) {
     return nullptr;
   }
 
-  for (Object *obj = pdf_find_first_object(OBJ_page); obj;
+  for (Object *obj = FindFirstObject(OBJ_page); obj;
        obj = obj->next, page_number--) {
     if (page_number == 1) {
       return (Page*)obj;
@@ -649,7 +561,7 @@ int PDF::SaveObject(FILE *fp, int index) {
   }
 
   case OBJ_page: {
-    const Object *pages = pdf_find_first_object(OBJ_pages);
+    const Object *pages = FindFirstObject(OBJ_pages);
     bool printed_xobjects = false;
 
     Page *pobj = (Page*)object;
@@ -668,7 +580,7 @@ int PDF::SaveObject(FILE *fp, int index) {
             Float(pobj->height).c_str());
     fprintf(fp, "  /Resources <<\n");
     fprintf(fp, "    /Font <<\n");
-    for (const Object *font = pdf_find_first_object(OBJ_font);
+    for (const Object *font = FindFirstObject(OBJ_font);
          font; font = font->next) {
       const FontObj *fobj = (const FontObj *)font;
       fprintf(fp, "      /F%d %d 0 R\n",
@@ -690,7 +602,7 @@ int PDF::SaveObject(FILE *fp, int index) {
     }
     fprintf(fp, "    >>\n");
 
-    for (const Object *image = pdf_find_first_object(OBJ_image);
+    for (const Object *image = FindFirstObject(OBJ_image);
          image; image = image->next) {
       const ImageObj *iobj = (const ImageObj *)image;
       if (iobj->page == object) {
@@ -730,7 +642,7 @@ int PDF::SaveObject(FILE *fp, int index) {
 
     const Object *parent = bobj->parent;
     if (!parent)
-      parent = pdf_find_first_object(OBJ_outline);
+      parent = FindFirstObject(OBJ_outline);
     if (!bobj->page)
       break;
     fprintf(fp,
@@ -780,8 +692,8 @@ int PDF::SaveObject(FILE *fp, int index) {
   }
 
   case OBJ_outline: {
-    const Object *first = pdf_find_first_object(OBJ_bookmark);
-    const Object *last = pdf_find_last_object(OBJ_bookmark);
+    const Object *first = FindFirstObject(OBJ_bookmark);
+    const Object *last = FindLastObject(OBJ_bookmark);
 
     if (first && last) {
       int count = 0;
@@ -908,7 +820,7 @@ int PDF::SaveObject(FILE *fp, int index) {
     fprintf(fp, "<<\n"
             "  /Type /Pages\n"
             "  /Kids [ ");
-    for (const Object *page = pdf_find_first_object(OBJ_page);
+    for (const Object *page = FindFirstObject(OBJ_page);
          page; page = page->next) {
       npages++;
       fprintf(fp, "%d 0 R ", page->index);
@@ -920,8 +832,8 @@ int PDF::SaveObject(FILE *fp, int index) {
   }
 
   case OBJ_catalog: {
-    const Object *outline = pdf_find_first_object(OBJ_outline);
-    const Object *pages = pdf_find_first_object(OBJ_pages);
+    const Object *outline = FindFirstObject(OBJ_outline);
+    const Object *pages = FindFirstObject(OBJ_pages);
 
     fprintf(fp, "<<\n"
             "  /Type /Catalog\n");
@@ -1009,8 +921,9 @@ int PDF::SaveObject(FILE *fp, int index) {
   }
 
   default:
-    return SetErr(-EINVAL, "Invalid PDF object type %d",
-                  object->type);
+    return SetErr(-EINVAL,
+                  std::format("Invalid PDF object type {}",
+                              (int)object->type));
   }
 
   fprintf(fp, "endobj\n");
@@ -1034,9 +947,13 @@ int PDF::SaveFile(FILE *fp) {
   int xref_count = 0;
   uint64_t id1, id2;
   time_t now = time(nullptr);
-  char saved_locale[32];
 
-  force_locale(saved_locale, sizeof(saved_locale));
+  // TODO: The original code did some shenanigans to change the locale
+  // temporarily, since it claims that some locales will convert the
+  // decimal point to a comma. This seems bad (not thread safe, etc.).
+  // We should avoid locale-specific formatting here, as the decimal
+  // point must be . in the PDF format. std::format will
+  // do the right thing (always c locale unless specified).
 
   fprintf(fp, "%%PDF-1.3\n");
   /* Hibit bytes */
@@ -1050,7 +967,7 @@ int PDF::SaveFile(FILE *fp) {
     } else if (err == -ENOENT) {
       /* ok */
     } else {
-      LOG(FATAL) << "Could not write object: " << errstr;
+      LOG(FATAL) << "Could not write object: " << error_message;
     }
   }
 
@@ -1070,11 +987,11 @@ int PDF::SaveFile(FILE *fp) {
           "<<\n"
           "/Size %d\n",
           xref_count + 1);
-  Object *obj = pdf_find_first_object(OBJ_catalog);
+  Object *obj = FindFirstObject(OBJ_catalog);
   CHECK(obj != nullptr);
   fprintf(fp, "/Root %d 0 R\n", obj->index);
 
-  const InfoObj *iobj = (InfoObj*)pdf_find_first_object(OBJ_info);
+  const InfoObj *iobj = (InfoObj*)FindFirstObject(OBJ_info);
   fprintf(fp, "/Info %d 0 R\n", iobj->index);
   /* Generate document unique IDs */
   id1 = hash(5381, &iobj->info, sizeof (PDF::Info));
@@ -1086,8 +1003,6 @@ int PDF::SaveFile(FILE *fp) {
   fprintf(fp, "%d\n", xref_offset);
   fprintf(fp, "%%%%EOF\n");
 
-  restore_locale(saved_locale);
-
   return 0;
 }
 
@@ -1095,8 +1010,9 @@ bool PDF::Save(const std::string &filename) {
   FILE *fp = fopen(filename.c_str(), "wb");
 
   if (fp == nullptr) {
-    SetErr(-errno, "Unable to open '%s': %s", filename.c_str(),
-           strerror(errno));
+    SetErr(-errno,
+           std::format("Unable to open '{}': {}", filename,
+                       strerror(errno)));
     return false;
   }
 
@@ -1104,8 +1020,9 @@ bool PDF::Save(const std::string &filename) {
 
   if (fp != stdout) {
     if (fclose(fp) != 0 && e >= 0) {
-      SetErr(-errno, "Unable to close '%s': %s",
-             filename.c_str(), strerror(errno));
+      SetErr(-errno,
+             std::format("Unable to close '{}': {}",
+                         filename, strerror(errno)));
       return false;
     }
   }
@@ -1118,7 +1035,7 @@ bool PDF::Save(const std::string &filename) {
 // into a single stream. This manages all of that.
 void PDF::AppendDrawCommand(Page *page, std::string_view cmd) {
   if (!page)
-    page = (Page*)pdf_find_last_object(OBJ_page);
+    page = (Page*)FindLastObject(OBJ_page);
 
   auto IsWhitespace = [](char c) { return c == ' ' || c == '\n'; };
 
@@ -1143,7 +1060,7 @@ void PDF::FlushDrawCommands(Page *page) {
 // Consider whether you can use AppendDrawCommand.
 void PDF::pdf_add_stream(Page *page, std::string str) {
   if (!page)
-    page = (Page*)pdf_find_last_object(OBJ_page);
+    page = (Page*)FindLastObject(OBJ_page);
   FlushDrawCommands(page);
   pdf_add_stream_raw(page, std::move(str));
 }
@@ -1284,7 +1201,7 @@ bool PDF::AddBarcode128a(float x, float y, float width, float height,
 
   for (char c : str) {
     if (find_128_encoding(c) < 0) {
-      SetErr(-EINVAL, "Invalid barcode character 0x%x", c);
+      SetErr(-EINVAL, std::format("Invalid barcode character 0x{:x}", c));
       return false;
     }
   }
@@ -1354,7 +1271,8 @@ bool PDF::pdf_barcode_39_ch(float x, float y, float char_width, float height,
   const int code = find_39_encoding(ch);
 
   if (code < 0) {
-    SetErr(-EINVAL, "Invalid Code 39 character %c 0x%x", ch, ch);
+    SetErr(-EINVAL,
+           std::format("Invalid Code 39 character {:c} 0x{:x}", ch, ch));
     return false;
   }
 
@@ -1401,7 +1319,8 @@ bool PDF::AddBarcode39(float x, float y, float width, float height,
     // XXX would be better if this rejected the barcode before
     // starting to draw it.
     if (!ok) {
-      SetErr(-EINVAL, "Character 0x%02x cannot be encoded", c);
+      SetErr(-EINVAL,
+             std::format("Character 0x{:02x} cannot be encoded", c));
       return false;
     }
   }
@@ -1519,7 +1438,8 @@ bool PDF::pdf_barcode_eanupc_ch(float x, float y, float x_width,
                                 float height, uint32_t color, char ch,
                                 int set, float *new_x, Page *page) {
   if ('0' > ch || ch > '9') {
-    SetErr(-EINVAL, "Invalid EAN/UPC character %c 0x%x", ch, ch);
+    SetErr(-EINVAL,
+           std::format("Invalid EAN/UPC character {:c} 0x{:x}", ch, ch));
     return false;
   }
 
@@ -1616,15 +1536,15 @@ bool PDF::AddBarcodeEAN13(float x, float y, float width, float height,
   if (len == 13) {
     const char ch = s[0];
     if (!isdigit(ch)) {
-      SetErr(-EINVAL, "Invalid EAN13 character %c 0x%x", ch, ch);
+      SetErr(-EINVAL, std::format("Invalid EAN13 character {:c} 0x{:x}",
+                                  ch, ch));
       return false;
     }
     lead = ch - '0';
     s++;
 
   } else if (len != 12) {
-    SetErr(-EINVAL, "Invalid EAN13 string length %lu",
-           (unsigned long)len);
+    SetErr(-EINVAL, std::format("Invalid EAN13 string length {}", len));
     return false;
   }
 
@@ -1694,6 +1614,7 @@ bool PDF::AddBarcodeEAN13(float x, float y, float width, float height,
                          bar_height + bar_ext, color, GUARD_NORMAL,
                          &x, page);
 
+  // TODO: Cleaner to use the tables here than hard-code a width like 604.
   text[0] = '>';
   x += eanupc_dimensions[0].quiet_right * x_width -
     604.0f * font / (14.0f * 72.0f);
@@ -1708,7 +1629,7 @@ bool PDF::AddBarcodeUPCA(float x, float y, float width, float height,
                          const std::string &str, uint32_t color, Page *page) {
   const size_t len = str.size();
   if (len != 12) {
-    SetErr(-EINVAL, "Invalid UPC-A string length %lu", (unsigned long)len);
+    SetErr(-EINVAL, std::format("Invalid UPC-A string length {}", len));
     return false;
   }
 
@@ -1802,8 +1723,7 @@ bool PDF::AddBarcodeEAN8(float x, float y, float width, float height,
 
   const size_t len = str.size();
   if (len != 8) {
-    SetErr(-EINVAL, "Invalid EAN8 string length %lu",
-           (unsigned long)len);
+    SetErr(-EINVAL, std::format("Invalid EAN8 string length {}", len));
     return false;
   }
 
@@ -1890,19 +1810,20 @@ bool PDF::AddBarcodeUPCE(float x, float y, float width, float height,
 
   const size_t len = str.size();
   if (len != 12) {
-    SetErr(-EINVAL, "Invalid UPCE string length %lu", (unsigned long)len);
+    SetErr(-EINVAL,
+           std::format("Invalid UPCE string length {}", len));
     return false;
   }
 
   if (str[0] != '0') {
-    SetErr(-EINVAL, "UPCE must start with 0; got %c", str[0]);
+    SetErr(-EINVAL, std::format("UPCE must start with 0; got {:c}", str[0]));
     return false;
   }
 
   for (size_t i = 0; i < len; i++) {
     if (!isdigit(str[i])) {
-      SetErr(-EINVAL, "Invalid UPCE char 0x%x at %lu",
-             str[i], (unsigned long)i);
+      SetErr(-EINVAL,
+             std::format("Invalid UPCE char 0x{:x} at {}", str[i], i));
       return false;
     }
   }
@@ -2019,7 +1940,7 @@ bool PDF::AddQRCode(float x, float y, float size,
 
 int PDF::AddBookmark(const std::string &name, int parent, Page *page) {
   if (!page)
-    page = (Page *)pdf_find_last_object(OBJ_page);
+    page = (Page *)FindLastObject(OBJ_page);
 
   if (!page) {
     SetErr(-EINVAL,
@@ -2028,7 +1949,7 @@ int PDF::AddBookmark(const std::string &name, int parent, Page *page) {
   }
 
   Object *outline = nullptr;
-  if (!(outline = pdf_find_first_object(OBJ_outline))) {
+  if (!(outline = FindFirstObject(OBJ_outline))) {
     outline = AddObject(new OutlineObj);
   }
 
@@ -2039,7 +1960,7 @@ int PDF::AddBookmark(const std::string &name, int parent, Page *page) {
   if (parent >= 0) {
     BookmarkObj *parent_obj = (BookmarkObj *)GetObject(parent);
     if (!parent_obj) {
-      SetErr(-EINVAL, "Invalid parent ID %d supplied", parent);
+      SetErr(-EINVAL, std::format("Invalid parent ID {} supplied", parent));
       return false;
     }
     bobj->parent = parent_obj;
@@ -2055,7 +1976,7 @@ bool PDF::AddLink(float x, float y,
                   float target_x, float target_y,
                   Page *page) {
   if (!page)
-    page = (Page*)pdf_find_last_object(OBJ_page);
+    page = (Page*)FindLastObject(OBJ_page);
 
   if (!page) {
     SetErr(-EINVAL, "Unable to add link; no pages available");
@@ -2502,7 +2423,8 @@ bool PDF::AddFilledPolygon(
 }
 
 // Convert to a vector of CIDs (which are glyphs for unicode encoding).
-// If the text is invalid or can't be encoded, returns nullopt.
+// If the text is invalid, returns nullopt.
+// If codepoints can't be encoded, they will result in CID 0.
 // For WIN_ANSI encoding, the results will all be 8-bit.
 static std::optional<std::vector<uint16_t>> TextToCIDs(
     std::string_view utf8_text,
@@ -2536,12 +2458,11 @@ static std::optional<std::vector<uint16_t>> TextToCIDs(
       }
       utf8_text.remove_prefix(code_len);
 
-      if (codepoint > 0xFFFF) return std::nullopt;
-
       if (auto it = cmap.find(codepoint); it != cmap.end()) {
         ret.push_back(it->second);
       } else {
-        return {};
+        // Missing a glyph; we use .notdef for this.
+        ret.push_back(0);
       }
     }
 
@@ -3532,7 +3453,7 @@ bool PDF::pdf_add_image(ImageObj *image, float x, float y,
                         float width, float height, Page *page) {
 
   if (!page)
-    page = (Page *)pdf_find_last_object(OBJ_page);
+    page = (Page *)FindLastObject(OBJ_page);
 
   if (!page) {
     SetErr(-EINVAL, "Invalid pdf page");
@@ -3541,8 +3462,8 @@ bool PDF::pdf_add_image(ImageObj *image, float x, float y,
 
   if (image->type != OBJ_image) {
     SetErr(-EINVAL,
-           "adding an image, but wrong object type %d",
-           image->type);
+           std::format("adding an image, but wrong object type {}",
+                       (int)image->type));
     return false;
   }
 
@@ -3695,7 +3616,7 @@ bool PDF::pdf_add_jpeg_data(float x, float y, float display_width,
   std::string error;
   std::optional<JPGHeader> oheader = parse_jpeg_header(jpeg_data, len, &error);
   if (!oheader.has_value()) {
-    SetErr(-EINVAL, "Couldn't parse jpeg: %s", error.c_str());
+    SetErr(-EINVAL, std::format("Couldn't parse jpeg: {}", error));
     return false;
   }
 
@@ -3768,7 +3689,7 @@ bool PDF::pdf_add_png_data(float x, float y,
   size_t palette_buffer_length = 0;
 
   // Father info from png header
-  switch (header.colorType) {
+  switch (header.color_type) {
   case PNG_COLOR_GREYSCALE:
     ncolors = 1;
     break;
@@ -3780,8 +3701,8 @@ bool PDF::pdf_add_png_data(float x, float y,
     break;
     // PNG_COLOR_RGBA and PNG_COLOR_GREYSCALE_A are unsupported
   default:
-    SetErr(-EINVAL, "PNG has unsupported color type: %d",
-           header.colorType);
+    SetErr(-EINVAL, std::format("PNG has unsupported color type: {}",
+                                (int)header.color_type));
     goto free_buffers;
     break;
   }
@@ -3802,8 +3723,9 @@ bool PDF::pdf_add_png_data(float x, float y,
     const uint32_t chunk_length = chunk.length;
     // chunk length + 4-bytes of CRC
     if (chunk_length > png_data_length - pos - 4) {
-      SetErr(-EINVAL, "PNG chunk exceeds file: %d vs %ld",
-             chunk_length, (long)(png_data_length - pos - 4));
+      SetErr(-EINVAL,
+             std::format("PNG chunk exceeds file: {} vs {}",
+                         chunk_length, (long)(png_data_length - pos - 4)));
       goto free_buffers;
     }
     if (strncmp(chunk.type, png_chunk_header, 4) == 0) {
@@ -3811,7 +3733,7 @@ bool PDF::pdf_add_png_data(float x, float y,
       // before calling this function.
     } else if (strncmp(chunk.type, png_chunk_palette, 4) == 0) {
       // Palette chunk
-      if (header.colorType == PNG_COLOR_INDEXED) {
+      if (header.color_type == PNG_COLOR_INDEXED) {
         // palette chunk is needed for indexed images
         if (palette_buffer) {
           SetErr(-EINVAL,
@@ -3828,8 +3750,8 @@ bool PDF::pdf_add_png_data(float x, float y,
         if (palette_buffer_length > 256 ||
             palette_buffer_length == 0) {
           SetErr(-EINVAL,
-                 "PNG palette length invalid: %lu",
-                 (unsigned long)palette_buffer_length);
+                 std::format("PNG palette length invalid: {}",
+                             palette_buffer_length));
           goto free_buffers;
         }
         palette_buffer = (struct rgb_value *)malloc(
@@ -3842,14 +3764,14 @@ bool PDF::pdf_add_png_data(float x, float y,
           palette_buffer[i].green = png_data[offset + 1];
           palette_buffer[i].blue = png_data[offset + 2];
         }
-      } else if (header.colorType == PNG_COLOR_RGB ||
-                 header.colorType == PNG_COLOR_RGBA) {
+      } else if (header.color_type == PNG_COLOR_RGB ||
+                 header.color_type == PNG_COLOR_RGBA) {
         // palette chunk is optional for RGB(A) images
         // but we do not process them
       } else {
         SetErr(-EINVAL,
-               "Unexpected palette chunk for color type %d",
-               header.colorType);
+               std::format("Unexpected palette chunk for color type {}",
+                           (int)header.color_type));
         goto free_buffers;
       }
     } else if (strncmp(chunk.type, png_chunk_data, 4) == 0) {
@@ -3883,7 +3805,7 @@ bool PDF::pdf_add_png_data(float x, float y,
     goto free_buffers;
   }
 
-  switch (header.colorType) {
+  switch (header.color_type) {
   case PNG_COLOR_GREYSCALE:
     StringAppendF(&color_space, "/DeviceGray");
     break;
@@ -3914,8 +3836,8 @@ bool PDF::pdf_add_png_data(float x, float y,
 
   default:
     SetErr(-EINVAL,
-           "Cannot map PNG color type %d to PDF color space",
-           header.colorType);
+           std::format("Cannot map PNG color type {} to PDF color space",
+                       (int)header.color_type));
     goto free_buffers;
     break;
   }
@@ -3945,8 +3867,8 @@ bool PDF::pdf_add_png_data(float x, float y,
               "  /Length %zu\n"
               ">>stream\n",
               idx, color_space.c_str(),
-              header.width, header.height, header.bitDepth, ncolors,
-              header.bitDepth, header.width, png_data_total_length);
+              header.width, header.height, header.bit_depth, ncolors,
+              header.bit_depth, header.width, png_data_total_length);
 
     final_data.append(std::string_view((const char*)png_data_temp,
                                        png_data_total_length));
@@ -3985,7 +3907,7 @@ bool PDF::AddImageRGB(float x, float y,
                       Page *page) {
 
   if (!page)
-    page = (Page*)pdf_find_last_object(OBJ_page);
+    page = (Page*)FindLastObject(OBJ_page);
 
   CHECK(page != nullptr);
 
@@ -4457,7 +4379,7 @@ std::string PDF::FontObj::BaseFont() const {
 }
 
 void PDF::SetDimensions(float ww, float hh) {
-  CHECK(nullptr == (Page*)pdf_find_last_object(OBJ_page)) << "It is not (yet?) "
+  CHECK(nullptr == (Page*)FindLastObject(OBJ_page)) << "It is not (yet?) "
     "supported to change the dimensions of a PDF document once you've added "
     "a page. It might just work; you could try removing this error.";
 

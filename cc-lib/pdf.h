@@ -18,10 +18,7 @@
 #include "image.h"
 #include "hashing.h"
 
-// Allows for quick generation of simple PDF documents.
-// This is useful for producing easily printed output from C code, where
-// advanced formatting is not required
-//
+
 // Note: All coordinates/sizes are in points (1/72 of an inch).
 // All coordinates are based on 0,0 being the bottom left of the page.
 // All colors are specified as a packed 32-bit value - see @ref PDF_RGB.
@@ -50,6 +47,7 @@ struct PDFOptions {
   bool use_compression = true;
   // TODO: Might want to give options for only compressing binary data
   // (e.g. TTFs)
+  // TODO: Options for reencoding PNGs.
   // TODO: Use object streams for better compression (PDF 1.5+).
 };
 }
@@ -71,7 +69,6 @@ private:
     OBJ_image,
     OBJ_link,
     OBJ_widths,
-    // OBJ_cmap,
 
     OBJ_count,
   };
@@ -92,8 +89,6 @@ private:
 
   struct StreamObj;
   struct WidthsObj;
-  // XXX probably not needed. it's just a stream
-  struct CMapObj;
 
  public:
 
@@ -594,7 +589,10 @@ private:
 
   static const char *ObjTypeName(ObjType t);
 
-private:
+ private:
+  // Not copyable.
+  PDF(const PDF &) = delete;
+  PDF &operator=(const PDF &) = delete;
 
   struct OutlineObj : public Object {
     OutlineObj() : Object(OBJ_outline) {}
@@ -688,7 +686,7 @@ private:
   // properly ordered.
   void FlushDrawCommands(Page *page);
 
-  int SetErr(int errval, const char *buffer, ...);
+  int SetErr(int errval, std::string message);
   Object *GetObject(int index);
   void AppendObject(Object *obj);
   // Perhaps can just be destructor, or static
@@ -703,11 +701,10 @@ private:
           const std::vector<std::pair<std::string, std::string>> &keys,
           const std::string &s);
 
-  void pdf_del_object(Object *obj);
-  Object *pdf_find_first_object(int type);
-  Object *pdf_find_last_object(int type);
-  const Object *pdf_find_first_object(int type) const;
-  const Object *pdf_find_last_object(int type) const;
+  Object *FindFirstObject(int type);
+  Object *FindLastObject(int type);
+  const Object *FindFirstObject(int type) const;
+  const Object *FindLastObject(int type) const;
   static int pdf_get_bookmark_count(const Object *obj);
   void pdf_add_stream(Page *page, std::string str);
   void pdf_add_stream_raw(Page *page, std::string str);
@@ -759,8 +756,7 @@ private:
                          size_t len,
                          Page *page);
 
-  // XXX use std::string
-  char errstr[128] = {};
+  std::string error_message;
   int errval = 0;
   std::vector<Object *> objects;
 
