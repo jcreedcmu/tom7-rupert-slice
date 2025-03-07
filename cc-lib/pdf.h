@@ -62,6 +62,7 @@ private:
     OBJ_stream,
     OBJ_font,
     OBJ_builtin_font,
+    OBJ_font8,
     OBJ_page,
     OBJ_bookmark,
     OBJ_outline,
@@ -91,6 +92,7 @@ private:
   struct StreamObj;
   struct WidthsObj;
   struct FontObj;
+  struct Font8Obj;
   struct BuiltInFontObj;
 
  public:
@@ -203,10 +205,14 @@ private:
 
    private:
     friend struct PDF;
+    Font() {}
+    // Probably I can stop using these?
     Font(FontObj *fobj) : fobj(fobj) {}
+    Font(Font8Obj *f8obj) : f8obj(f8obj) {}
     Font(BuiltInFontObj *bfobj) : bfobj(bfobj) {}
     // Maybe not needed at all?
     FontObj *fobj = nullptr;
+    Font8Obj *f8obj = nullptr;
     BuiltInFontObj *bfobj = nullptr;
 
     // Width of the cid when the font is at 1pt.
@@ -605,6 +611,13 @@ private:
   struct BuiltInFontObj : public Object {
     BuiltInFontObj() : Object(OBJ_builtin_font) {}
     Font *font = nullptr;
+    WidthsObj *widths_obj = nullptr;
+  };
+
+  struct Font8Obj : public Object {
+    Font8Obj() : Object(OBJ_font8) {}
+    Font *font = nullptr;
+    StreamObj *ttf = nullptr;
     WidthsObj *widths_obj = nullptr;
   };
 

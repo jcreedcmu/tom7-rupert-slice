@@ -210,6 +210,8 @@ const char *PDF::ObjTypeName(ObjType t) {
   case OBJ_info: return "info";
   case OBJ_stream: return "stream";
   case OBJ_font: return "font";
+  case OBJ_builtin_font: return "builtin_font";
+  case OBJ_font8: return "font8";
   case OBJ_page: return "page";
   case OBJ_bookmark: return "bookmark";
   case OBJ_outline: return "outline";
@@ -574,13 +576,27 @@ int PDF::SaveObject(FILE *fp, int index) {
             Float(pobj->height).c_str());
     fprintf(fp, "  /Resources <<\n");
     fprintf(fp, "    /Font <<\n");
-    for (const Object *font = FindFirstObject(OBJ_font);
-         font; font = font->next) {
-      const FontObj *fobj = (const FontObj *)font;
-      fprintf(fp, "      /F%d %d 0 R\n",
-              fobj->font->font_index,
-              font->index);
+
+    // Annoyingly we have to name all of the fonts again. This
+    // is pretty short, but best would be if we only made names
+    // for the ones actually used on this page? Also annoying
+    // is that there are three different objects that we might
+    // be using as fonts.
+    auto RegisterFont = [fp](int font_index, int obj_ref) {
+        fprintf(fp, "      /F%d %d 0 R\n", font_index, obj_ref);
+      };
+    for (const Object *obj = FindFirstObject(OBJ_font);
+         obj; obj = obj->next) {
+      const FontObj *fobj = (const FontObj *)obj;
+      RegisterFont(fobj->font->font_index, fobj->index);
     }
+    for (const Object *obj = FindFirstObject(OBJ_font8);
+         obj; obj = obj->next) {
+      const Font8Obj *f8obj = (const Font8Obj *)obj;
+      RegisterFont(f8obj->font->font_index, f8obj->index);
+    }
+    // XXX also Type0 (but not CIDFont) here.
+
     fprintf(fp, "    >>\n");
     // TODO: The way alpha is implemented is to always generate 16
     // different graphics states on each page, for 4-bit transparency.
@@ -721,79 +737,92 @@ int PDF::SaveObject(FILE *fp, int index) {
       "should not use this legacy object";
 
     FontEncoding encoding = fobj->font->encoding;
+    CHECK(encoding == FontEncoding::UNICODE);
 
     CHECK(fobj->ttf != nullptr) << "Missing embedded TTF?";
 
-    if (encoding == FontEncoding::UNICODE) {
-      // Annoyingly, we have to wrap a CIDFontType2 inside a
-      // Type 0 font. :(
+    // FIXME
+    // Annoyingly, we have to wrap a CIDFontType2 inside a
+    // Type 0 font. :(
 
-      fprintf(fp,
-              "<<\n"
-              "  /Type /Font\n"
-              "  /Subtype /CIDFontType2\n"
-              "  /BaseFont /Font%d\n"
-              // Identity means we just use 16-bit glyph codes (two
-              // bytes each) from the font. The PDF understands what
-              // codepoints these are because of the /ToUnicode
-              // CMAP.
-              "  /Encoding /Identity-H\n"
-              "  /FontDescriptor <<\n"
-              "    /Type /FontDescriptor\n"
-              "    /FontName /FontName%d\n"
-              "    /FontFile2 %d 0 R\n"
-              "  >>\n",
-              // Basefont: Just needs a unique name.
-              fobj->index,
-              // FontName; we just FontName<id>
-              fobj->index,
-              // Refers to the embedded file in its own stream.
-              fobj->ttf->index);
+    fprintf(fp,
+            "<<\n"
+            "  /Type /Font\n"
+            "  /Subtype /CIDFontType2\n"
+            "  /BaseFont /Font%d\n"
+            // Identity means we just use 16-bit glyph codes (two
+            // bytes each) from the font. The PDF understands what
+            // codepoints these are because of the /ToUnicode
+            // CMAP.
+            "  /Encoding /Identity-H\n"
+            "  /FontDescriptor <<\n"
+            "    /Type /FontDescriptor\n"
+            "    /FontName /FontName%d\n"
+            "    /FontFile2 %d 0 R\n"
+            "  >>\n",
+            // Basefont: Just needs a unique name.
+            fobj->index,
+            // FontName; we just FontName<id>
+            fobj->index,
+            // Refers to the embedded file in its own stream.
+            fobj->ttf->index);
 
-      CHECK(fobj->cmap_obj != nullptr) << "We should have a CMap object "
-        "when using Unicode text encoding.";
-      fprintf(fp, "  /ToUnicode %d 0 R\n", fobj->cmap_obj->index);
+    CHECK(fobj->cmap_obj != nullptr) << "We should have a CMap object "
+      "when using Unicode text encoding.";
+    fprintf(fp, "  /ToUnicode %d 0 R\n", fobj->cmap_obj->index);
 
-      // This is boilerplate saying that we want CID = glyph id.
-      fprintf(fp,
-              "  /CIDSystemInfo <<\n"
-              "    /Registry (Adobe)\n"
-              "    /Ordering (Identity)\n"
-              "  /Supplement 0\n"
-              "  >>\n"
-              "  /CIDToGIDMap /Identity\n"
-              ">>\n");
+    // This is boilerplate saying that we want CID = glyph id.
+    fprintf(fp,
+            "  /CIDSystemInfo <<\n"
+            "    /Registry (Adobe)\n"
+            "    /Ordering (Identity)\n"
+            "  /Supplement 0\n"
+            "  >>\n"
+            "  /CIDToGIDMap /Identity\n"
+            ">>\n");
 
-    } else {
-      CHECK(encoding == FontEncoding::WIN_ANSI);
+    break;
+  }
 
-      fprintf(fp,
-              "<<\n"
-              "  /Type /Font\n"
-              "  /Subtype /TrueType\n"
-              "  /BaseFont /Font%d\n"
-              "  /Encoding /WinAnsiEncoding\n"
-              "  /FontDescriptor <<\n"
-              "    /Type /FontDescriptor\n"
-              "    /FontName /FontName%d\n"
-              "    /FontFile2 %d 0 R\n"
-              "  >>\n"
-              "  /FirstChar %d\n"
-              "  /LastChar %d\n"
-              "  /Widths %d 0 R\n"
-              ">>\n",
-              // Basefont: Just needs a unique name.
-              fobj->index,
-              // FontName; we just use FontName<id>
-              fobj->index,
-              // Refers to the embedded file in its own stream.
-              fobj->ttf->index,
-              // Widths
-              fobj->widths_obj->firstchar,
-              fobj->widths_obj->lastchar,
-              // Array of widths in its own object.
-              fobj->widths_obj->index);
-    }
+  case OBJ_font8: {
+    // Embedded WinAnsi-encoded truetype font.
+    const Font8Obj *fobj = (const Font8Obj*)object;
+    CHECK(fobj->widths_obj != nullptr) << "All fonts should have "
+      "a widths object.";
+    CHECK(fobj->font != nullptr);
+    CHECK(!fobj->font->builtin_font.has_value()) << "Built-in fonts "
+      "should not use this.";
+
+    FontEncoding encoding = fobj->font->encoding;
+    CHECK(encoding == FontEncoding::WIN_ANSI);
+    CHECK(fobj->ttf != nullptr) << "Missing embedded TTF?";
+
+    fprintf(fp,
+            "<<\n"
+            "  /Type /Font\n"
+            "  /Subtype /TrueType\n"
+            "  /BaseFont /Font%d\n"
+            "  /Encoding /WinAnsiEncoding\n"
+            "  /FontDescriptor <<\n"
+            "    /Type /FontDescriptor\n"
+            "    /FontName /FontName%d\n"
+            "    /FontFile2 %d 0 R\n"
+            "  >>\n"
+            "  /FirstChar %d\n"
+            "  /LastChar %d\n"
+            "  /Widths %d 0 R\n"
+            ">>\n",
+            // Basefont: Just needs a unique name.
+            fobj->index,
+            // FontName; we just use FontName<id>
+            fobj->index,
+            // Refers to the embedded file in its own stream.
+            fobj->ttf->index,
+            // Widths
+            fobj->widths_obj->firstchar,
+            fobj->widths_obj->lastchar,
+            // Array of widths in its own object.
+            fobj->widths_obj->index);
 
     break;
   }
@@ -4081,9 +4110,7 @@ std::string PDF::AddTTF(std::string_view filename,
   stbtt_GetFontVMetrics(
       &ttf, &native_ascent, &native_descent, &native_linegap);
 
-  FontObj *fobj = AddObject(new FontObj);
-  Font *font = new Font(fobj);
-  fobj->font = font;
+  Font *font = new Font;
   std::string font_name = StringPrintf("Font%d", next_font_index);
   font->font_index = next_font_index;
   next_font_index++;
@@ -4285,7 +4312,6 @@ std::string PDF::AddTTF(std::string_view filename,
 
   StringAppendF(&obj->stream, "\nendstream\n");
 
-  fobj->ttf = obj;
   font->kerning = std::move(kerning);
 
   // Create the stream for the cmap, if applicable.
@@ -4359,7 +4385,6 @@ std::string PDF::AddTTF(std::string_view filename,
     }
   }
   font->encoding = encoding;
-  fobj->cmap_obj = cmap;
 
   // Output the widths object for this font.
   WidthsObj *wobj = AddObject(new WidthsObj);
@@ -4377,7 +4402,23 @@ std::string PDF::AddTTF(std::string_view filename,
     // XXX set default_width? how?
     wobj->widths16 = font->widths;
   }
-  fobj->widths_obj = wobj;
+
+  // Create the appropriate objects.
+  if (encoding == FontEncoding::WIN_ANSI) {
+    Font8Obj *fobj = AddObject(new Font8Obj);
+    fobj->font = font;
+    fobj->ttf = obj;
+    fobj->widths_obj = wobj;
+    font->f8obj = fobj;
+  } else {
+    CHECK(encoding == FontEncoding::UNICODE);
+    FontObj *fobj = AddObject(new FontObj);
+    fobj->font = font;
+    fobj->ttf = obj;
+    fobj->widths_obj = wobj;
+    font->fobj = fobj;
+    fobj->cmap_obj = cmap;
+ }
 
   return font_name;
 }
