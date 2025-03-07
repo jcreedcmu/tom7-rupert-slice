@@ -63,6 +63,8 @@ private:
     OBJ_font,
     OBJ_builtin_font,
     OBJ_font8,
+    OBJ_font0,
+    OBJ_fontcid,
     OBJ_page,
     OBJ_bookmark,
     OBJ_outline,
@@ -93,6 +95,8 @@ private:
   struct WidthsObj;
   struct FontObj;
   struct Font8Obj;
+  struct Font0Obj;
+  struct FontCIDObj;
   struct BuiltInFontObj;
 
  public:
@@ -209,10 +213,12 @@ private:
     // Probably I can stop using these?
     Font(FontObj *fobj) : fobj(fobj) {}
     Font(Font8Obj *f8obj) : f8obj(f8obj) {}
+    Font(Font0Obj *f0obj) : f0obj(f0obj) {}
     Font(BuiltInFontObj *bfobj) : bfobj(bfobj) {}
     // Maybe not needed at all?
     FontObj *fobj = nullptr;
     Font8Obj *f8obj = nullptr;
+    Font0Obj *f0obj = nullptr;
     BuiltInFontObj *bfobj = nullptr;
 
     // Width of the cid when the font is at 1pt.
@@ -594,6 +600,7 @@ private:
   PDF(const PDF &) = delete;
   PDF &operator=(const PDF &) = delete;
 
+// XXX OBSOLETE!
   struct FontObj : public Object {
     FontObj() : Object(OBJ_font) {}
 
@@ -619,6 +626,22 @@ private:
     Font *font = nullptr;
     StreamObj *ttf = nullptr;
     WidthsObj *widths_obj = nullptr;
+  };
+
+  struct Font0Obj : public Object {
+    Font0Obj() : Object(OBJ_font0) {}
+    Font *font = nullptr;
+    FontCIDObj *fcobj = nullptr;
+    // The ToUnicode CMap.
+    StreamObj *cmap_obj = nullptr;
+    WidthsObj *widths_obj = nullptr;
+  };
+
+  struct FontCIDObj : public Object {
+    FontCIDObj() : Object(OBJ_fontcid) {}
+    Font *font = nullptr;
+    // Link to parent font0?
+    StreamObj *ttf = nullptr;
   };
 
   struct OutlineObj : public Object {

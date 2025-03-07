@@ -212,6 +212,8 @@ const char *PDF::ObjTypeName(ObjType t) {
   case OBJ_font: return "font";
   case OBJ_builtin_font: return "builtin_font";
   case OBJ_font8: return "font8";
+  case OBJ_font0: return "font0";
+  case OBJ_fontcid: return "fontcid";
   case OBJ_page: return "page";
   case OBJ_bookmark: return "bookmark";
   case OBJ_outline: return "outline";
@@ -585,17 +587,24 @@ int PDF::SaveObject(FILE *fp, int index) {
     auto RegisterFont = [fp](int font_index, int obj_ref) {
         fprintf(fp, "      /F%d %d 0 R\n", font_index, obj_ref);
       };
-    for (const Object *obj = FindFirstObject(OBJ_font);
+    for (const Object *obj = FindFirstObject(OBJ_builtin_font);
          obj; obj = obj->next) {
-      const FontObj *fobj = (const FontObj *)obj;
-      RegisterFont(fobj->font->font_index, fobj->index);
+      const BuiltInFontObj *fbobj = (const BuiltInFontObj *)obj;
+      RegisterFont(fbobj->font->font_index, fbobj->index);
     }
     for (const Object *obj = FindFirstObject(OBJ_font8);
          obj; obj = obj->next) {
       const Font8Obj *f8obj = (const Font8Obj *)obj;
       RegisterFont(f8obj->font->font_index, f8obj->index);
     }
-    // XXX also Type0 (but not CIDFont) here.
+    for (const Object *obj = FindFirstObject(OBJ_font0);
+         obj; obj = obj->next) {
+      const Font0Obj *f0obj = (const Font0Obj *)obj;
+      RegisterFont(f0obj->font->font_index, f0obj->index);
+    }
+    // ... but notably not CID font objects, since we do not
+    // refer to those directly (they exist only as "descendant"
+    // fonts of the type 0 containers).
 
     fprintf(fp, "    >>\n");
     // TODO: The way alpha is implemented is to always generate 16
@@ -729,9 +738,52 @@ int PDF::SaveObject(FILE *fp, int index) {
   }
 
   case OBJ_font: {
-    const FontObj *fobj = (const FontObj*)object;
-    CHECK(fobj->widths_obj != nullptr) << "All fonts should have "
-      "a widths object. Even built-in ones!";
+    LOG(FATAL) << "This should not be used any more! XXX";
+    break;
+  }
+
+  case OBJ_font0: {
+    const Font0Obj *fobj = (const Font0Obj*)object;
+    CHECK(fobj->widths_obj != nullptr);
+    CHECK(fobj->font != nullptr);
+    CHECK(fobj->fcobj != nullptr);
+    CHECK(!fobj->font->builtin_font.has_value()) << "Built-in fonts "
+      "should not use Type 0 wrappers.";
+    CHECK(fobj->cmap_obj != nullptr) << "We should have a CMap object "
+      "when using Unicode text encoding.";
+
+    FontEncoding encoding = fobj->font->encoding;
+    CHECK(encoding == FontEncoding::UNICODE);
+
+    // This is the Type 0 wrapper for a single CIDType2 (embedded
+    // truetype) font. We always just have the single descendant
+    // font, and this is where we put the metrics and CMap.
+
+    fprintf(fp,
+            "<<\n"
+            "  /Type /Font\n"
+            "  /Subtype /Type0\n"
+            // This is the name we can use elsewhere to draw text.
+            "  /BaseFont /Font%d\n"
+            // Identity means we just use 16-bit glyph codes (two
+            // bytes each) from the font. The PDF understands what
+            // codepoints these are because of the /ToUnicode
+            // CMap.
+            "  /Encoding /Identity-H\n"
+            // The single wrapped CID font.
+            "  /DescendantFonts [%d 0 R]\n"
+            "  /ToUnicode %d 0 R\n"
+            ">>\n",
+            // Basefont: Just needs a unique name.
+            fobj->index,
+            fobj->fcobj->index,
+            fobj->cmap_obj->index);
+
+    break;
+  }
+
+  case OBJ_fontcid: {
+    const FontCIDObj *fobj = (const FontCIDObj*)object;
     CHECK(fobj->font != nullptr);
     CHECK(!fobj->font->builtin_font.has_value()) << "Built-in fonts "
       "should not use this legacy object";
@@ -741,45 +793,34 @@ int PDF::SaveObject(FILE *fp, int index) {
 
     CHECK(fobj->ttf != nullptr) << "Missing embedded TTF?";
 
-    // FIXME
-    // Annoyingly, we have to wrap a CIDFontType2 inside a
-    // Type 0 font. :(
+    // The CIDFontType2 is wrapped inside the Type0 font. This is
+    // where we embed the font data, but metrics and cmap are in
+    // the parent.
 
     fprintf(fp,
             "<<\n"
             "  /Type /Font\n"
             "  /Subtype /CIDFontType2\n"
             "  /BaseFont /Font%d\n"
-            // Identity means we just use 16-bit glyph codes (two
-            // bytes each) from the font. The PDF understands what
-            // codepoints these are because of the /ToUnicode
-            // CMAP.
-            "  /Encoding /Identity-H\n"
             "  /FontDescriptor <<\n"
             "    /Type /FontDescriptor\n"
             "    /FontName /FontName%d\n"
             "    /FontFile2 %d 0 R\n"
-            "  >>\n",
-            // Basefont: Just needs a unique name.
-            fobj->index,
-            // FontName; we just FontName<id>
-            fobj->index,
-            // Refers to the embedded file in its own stream.
-            fobj->ttf->index);
-
-    CHECK(fobj->cmap_obj != nullptr) << "We should have a CMap object "
-      "when using Unicode text encoding.";
-    fprintf(fp, "  /ToUnicode %d 0 R\n", fobj->cmap_obj->index);
-
-    // This is boilerplate saying that we want CID = glyph id.
-    fprintf(fp,
+            "  >>\n"
+            // This is boilerplate saying that we want CID = glyph id.
             "  /CIDSystemInfo <<\n"
             "    /Registry (Adobe)\n"
             "    /Ordering (Identity)\n"
             "  /Supplement 0\n"
             "  >>\n"
             "  /CIDToGIDMap /Identity\n"
-            ">>\n");
+            ">>\n",
+            // Basefont: Just needs a unique name.
+            fobj->index,
+            // FontName; we just FontName<id>
+            fobj->index,
+            // Refers to the embedded file in its own stream.
+            fobj->ttf->index);
 
     break;
   }
@@ -4412,13 +4453,21 @@ std::string PDF::AddTTF(std::string_view filename,
     font->f8obj = fobj;
   } else {
     CHECK(encoding == FontEncoding::UNICODE);
-    FontObj *fobj = AddObject(new FontObj);
-    fobj->font = font;
-    fobj->ttf = obj;
-    fobj->widths_obj = wobj;
-    font->fobj = fobj;
-    fobj->cmap_obj = cmap;
- }
+
+    // Here we need *two* objects: A Type0 font containing
+    // the CIDFontType2.
+    Font0Obj *f0obj = AddObject(new Font0Obj);
+    FontCIDObj *fcobj = AddObject(new FontCIDObj);
+    f0obj->fcobj = fcobj;
+    f0obj->font = font;
+    f0obj->cmap_obj = cmap;
+    f0obj->widths_obj = wobj;
+
+    fcobj->font = font;
+    fcobj->ttf = obj;
+
+    font->f0obj = f0obj;
+  }
 
   return font_name;
 }
