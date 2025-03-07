@@ -14,6 +14,23 @@
 // PERF: Output will have a lot of 200.00000000 stuff; use smarter
 // float to text routine.
 
+/* TODO
+Validating file "minimal.pdf" for conformance level pdf1.3
+The key Flags is required but missing.
+The key FontBBox is required but missing.
+The key ItalicAngle is required but missing.
+The key Ascent is required but missing.
+The key Descent is required but missing.
+The key CapHeight is required but missing.
+The key StemV is required but missing.
+The value of the key Flags is 0 but must be either symbolic or non-symbolic.
+The document does not conform to the requested standard.
+The document doesn't conform to the PDF reference (missing required entries, wrong value types, etc.).
+The document contains fonts without embedded font programs or encoding information (CMAPs).
+The document does not conform to the PDF 1.3 standard.
+Done.
+*/
+
 #include "pdf.h"
 
 #include <algorithm>
@@ -744,7 +761,6 @@ int PDF::SaveObject(FILE *fp, int index) {
 
   case OBJ_font0: {
     const Font0Obj *fobj = (const Font0Obj*)object;
-    CHECK(fobj->widths_obj != nullptr);
     CHECK(fobj->font != nullptr);
     CHECK(fobj->fcobj != nullptr);
     CHECK(!fobj->font->builtin_font.has_value()) << "Built-in fonts "
@@ -752,12 +768,13 @@ int PDF::SaveObject(FILE *fp, int index) {
     CHECK(fobj->cmap_obj != nullptr) << "We should have a CMap object "
       "when using Unicode text encoding.";
 
+
     FontEncoding encoding = fobj->font->encoding;
     CHECK(encoding == FontEncoding::UNICODE);
 
     // This is the Type 0 wrapper for a single CIDType2 (embedded
     // truetype) font. We always just have the single descendant
-    // font, and this is where we put the metrics and CMap.
+    // font, and this is where we put the CMap.
 
     fprintf(fp,
             "<<\n"
@@ -793,8 +810,14 @@ int PDF::SaveObject(FILE *fp, int index) {
 
     CHECK(fobj->ttf != nullptr) << "Missing embedded TTF?";
 
+    // We need a width16 since we'll refer to it with /W.
+    // Maybe would be cleaner to just have two different widths object
+    // types.
+    CHECK(fobj->widths_obj != nullptr);
+    CHECK(fobj->widths_obj->encoding == FontEncoding::UNICODE);
+
     // The CIDFontType2 is wrapped inside the Type0 font. This is
-    // where we embed the font data, but metrics and cmap are in
+    // where we embed the font data and metrics, but the cmap is in
     // the parent.
 
     fprintf(fp,
@@ -814,13 +837,19 @@ int PDF::SaveObject(FILE *fp, int index) {
             "  /Supplement 0\n"
             "  >>\n"
             "  /CIDToGIDMap /Identity\n"
+            // The default width (not really supported at the moment)
+            "  /DW %d\n"
+            // The array of widths for this font.
+            "  /W %d 0 R\n"
             ">>\n",
             // Basefont: Just needs a unique name.
             fobj->index,
             // FontName; we just FontName<id>
             fobj->index,
             // Refers to the embedded file in its own stream.
-            fobj->ttf->index);
+            fobj->ttf->index,
+            fobj->widths_obj->default_width,
+            fobj->widths_obj->index);
 
     break;
   }
@@ -971,18 +1000,25 @@ int PDF::SaveObject(FILE *fp, int index) {
       fprintf(fp, " ]\n");
     } else {
       CHECK(wobj->encoding == FontEncoding::UNICODE);
+
       std::vector<std::pair<uint16_t, int>> sorted =
         MapToSortedVec(wobj->widths16);
 
-      // PERF: The W format supports runs and anti-runs [ ].
-      // We generate runs here, but we could also detect
-      // cases where there are a consecutive series of distinct widths
-      // and use this syntax. Note that it should clear prev_width,
-      // not set it to the last element in the antirun.
+      // Two entry types:
+      // first last width      (which meanas first = width ... last = width)
+      // base [w0 w1 w2 w3]    (which means base+0 = w0, base+1 = w1, ...)
       //
-      // (We also could use the default width /DW to save space.
-      // In situations where prev_width is {}, it actually behaves
-      // like the default width.)
+      // This is the dumbest encoding to get it working. We should
+      // generate something more compact:
+      fprintf(fp, "[\n");
+      for (int i = 0; i < (int)sorted.size(); i++) {
+        const auto &[cid, width] = sorted[i];
+        fprintf(fp, "%d %d %d\n", cid, cid, width);
+      }
+      fprintf(fp, "]\n");
+
+      #if 0
+      // WRONG!
       fprintf(fp, "[\n");
       std::optional<int> prev_width = {};
       for (int i = 0; i < (int)sorted.size(); i++) {
@@ -1002,6 +1038,7 @@ int PDF::SaveObject(FILE *fp, int index) {
         }
       }
       fprintf(fp, "]\n");
+      #endif
     }
     break;
   }
@@ -4461,10 +4498,10 @@ std::string PDF::AddTTF(std::string_view filename,
     f0obj->fcobj = fcobj;
     f0obj->font = font;
     f0obj->cmap_obj = cmap;
-    f0obj->widths_obj = wobj;
 
     fcobj->font = font;
     fcobj->ttf = obj;
+    fcobj->widths_obj = wobj;
 
     font->f0obj = f0obj;
   }

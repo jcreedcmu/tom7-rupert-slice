@@ -157,7 +157,8 @@ static void MakeSimplePDF() {
   snprintf(info.date, 63, "30 Dec 2023");
   pdf.SetInfo(info);
 
-  std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf");
+  std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf",
+                                         PDF::FontEncoding::UNICODE);
 
   {
     printf(AWHITE("Shapes page") ".\n");
@@ -452,7 +453,7 @@ static void MakeSimplePDF() {
               "time: E.T.. It is illicitly lilliputian. "
               "'lillili.' "
               "@WASTE@ #NOT#. &WANT& !NOT!. ,FONT, \u2014NAUGHT\u2014. "
-              "!@#$%^&*()-=",
+              "!@#$%^&*()-=  ♥♥ok",
               18,
               36, 72 * 3,
               0.0f,
@@ -487,7 +488,7 @@ static void MakeMinimalPDF() {
   pdf.SetInfo(info);
 
   std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf",
-                                         PDF::FontEncoding::WIN_ANSI);
+                                         PDF::FontEncoding::UNICODE);
 
   pdf.SetFont(pasement_name);
   CHECK(pdf.AddText("Title of PDF",
@@ -498,6 +499,7 @@ static void MakeMinimalPDF() {
   pdf.Save("minimal.pdf");
   printf("Wrote " AGREEN("minimal.pdf") "\n");
 }
+
 
 int main(int argc, char **argv) {
   ANSI::Init();

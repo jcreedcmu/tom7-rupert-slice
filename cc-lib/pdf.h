@@ -634,7 +634,6 @@ private:
     FontCIDObj *fcobj = nullptr;
     // The ToUnicode CMap.
     StreamObj *cmap_obj = nullptr;
-    WidthsObj *widths_obj = nullptr;
   };
 
   struct FontCIDObj : public Object {
@@ -642,6 +641,7 @@ private:
     Font *font = nullptr;
     // Link to parent font0?
     StreamObj *ttf = nullptr;
+    WidthsObj *widths_obj = nullptr;
   };
 
   struct OutlineObj : public Object {
