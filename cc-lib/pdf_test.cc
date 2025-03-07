@@ -20,7 +20,7 @@ static constexpr std::initializer_list<const char *> FONTS = {
 };
 
 using SpacedLine = PDF::SpacedLine;
-using FontObj = PDF::FontObj;
+using Font = PDF::Font;
 
 static std::vector<std::pair<float, float>> Star(
     float x, float y,
@@ -72,7 +72,7 @@ static void BuiltInWidths() {
       PDF::SYMBOL,
       PDF::ZAPF_DINGBATS }) {
 
-    const FontObj *font = pdf.GetBuiltInFont(bif);
+    const Font *font = pdf.GetBuiltInFont(bif);
     CHECK(font->CharWidth('M') > 0) << PDF::BuiltInFontName(bif);
 
     {
@@ -101,7 +101,7 @@ static void SpaceLine() {
   snprintf(info.date, 63, "30 Dec 2023");
   pdf.SetInfo(info);
 
-  const FontObj *times = pdf.GetBuiltInFont(PDF::TIMES_ROMAN);
+  const Font *times = pdf.GetBuiltInFont(PDF::TIMES_ROMAN);
 
   {
     std::vector<PDF::SpacedLine> lines =
@@ -254,7 +254,7 @@ static void MakeSimplePDF() {
         float ycolumn2 = ypos;
 
         const std::string embedded_name = pdf.AddTTF(filename);
-        const PDF::FontObj *embedded = pdf.GetFontByName(embedded_name);
+        const PDF::Font *embedded = pdf.GetFontByName(embedded_name);
         CHECK(embedded != nullptr) << filename << " exists but can't be "
           "loaded?";
         pdf.SetFont(embedded_name);
