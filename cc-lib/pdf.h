@@ -61,6 +61,7 @@ private:
     OBJ_info,
     OBJ_stream,
     OBJ_font,
+    OBJ_builtin_font,
     OBJ_page,
     OBJ_bookmark,
     OBJ_outline,
@@ -90,6 +91,7 @@ private:
   struct StreamObj;
   struct WidthsObj;
   struct FontObj;
+  struct BuiltInFontObj;
 
  public:
 
@@ -199,20 +201,21 @@ private:
     // The width of the string at 1pt.
     double GetKernedWidth(std::string_view text) const;
 
-    FontEncoding GetEncoding() const {
-      return fobj->GetEncoding();
-    }
-
    private:
     friend struct PDF;
     Font(FontObj *fobj) : fobj(fobj) {}
+    Font(BuiltInFontObj *bfobj) : bfobj(bfobj) {}
+    // Maybe not needed at all?
     FontObj *fobj = nullptr;
+    BuiltInFontObj *bfobj = nullptr;
 
     // Width of the cid when the font is at 1pt.
     double CIDWidth(uint16_t cid) const;
 
     // Or zero if not found.
     uint16_t GetCID(uint32_t codepoint) const;
+
+    FontEncoding encoding = FontEncoding::WIN_ANSI;
 
     // The font's index, like 3 for /F3.
     int font_index = 0;
@@ -588,28 +591,8 @@ private:
   struct FontObj : public Object {
     FontObj() : Object(OBJ_font) {}
 
-    // Return the kerning for the pair, if defined in the font. This
-    // kerning value is the amount of additional space to add, but is
-    // typically negative. Here, units are for the unscaled font
-    // ("1pt"), so they are already appropriate for AddSpacedLine.
-    //
-    // Note that built-in fonts have no kerning tables, but you could
-    // make your own.
-    std::optional<double> GetKerning(int codepoint1, int codepoint2) const;
-
-    // Kerns a single line of text.
-    SpacedLine KernText(std::string_view text) const;
-
-    // The width of the string at 1pt.
-    double GetKernedWidth(std::string_view text) const;
-
-    FontEncoding GetEncoding() const;
-
-  private:
     // The corresponding Font object.
     Font *font = nullptr;
-
-    FontEncoding encoding = FontEncoding::WIN_ANSI;
 
     // For embedded fonts, the data stream.
     StreamObj *ttf = nullptr;
@@ -617,12 +600,12 @@ private:
     WidthsObj *widths_obj = nullptr;
     // For embedded fonts with unicode encoding, the CMap.
     StreamObj *cmap_obj = nullptr;
-    // XXX actually, don't need to store this
-    std::string cmap_name;
+  };
 
-    const uint16_t *GetWidths() const;
-
-    friend struct PDF;
+  struct BuiltInFontObj : public Object {
+    BuiltInFontObj() : Object(OBJ_builtin_font) {}
+    Font *font = nullptr;
+    WidthsObj *widths_obj = nullptr;
   };
 
   struct OutlineObj : public Object {

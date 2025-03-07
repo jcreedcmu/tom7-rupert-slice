@@ -373,7 +373,7 @@ const PDF::Font *PDF::GetBuiltInFont(BuiltInFont f) {
     return it->second;
 
   // Create a new font object, then.
-  FontObj *fobj = AddObject(new FontObj);
+  BuiltInFontObj *fobj = AddObject(new BuiltInFontObj);
   CHECK(fobj);
   Font *font = new Font(fobj);
   fobj->font = font;
@@ -716,104 +716,117 @@ int PDF::SaveObject(FILE *fp, int index) {
     const FontObj *fobj = (const FontObj*)object;
     CHECK(fobj->widths_obj != nullptr) << "All fonts should have "
       "a widths object. Even built-in ones!";
+    CHECK(fobj->font != nullptr);
+    CHECK(!fobj->font->builtin_font.has_value()) << "Built-in fonts "
+      "should not use this legacy object";
 
-    if (fobj->ttf != nullptr) {
+    FontEncoding encoding = fobj->font->encoding;
 
-      if (fobj->encoding == FontEncoding::UNICODE) {
-        // Annoyingly, we have to wrap a CIDFontType2 inside a
-        // Type 0 font. :(
+    CHECK(fobj->ttf != nullptr) << "Missing embedded TTF?";
 
-        fprintf(fp,
-                "<<\n"
-                "  /Type /Font\n"
-                "  /Subtype /CIDFontType2\n"
-                "  /BaseFont /Font%d\n"
-                // Identity means we just use 16-bit glyph codes (two
-                // bytes each) from the font. The PDF understands what
-                // codepoints these are because of the /ToUnicode
-                // CMAP.
-                "  /Encoding /Identity-H\n"
-                "  /FontDescriptor <<\n"
-                "    /Type /FontDescriptor\n"
-                "    /FontName /FontName%d\n"
-                "    /FontFile2 %d 0 R\n"
-                "  >>\n",
-                // Basefont: Just needs a unique name.
-                fobj->index,
-                // FontName; we just FontName<id>
-                fobj->index,
-                // Refers to the embedded file in its own stream.
-                fobj->ttf->index);
+    if (encoding == FontEncoding::UNICODE) {
+      // Annoyingly, we have to wrap a CIDFontType2 inside a
+      // Type 0 font. :(
 
-        CHECK(fobj->cmap_obj != nullptr) << "We should have a CMap object "
-          "when using Unicode text encoding.";
-        fprintf(fp, "  /ToUnicode %d 0 R\n", fobj->cmap_obj->index);
-
-        // This is boilerplate saying that we want CID = glyph id.
-        fprintf(fp,
-                "  /CIDSystemInfo <<\n"
-                "    /Registry (Adobe)\n"
-                "    /Ordering (Identity)\n"
-                "  /Supplement 0\n"
-                "  >>\n"
-                "  /CIDToGIDMap /Identity\n"
-                ">>\n");
-
-      } else {
-        CHECK(fobj->encoding == FontEncoding::WIN_ANSI);
-
-        fprintf(fp,
-                "<<\n"
-                "  /Type /Font\n"
-                "  /Subtype /TrueType\n"
-                "  /BaseFont /Font%d\n"
-                "  /Encoding /WinAnsiEncoding\n"
-                "  /FontDescriptor <<\n"
-                "    /Type /FontDescriptor\n"
-                "    /FontName /FontName%d\n"
-                "    /FontFile2 %d 0 R\n"
-                "  >>\n"
-                "  /FirstChar %d\n"
-                "  /LastChar %d\n"
-                "  /Widths %d 0 R\n"
-                ">>\n",
-                // Basefont: Just needs a unique name.
-                fobj->index,
-                // FontName; we just use FontName<id>
-                fobj->index,
-                // Refers to the embedded file in its own stream.
-                fobj->ttf->index,
-                // Widths
-                fobj->widths_obj->firstchar,
-                fobj->widths_obj->lastchar,
-                // Array of widths in its own object.
-                fobj->widths_obj->index);
-      }
-
-    } else {
-      CHECK(fobj->font->builtin_font.has_value()) << "A FontObj should "
-        "be either an embedded font or built-in one?";
-
-      CHECK(fobj->encoding == FontEncoding::WIN_ANSI) << "Built-in "
-        "fonts are WIN_ANSI by definition.";
-
-      // A built-in font (BaseFont).
       fprintf(fp,
               "<<\n"
               "  /Type /Font\n"
-              "  /Subtype /Type1\n"
-              "  /BaseFont /%s\n"
+              "  /Subtype /CIDFontType2\n"
+              "  /BaseFont /Font%d\n"
+              // Identity means we just use 16-bit glyph codes (two
+              // bytes each) from the font. The PDF understands what
+              // codepoints these are because of the /ToUnicode
+              // CMAP.
+              "  /Encoding /Identity-H\n"
+              "  /FontDescriptor <<\n"
+              "    /Type /FontDescriptor\n"
+              "    /FontName /FontName%d\n"
+              "    /FontFile2 %d 0 R\n"
+              "  >>\n",
+              // Basefont: Just needs a unique name.
+              fobj->index,
+              // FontName; we just FontName<id>
+              fobj->index,
+              // Refers to the embedded file in its own stream.
+              fobj->ttf->index);
+
+      CHECK(fobj->cmap_obj != nullptr) << "We should have a CMap object "
+        "when using Unicode text encoding.";
+      fprintf(fp, "  /ToUnicode %d 0 R\n", fobj->cmap_obj->index);
+
+      // This is boilerplate saying that we want CID = glyph id.
+      fprintf(fp,
+              "  /CIDSystemInfo <<\n"
+              "    /Registry (Adobe)\n"
+              "    /Ordering (Identity)\n"
+              "  /Supplement 0\n"
+              "  >>\n"
+              "  /CIDToGIDMap /Identity\n"
+              ">>\n");
+
+    } else {
+      CHECK(encoding == FontEncoding::WIN_ANSI);
+
+      fprintf(fp,
+              "<<\n"
+              "  /Type /Font\n"
+              "  /Subtype /TrueType\n"
+              "  /BaseFont /Font%d\n"
               "  /Encoding /WinAnsiEncoding\n"
+              "  /FontDescriptor <<\n"
+              "    /Type /FontDescriptor\n"
+              "    /FontName /FontName%d\n"
+              "    /FontFile2 %d 0 R\n"
+              "  >>\n"
               "  /FirstChar %d\n"
               "  /LastChar %d\n"
               "  /Widths %d 0 R\n"
               ">>\n",
-              BuiltInFontName(fobj->font->builtin_font.value()),
+              // Basefont: Just needs a unique name.
+              fobj->index,
+              // FontName; we just use FontName<id>
+              fobj->index,
+              // Refers to the embedded file in its own stream.
+              fobj->ttf->index,
+              // Widths
               fobj->widths_obj->firstchar,
               fobj->widths_obj->lastchar,
               // Array of widths in its own object.
               fobj->widths_obj->index);
     }
+
+    break;
+  }
+
+  case OBJ_builtin_font: {
+    const BuiltInFontObj *fobj = (const BuiltInFontObj*)object;
+    CHECK(fobj->widths_obj != nullptr) << "All fonts should have "
+      "a widths object. Even built-in ones!";
+    CHECK(fobj->font != nullptr);
+
+    CHECK(fobj->font->builtin_font.has_value()) << "A BuiltInFontObj "
+      "should reference a built-in Font!";
+
+    CHECK(fobj->font->encoding == FontEncoding::WIN_ANSI) << "Built-in "
+      "fonts are WIN_ANSI by definition.";
+
+    // A built-in font (BaseFont).
+    fprintf(fp,
+            "<<\n"
+            "  /Type /Font\n"
+            "  /Subtype /Type1\n"
+            "  /BaseFont /%s\n"
+            "  /Encoding /WinAnsiEncoding\n"
+            "  /FirstChar %d\n"
+            "  /LastChar %d\n"
+            "  /Widths %d 0 R\n"
+            ">>\n",
+            BuiltInFontName(fobj->font->builtin_font.value()),
+            fobj->widths_obj->firstchar,
+            fobj->widths_obj->lastchar,
+            // Array of widths in its own object.
+            fobj->widths_obj->index);
+
     break;
   }
 
@@ -2594,7 +2607,7 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
   StringAppendF(&str, "%s Tc ", Float(spacing).c_str());
 
   if (const std::optional<std::string> encoded_text =
-      EncodePDFText(text, current_font->fobj->encoding,
+      EncodePDFText(text, current_font->encoding,
                     current_font->glyph_from_codepoint)) {
     str.append(encoded_text.value());
   } else {
@@ -2656,7 +2669,7 @@ bool PDF::AddSpacedLine(const SpacedLine &line,
   for (int i = 0; i < (int)line.size(); i++) {
     const auto &[text, gap] = line[i];
     if (const std::optional<std::string> encoded_text =
-        EncodePDFText(text, current_font->fobj->encoding,
+        EncodePDFText(text, current_font->encoding,
                       current_font->glyph_from_codepoint)) {
       StringAppendF(&str, "%s ", encoded_text.value().c_str());
     } else {
@@ -3205,7 +3218,7 @@ bool PDF::PointWidthOfText(const char *text,
   }
 
   std::optional<std::vector<uint16_t>> ocids =
-    TextToCIDs(utf8_text, font->fobj->encoding,
+    TextToCIDs(utf8_text, font->encoding,
                font->glyph_from_codepoint);
   if (!ocids.has_value()) return false;
 
@@ -3227,10 +3240,10 @@ bool PDF::PointWidthOfText(const char *text,
 }
 
 uint16_t PDF::Font::GetCID(uint32_t codepoint) const {
-  if (fobj->encoding == FontEncoding::WIN_ANSI) {
+  if (encoding == FontEncoding::WIN_ANSI) {
     return MapCodepointWinAnsi(codepoint).value_or(0);
   } else {
-    CHECK(fobj->encoding == FontEncoding::UNICODE);
+    CHECK(encoding == FontEncoding::UNICODE);
     auto it = glyph_from_codepoint.find(codepoint);
     if (it == glyph_from_codepoint.end()) return 0;
     return it->second;
@@ -4118,7 +4131,7 @@ std::string PDF::AddTTF(std::string_view filename,
   // fobj->widths.resize(256, (uint16_t)std::round(space_width * scale_14pt));
   auto ScaleWidth = [scale_14pt](int width_unscaled) {
       return scale_14pt * width_unscaled;
-  };
+    };
 
   if (encoding == FontEncoding::WIN_ANSI) {
     auto GetWidth = [&ttf, space_width](int codepoint) {
@@ -4278,7 +4291,7 @@ std::string PDF::AddTTF(std::string_view filename,
   // Create the stream for the cmap, if applicable.
   StreamObj *cmap = nullptr;
   if (encoding == FontEncoding::UNICODE) {
-    fobj->cmap_name = StringPrintf("CMap%d", font->font_index);
+    std::string cmap_name = StringPrintf("CMap%d", font->font_index);
     std::string resource;
 
     AppendFormat(
@@ -4289,7 +4302,7 @@ std::string PDF::AddTTF(std::string_view filename,
         "%%BeginResource: CMap ({})\n"
         "%%Title: ({} 0 1)\n"
         "%%Version: 1.0\n"
-        "%%EndComments\n", fobj->cmap_name, fobj->cmap_name);
+        "%%EndComments\n", cmap_name, cmap_name);
 
     AppendFormat(
         &resource,
@@ -4307,7 +4320,7 @@ std::string PDF::AddTTF(std::string_view filename,
         &resource,
         "/CMapName /{} def\n"
         // type 2 is a ToUnicode CMap.
-        "/CMapType 2 def\n", fobj->cmap_name);
+        "/CMapType 2 def\n", cmap_name);
 
     AppendFormat(
         &resource,
@@ -4345,7 +4358,7 @@ std::string PDF::AddTTF(std::string_view filename,
       font->glyph_from_codepoint[codepoint] = glyph;
     }
   }
-  fobj->encoding = encoding;
+  font->encoding = encoding;
   fobj->cmap_obj = cmap;
 
   // Output the widths object for this font.
