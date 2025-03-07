@@ -375,10 +375,12 @@ const PDF::Font *PDF::GetBuiltInFont(BuiltInFont f) {
   // Create a new font object, then.
   FontObj *fobj = AddObject(new FontObj);
   CHECK(fobj);
-  fobj->builtin_font.emplace(f);
-  fobj->font_index = next_font_index;
-  next_font_index++;
   Font *font = new Font(fobj);
+  fobj->font = font;
+  font->builtin_font.emplace(f);
+  font->font_index = next_font_index;
+  next_font_index++;
+
   builtin_fonts[f] = font;
 
   const uint16_t *widths_table = find_font_widths(f);
@@ -393,7 +395,7 @@ const PDF::Font *PDF::GetBuiltInFont(BuiltInFont f) {
   for (int cid = 0; cid < 256; cid++) {
     int w = widths_table[cid];
     wobj->widths8[cid] = w;
-    fobj->widths[cid] = w;
+    font->widths[cid] = w;
   }
 
   fobj->widths_obj = wobj;
@@ -576,7 +578,7 @@ int PDF::SaveObject(FILE *fp, int index) {
          font; font = font->next) {
       const FontObj *fobj = (const FontObj *)font;
       fprintf(fp, "      /F%d %d 0 R\n",
-              fobj->font_index,
+              fobj->font->font_index,
               font->index);
     }
     fprintf(fp, "    >>\n");
@@ -789,7 +791,7 @@ int PDF::SaveObject(FILE *fp, int index) {
       }
 
     } else {
-      CHECK(fobj->builtin_font.has_value()) << "A FontObj should "
+      CHECK(fobj->font->builtin_font.has_value()) << "A FontObj should "
         "be either an embedded font or built-in one?";
 
       CHECK(fobj->encoding == FontEncoding::WIN_ANSI) << "Built-in "
@@ -806,7 +808,7 @@ int PDF::SaveObject(FILE *fp, int index) {
               "  /LastChar %d\n"
               "  /Widths %d 0 R\n"
               ">>\n",
-              BuiltInFontName(fobj->builtin_font.value()),
+              BuiltInFontName(fobj->font->builtin_font.value()),
               fobj->widths_obj->firstchar,
               fobj->widths_obj->lastchar,
               // Array of widths in its own object.
@@ -2567,7 +2569,7 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
   StringAppendF(&str, "/GS%d gs ", alpha);
   SetTextPositionAndAngle(&str, xoff, yoff, angle);
 
-  StringAppendF(&str, "/F%d %s Tf ", current_font->fobj->font_index,
+  StringAppendF(&str, "/F%d %s Tf ", current_font->font_index,
                 Float(size).c_str());
 
   uint8_t r = PDF_RGB_R(color);
@@ -2593,7 +2595,7 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
 
   if (const std::optional<std::string> encoded_text =
       EncodePDFText(text, current_font->fobj->encoding,
-                    current_font->fobj->glyph_from_codepoint)) {
+                    current_font->glyph_from_codepoint)) {
     str.append(encoded_text.value());
   } else {
     SetErr(-EINVAL, "Could not encode text in PDF encoding.");
@@ -2636,7 +2638,7 @@ bool PDF::AddSpacedLine(const SpacedLine &line,
   StringAppendF(&str, "/GS%d gs ", alpha);
   SetTextPositionAndAngle(&str, xoff, yoff, angle);
 
-  StringAppendF(&str, "/F%d %s Tf ", current_font->fobj->font_index,
+  StringAppendF(&str, "/F%d %s Tf ", current_font->font_index,
                 Float(size).c_str());
   StringAppendF(&str, "%s %s %s rg ",
                 Float(PDF_RGB_R_FLOAT(color)).c_str(),
@@ -2655,7 +2657,7 @@ bool PDF::AddSpacedLine(const SpacedLine &line,
     const auto &[text, gap] = line[i];
     if (const std::optional<std::string> encoded_text =
         EncodePDFText(text, current_font->fobj->encoding,
-                      current_font->fobj->glyph_from_codepoint)) {
+                      current_font->glyph_from_codepoint)) {
       StringAppendF(&str, "%s ", encoded_text.value().c_str());
     } else {
       SetErr(-EINVAL, "Could not encode text in PDF encoding.");
@@ -3204,7 +3206,7 @@ bool PDF::PointWidthOfText(const char *text,
 
   std::optional<std::vector<uint16_t>> ocids =
     TextToCIDs(utf8_text, font->fobj->encoding,
-               font->fobj->glyph_from_codepoint);
+               font->glyph_from_codepoint);
   if (!ocids.has_value()) return false;
 
   if (VERBOSE) {
@@ -3216,7 +3218,7 @@ bool PDF::PointWidthOfText(const char *text,
   // Note: This used to filter out \n, \r. I think that was
   // probably not best, but it could be the cause of issues?
   for (uint16_t cid : ocids.value()) {
-    double w = font->fobj->CIDWidth(cid);
+    double w = font->CIDWidth(cid);
     norm_width += w;
   }
 
@@ -3224,22 +3226,22 @@ bool PDF::PointWidthOfText(const char *text,
   return true;
 }
 
-uint16_t PDF::FontObj::GetCID(uint32_t codepoint) const {
-  if (encoding == FontEncoding::WIN_ANSI) {
+uint16_t PDF::Font::GetCID(uint32_t codepoint) const {
+  if (fobj->encoding == FontEncoding::WIN_ANSI) {
     return MapCodepointWinAnsi(codepoint).value_or(0);
   } else {
-    CHECK(encoding == FontEncoding::UNICODE);
+    CHECK(fobj->encoding == FontEncoding::UNICODE);
     auto it = glyph_from_codepoint.find(codepoint);
     if (it == glyph_from_codepoint.end()) return 0;
     return it->second;
   }
 }
 
-double PDF::FontObj::CharWidth(int codepoint) const {
+double PDF::Font::CharWidth(int codepoint) const {
   return CIDWidth(GetCID(codepoint));
 }
 
-double PDF::FontObj::CIDWidth(uint16_t cid) const {
+double PDF::Font::CIDWidth(uint16_t cid) const {
   auto it = widths.find(cid);
   // Unmapped codepoint or no width.
   if (it == widths.end()) {
@@ -4003,7 +4005,7 @@ private:
 };
 }  // namespace
 
-double PDF::FontObj::GetKernedWidth(std::string_view text) const {
+double PDF::Font::GetKernedWidth(std::string_view text) const {
   uint32_t prev_cp = 0;
   double width = 0.0;
   for (uint32_t cp : UTF8Codepoints(text)) {
@@ -4021,7 +4023,7 @@ double PDF::FontObj::GetKernedWidth(std::string_view text) const {
   return width;
 }
 
-PDF::SpacedLine PDF::FontObj::KernText(std::string_view text) const {
+PDF::SpacedLine PDF::Font::KernText(std::string_view text) const {
   PDF::SpacedLine ret;
 
   uint32_t prev_cp = 0;
@@ -4067,10 +4069,11 @@ std::string PDF::AddTTF(std::string_view filename,
       &ttf, &native_ascent, &native_descent, &native_linegap);
 
   FontObj *fobj = AddObject(new FontObj);
-  fobj->font_index = next_font_index;
-  std::string font_name = StringPrintf("Font%d", next_font_index);
-  next_font_index++;
   Font *font = new Font(fobj);
+  fobj->font = font;
+  std::string font_name = StringPrintf("Font%d", next_font_index);
+  font->font_index = next_font_index;
+  next_font_index++;
   embedded_fonts[font_name] = font;
 
   int space_width = 0;
@@ -4135,7 +4138,7 @@ std::string PDF::AddTTF(std::string_view filename,
           CHECK(cid >= 0 && cid < 256) << codepoint << " " << cid;
           int width_unscaled = GetWidth(codepoint);
           float width = ScaleWidth(width_unscaled);
-          fobj->widths[cid] = (uint16_t)std::round(width);
+          font->widths[cid] = (uint16_t)std::round(width);
           if (VERBOSE && isalnum(codepoint)) {
             printf("'%c' (%d): %d -> %.5f\n",
                    codepoint, codepoint, width_unscaled, width);
@@ -4152,14 +4155,14 @@ std::string PDF::AddTTF(std::string_view filename,
     for (const auto &[glyph_id, cp_] : codepoint_from_glyph) {
       int width_unscaled = 0;
       stbtt_GetGlyphHMetrics(&ttf, glyph_id, &width_unscaled, nullptr);
-      fobj->widths[glyph_id] = ScaleWidth(width_unscaled);
+      font->widths[glyph_id] = ScaleWidth(width_unscaled);
     }
   }
 
   if (VERBOSE) {
     // XXX
     printf("%s Widths:\n", std::string(filename).c_str());
-    for (const auto &[cid, w] : fobj->widths) {
+    for (const auto &[cid, w] : font->widths) {
       printf("%04x=%d ", cid, w);
     }
     printf("\n");
@@ -4270,12 +4273,12 @@ std::string PDF::AddTTF(std::string_view filename,
   StringAppendF(&obj->stream, "\nendstream\n");
 
   fobj->ttf = obj;
-  fobj->kerning = std::move(kerning);
+  font->kerning = std::move(kerning);
 
   // Create the stream for the cmap, if applicable.
   StreamObj *cmap = nullptr;
   if (encoding == FontEncoding::UNICODE) {
-    fobj->cmap_name = StringPrintf("CMap%d", fobj->font_index);
+    fobj->cmap_name = StringPrintf("CMap%d", font->font_index);
     std::string resource;
 
     AppendFormat(
@@ -4298,7 +4301,7 @@ std::string PDF::AddTTF(std::string_view filename,
         "  /Registry (Reg{}) def\n"
         "  /Ordering (Ordering{}) def\n"
         "  /Supplement 0 def\n"
-        "end def\n", fobj->font_index, fobj->font_index);
+        "end def\n", font->font_index, font->font_index);
 
     AppendFormat(
         &resource,
@@ -4339,7 +4342,7 @@ std::string PDF::AddTTF(std::string_view filename,
 
     // Only need this for unicode compression.
     for (const auto &[glyph, codepoint] : codepoint_from_glyph) {
-      fobj->glyph_from_codepoint[codepoint] = glyph;
+      font->glyph_from_codepoint[codepoint] = glyph;
     }
   }
   fobj->encoding = encoding;
@@ -4354,12 +4357,12 @@ std::string PDF::AddTTF(std::string_view filename,
     wobj->lastchar = 255;
     wobj->widths8.reserve(256);
     for (int i = wobj->firstchar; i < wobj->lastchar + 1; i++) {
-      wobj->widths8.push_back(fobj->widths[i]);
+      wobj->widths8.push_back(font->widths[i]);
     }
   } else {
     // Need the whole map.
     // XXX set default_width? how?
-    wobj->widths16 = fobj->widths;
+    wobj->widths16 = font->widths;
   }
   fobj->widths_obj = wobj;
 
@@ -4367,13 +4370,13 @@ std::string PDF::AddTTF(std::string_view filename,
 }
 
 std::optional<double>
-PDF::FontObj::GetKerning(int codepoint1, int codepoint2) const {
+PDF::Font::GetKerning(int codepoint1, int codepoint2) const {
   const auto it = kerning.find(std::make_pair(codepoint1, codepoint2));
   if (it == kerning.end()) return std::nullopt;
   return it->second;
 }
 
-std::string PDF::FontObj::BaseFont() const {
+std::string PDF::Font::BaseFont() const {
   if (builtin_font.has_value()) {
     return BuiltInFontName(builtin_font.value());
   } else {

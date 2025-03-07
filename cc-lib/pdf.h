@@ -178,9 +178,7 @@ private:
     // For built-in fonts, this is something like "Helvetica-Bold".
     // For embedded fonts, it is something unique that need not
     // have anything to do with the font itself (e.g. "Font3").
-    std::string BaseFont() const {
-      return fobj->BaseFont();
-    }
+    std::string BaseFont() const;
 
     // Return the kerning for the pair, if defined in the font. This
     // kerning value is the amount of additional space to add, but is
@@ -189,25 +187,17 @@ private:
     //
     // Note that built-in fonts have no kerning tables, but you could
     // make your own.
-    std::optional<double> GetKerning(int codepoint1, int codepoint2) const {
-      return fobj->GetKerning(codepoint1, codepoint2);
-    }
+    std::optional<double> GetKerning(int codepoint1, int codepoint2) const;
 
     // Kerns a single line of text.
-    SpacedLine KernText(std::string_view text) const {
-      return fobj->KernText(text);
-    }
+    SpacedLine KernText(std::string_view text) const;
 
     // Get the width of the codepoint when the font is at 1pt. You can
     // multiply by the font size to get the width at that size.
-    double CharWidth(int codepoint) const {
-      return fobj->CharWidth(codepoint);
-    }
+    double CharWidth(int codepoint) const;
 
     // The width of the string at 1pt.
-    double GetKernedWidth(std::string_view text) const {
-      return fobj->GetKernedWidth(text);
-    }
+    double GetKernedWidth(std::string_view text) const;
 
     FontEncoding GetEncoding() const {
       return fobj->GetEncoding();
@@ -217,6 +207,31 @@ private:
     friend struct PDF;
     Font(FontObj *fobj) : fobj(fobj) {}
     FontObj *fobj = nullptr;
+
+    // Width of the cid when the font is at 1pt.
+    double CIDWidth(uint16_t cid) const;
+
+    // Or zero if not found.
+    uint16_t GetCID(uint32_t codepoint) const;
+
+    // The font's index, like 3 for /F3.
+    int font_index = 0;
+    // For built-in fonts, the font.
+    std::optional<BuiltInFont> builtin_font = std::nullopt;
+
+    // For UNICODE fonts.
+    std::unordered_map<uint32_t, uint16_t> glyph_from_codepoint;
+
+    // The table of widths. This is indexed by CID (for unicode fonts,
+    // this is the same as glyph), not codepoint.
+    //
+    // These widths are scaled to "14pt".
+    std::unordered_map<uint16_t, int> widths;
+
+    // Map from a pair of codepoints to the additional space.
+    // This space is scaled to "1pt".
+    std::unordered_map<std::pair<int, int>, double,
+      Hashing<std::pair<int, int>>> kerning;
   };
 
   // A drawing operation within a path.
@@ -573,12 +588,6 @@ private:
   struct FontObj : public Object {
     FontObj() : Object(OBJ_font) {}
 
-    // Returns the font's name as known to PDF.
-    // For built-in fonts, this is something like "Helvetica-Bold".
-    // For embedded fonts, it is something unique that need not
-    // have anything to do with the font itself (e.g. "Font3").
-    std::string BaseFont() const;
-
     // Return the kerning for the pair, if defined in the font. This
     // kerning value is the amount of additional space to add, but is
     // typically negative. Here, units are for the unscaled font
@@ -591,26 +600,16 @@ private:
     // Kerns a single line of text.
     SpacedLine KernText(std::string_view text) const;
 
-    // Get the width of the codepoint when the font is at 1pt. You can
-    // multiply by the font size to get the width at that size.
-    double CharWidth(int codepoint) const;
-
     // The width of the string at 1pt.
     double GetKernedWidth(std::string_view text) const;
 
     FontEncoding GetEncoding() const;
 
   private:
-    // Width of the cid when the font is at 1pt.
-    double CIDWidth(uint16_t cid) const;
-
-    // The font's index, like 3 for /F3.
-    int font_index = 0;
+    // The corresponding Font object.
+    Font *font = nullptr;
 
     FontEncoding encoding = FontEncoding::WIN_ANSI;
-
-    // For built-in fonts, the font.
-    std::optional<BuiltInFont> builtin_font = std::nullopt;
 
     // For embedded fonts, the data stream.
     StreamObj *ttf = nullptr;
@@ -621,24 +620,6 @@ private:
     // XXX actually, don't need to store this
     std::string cmap_name;
 
-    // For UNICODE fonts.
-    std::unordered_map<uint32_t, uint16_t> glyph_from_codepoint;
-
-    // For embedded fonts, the table of widths. This is indexed
-    // by CID (for unicode fonts, this is the same as glyph), not
-    // codepoint.
-    //
-    // These widths are scaled to "14pt".
-    // WAS: std::vector<uint16_t> widths;
-    std::unordered_map<uint16_t, int> widths;
-
-    // Map from a pair of codepoints to the additional space.
-    // This space is scaled to "1pt".
-    std::unordered_map<std::pair<int, int>, double,
-      Hashing<std::pair<int, int>>> kerning;
-
-    // Or zero if not found.
-    uint16_t GetCID(uint32_t codepoint) const;
     const uint16_t *GetWidths() const;
 
     friend struct PDF;
