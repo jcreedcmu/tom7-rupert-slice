@@ -4409,8 +4409,8 @@ std::string PDF::AddTTF(std::string_view filename,
     // generate a different one per CMap. But this is
     // adobe's (unexplained) example.
     std::string cmap_name =
-      "Adobe-Identity-UCS";
-      // StringPrintf("CMap%d", font->font_index);
+      // "Adobe-Identity-UCS";
+      StringPrintf("CMap%d", font->font_index);
     std::string resource;
 
     // Following example 5.17 in PDF 1.3 spec.
@@ -4434,6 +4434,7 @@ std::string PDF::AddTTF(std::string_view filename,
     AppendFormat(
         &resource,
         // This basically says that we are using 16-bit CIDs.
+        // 1 is the number of rows in here.
         "1 begincodespacerange\n"
         "<0000> <FFFF>\n"
         "endcodespacerange\n");
@@ -4451,20 +4452,36 @@ std::string PDF::AddTTF(std::string_view filename,
               });
 
     // PERF: We can use bfrange here for more efficient encoding.
-    resource.append("2 beginbfchar\n");
+
+    // We have to output the number of rows, so first prepare it.
+    std::vector<std::string> rows;
+    rows.reserve(mapping.size());
     for (const auto &[glyph, codepoint] : mapping) {
       // Maps 16-bit glyph id to *strings* in Unicode (I think UTF-16).
       // You could map a custom ligature glyph to a sequence of normal
       // unicode characters, for example.
+      if (codepoint < 0xFFFF) {
+/*
       CHECK(codepoint <= 0xFFFF) << "This code needs to be extended "
         "to represent codepoints beyond the BMP. It should be totally "
         "doable with like, surrogate pairs. Alternatively, you could "
         "just map the glyph to something else (or omit it) and the "
         "only thing that would go wrong is copy/paste and search. "
         << std::format("Saw: U+%{:08x}", codepoint);
-      AppendFormat(&resource, "<{:04x}> <{:04x}>\n", glyph, codepoint);
+*/
+        rows.push_back(
+            std::format("<{:04x}> <{:04x}> <{:04x}>\n",
+                        glyph, glyph, codepoint));
+      }
     }
-    resource.append("endbfchar\n");
+
+    AppendFormat(&resource,
+                 "{} beginbfrange\n",
+                 rows.size());
+    for (const std::string &row : rows) {
+      AppendFormat(&resource, "{}\n", row);
+    }
+    resource.append("endbfrange\n");
 
     AppendFormat(
         &resource,
