@@ -52,6 +52,7 @@ struct PDFOptions {
 };
 }
 
+struct stbtt_fontinfo; // XXX do without
 struct PDF {
 private:
 
@@ -60,12 +61,10 @@ private:
     OBJ_none,
     OBJ_info,
     OBJ_stream,
-    OBJ_font,
     OBJ_builtin_font,
     OBJ_font8,
     OBJ_font0,
     OBJ_fontcid,
-    OBJ_ttf,
     OBJ_page,
     OBJ_bookmark,
     OBJ_outline,
@@ -601,13 +600,6 @@ private:
   PDF(const PDF &) = delete;
   PDF &operator=(const PDF &) = delete;
 
-  struct TTFObj : public Object {
-    TTFObj() : Object(OBJ_ttf) {}
-    std::tuple<int, int, int, int> bbox;
-    // The already-serialized TTF stream.
-    std::string stream;
-  };
-
   struct BuiltInFontObj : public Object {
     BuiltInFontObj() : Object(OBJ_builtin_font) {}
     Font *font = nullptr;
@@ -617,7 +609,7 @@ private:
   struct Font8Obj : public Object {
     Font8Obj() : Object(OBJ_font8) {}
     Font *font = nullptr;
-    TTFObj *ttf = nullptr;
+    Object *ttf = nullptr;
     WidthsObj *widths_obj = nullptr;
   };
 
@@ -633,7 +625,7 @@ private:
     FontCIDObj() : Object(OBJ_fontcid) {}
     Font *font = nullptr;
     // Link to parent font0?
-    TTFObj *ttf = nullptr;
+    Object *ttf = nullptr;
     WidthsObj *widths_obj = nullptr;
   };
 
@@ -799,8 +791,9 @@ private:
                          size_t len,
                          Page *page);
 
-  static std::string TrueTypeFontDescriptor(
-      const PDF::TTFObj *ttf,
+  Object *TrueTypeFontDescriptor(
+      const stbtt_fontinfo *ttf,
+      const std::vector<uint8_t> &ttf_bytes,
       int font_index);
 
   std::string error_message;

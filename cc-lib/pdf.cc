@@ -226,12 +226,10 @@ const char *PDF::ObjTypeName(ObjType t) {
   case OBJ_none: return "none";
   case OBJ_info: return "info";
   case OBJ_stream: return "stream";
-  case OBJ_font: return "font";
   case OBJ_builtin_font: return "builtin_font";
   case OBJ_font8: return "font8";
   case OBJ_font0: return "font0";
   case OBJ_fontcid: return "fontcid";
-  case OBJ_ttf: return "ttf";
   case OBJ_page: return "page";
   case OBJ_bookmark: return "bookmark";
   case OBJ_outline: return "outline";
@@ -518,32 +516,52 @@ const char *PDF::BuiltInFontName(BuiltInFont f) {
   }
 }
 
-std::string PDF::TrueTypeFontDescriptor(
-    const PDF::TTFObj *ttf,
+// Creates and returns a font descriptor Object (and the
+// embedded content stream) for the given font. This must be
+// used via an indirect reference (which is why we can't just
+// embed it) but is otherwise a boring object.
+PDF::Object *PDF::TrueTypeFontDescriptor(
+    const stbtt_fontinfo *ttf,
+    const std::vector<uint8_t> &ttf_bytes,
     int font_index) {
   CHECK(ttf != nullptr);
-  // int x0 = 0, y0 = 0, x1 = 1, y1 = 1;
-  // stbtt_GetFontBoundingBox(ttf, &x0, &y0, &x1, &y1);
-  std::string ret;
-  AppendFormat(&ret,
-               "  /FontDescriptor <<\n"
-               "    /Type /FontDescriptor\n"
-               // FontName; we just use FontName<id>
-               "    /FontName /FontName{}\n"
-               // Refers to the embedded file in its own stream.
-               "    /FontFile2 {} 0 R\n",
-               font_index,
-               ttf->index);
 
-  const auto &[x0, y0, x1, y1] = ttf->bbox;
-  AppendFormat(&ret,
+  int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+  stbtt_GetFontBoundingBox(ttf, &x0, &y0, &x1, &y1);
+
+  // PERF: Make it possible to just pass a byte vector
+  std::string bytes_string;
+  bytes_string.resize(ttf_bytes.size());
+  for (int i = 0; i < (int)ttf_bytes.size(); i++)
+    bytes_string[i] = ttf_bytes[i];
+
+  StreamObj *filestream = AddStreamObject(
+      // Ideally we only output Length1 if we do compress.
+      {{"/Length1", std::format("{}", ttf_bytes.size())}},
+      bytes_string);
+
+  // Now the desriptor itself.
+  StreamObj *desc = AddObject(new StreamObj);
+
+  // More in PDF 1.3 spec on p330, 5.7 Font Descriptors
+  AppendFormat(&desc->stream,
+               "<<\n"
+               "  /Type /FontDescriptor\n"
+               // FontName; we just use FontName<id>
+               "  /FontName /FontName{}\n"
+               // Refers to the embedded file in its own stream.
+               "  /FontFile2 {} 0 R\n",
+               font_index,
+               filestream->index);
+
+  AppendFormat(&desc->stream,
                "  /FontBBox [{} {} {} {}]\n",
                x0, y0, x1, y1);
 
-  AppendFormat(&ret,
-               "  >>\n");
+  AppendFormat(&desc->stream,
+               ">>\n");
 
-  return ret;
+  return desc;
 }
 
 
@@ -784,19 +802,6 @@ int PDF::SaveObject(FILE *fp, int index) {
     break;
   }
 
-  case OBJ_font: {
-    LOG(FATAL) << "This should not be used any more! XXX";
-    break;
-  }
-
-  case OBJ_ttf: {
-    const TTFObj *tobj = (const TTFObj *)object;
-    fwrite(tobj->stream.data(),
-           tobj->stream.size(),
-           1, fp);
-    break;
-  }
-
   case OBJ_font0: {
     const Font0Obj *fobj = (const Font0Obj*)object;
     CHECK(fobj->font != nullptr);
@@ -863,7 +868,7 @@ int PDF::SaveObject(FILE *fp, int index) {
             "  /Type /Font\n"
             "  /Subtype /CIDFontType2\n"
             "  /BaseFont /Font%d\n"
-            "%s\n"
+            "  /FontDescriptor %d 0 R\n"
             // This is boilerplate saying that we want CID = glyph id.
             "  /CIDSystemInfo <<\n"
             "    /Registry (Adobe)\n"
@@ -878,7 +883,7 @@ int PDF::SaveObject(FILE *fp, int index) {
             ">>\n",
             // Basefont: Just needs a unique name.
             fobj->index,
-            TrueTypeFontDescriptor(fobj->ttf, fobj->index).c_str(),
+            fobj->ttf->index,
             fobj->widths_obj->default_width,
             fobj->widths_obj->index);
 
@@ -904,14 +909,14 @@ int PDF::SaveObject(FILE *fp, int index) {
             "  /Subtype /TrueType\n"
             "  /BaseFont /Font%d\n"
             "  /Encoding /WinAnsiEncoding\n"
-            "%s"
+            "  /FontDescriptor %d\n"
             "  /FirstChar %d\n"
             "  /LastChar %d\n"
             "  /Widths %d 0 R\n"
             ">>\n",
             // Basefont: Just needs a unique name.
             fobj->index,
-            TrueTypeFontDescriptor(fobj->ttf, fobj->index).c_str(),
+            fobj->ttf->index,
             // Widths
             fobj->widths_obj->firstchar,
             fobj->widths_obj->lastchar,
@@ -4390,71 +4395,35 @@ std::string PDF::AddTTF(std::string_view filename,
   // FontDescriptor needs when we embed this TTF.
   // XXX might be cleaner if this represented the FontDescriptor
   // object, and we used an indirect reference to it.
-  TTFObj *ttf_obj = AddObject(new TTFObj);
-
-  {
-    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-    stbtt_GetFontBoundingBox(&ttf, &x0, &y0, &x1, &y1);
-    ttf_obj->bbox = std::make_tuple(x0, y0, x1, y1);
-  }
-
-  StringAppendF(&ttf_obj->stream,
-                "<<\n"
-                // XXX might be unnecessary here?
-                "  /Type /FontDescriptor\n");
-
-  if (options.use_compression) {
-    const std::vector<uint8_t> flate_bytes =
-      ZIP::ZlibVector(ttf_bytes, options.compression_level);
-    StringAppendF(&ttf_obj->stream,
-                  // Size of *decompressed* TTF bytes.
-                  "  /Length1 %lu\n"
-                  "  /Filter /FlateDecode\n"
-                  "  /Length %lu\n"
-                  ">>stream\n",
-                  (unsigned long)ttf_bytes.size(),
-                  (unsigned long)flate_bytes.size());
-    ttf_obj->stream.append((const char*)flate_bytes.data(), flate_bytes.size());
-
-  } else {
-    StringAppendF(&ttf_obj->stream,
-                  "  /Length %lu\n"
-                  ">>stream\n",
-                  (unsigned long)ttf_bytes.size());
-    ttf_obj->stream.append((const char*)ttf_bytes.data(), ttf_bytes.size());
-  }
-
-  StringAppendF(&ttf_obj->stream, "\nendstream\n");
+  Object *ttf_obj = TrueTypeFontDescriptor(
+      &ttf,
+      ttf_bytes,
+      font->font_index);
 
   font->kerning = std::move(kerning);
 
   // Create the stream for the cmap, if applicable.
   StreamObj *cmap = nullptr;
   if (encoding == FontEncoding::UNICODE) {
-    std::string cmap_name = StringPrintf("CMap%d", font->font_index);
+    // XXX this might be arbitrary, and we might want to
+    // generate a different one per CMap. But this is
+    // adobe's (unexplained) example.
+    std::string cmap_name =
+      "Adobe-Identity-UCS";
+      // StringPrintf("CMap%d", font->font_index);
     std::string resource;
 
-    AppendFormat(
-        &resource,
-        "%!PS-Adobe-3.0 Resource-CMap\n"
-        "%%DocumentNeededResources: ProcSet (CIDInit)\n"
-        "%%IncludeResource: ProcSet (CIDInit)\n"
-        "%%BeginResource: CMap ({})\n"
-        "%%Title: ({} 0 1)\n"
-        "%%Version: 1.0\n"
-        "%%EndComments\n", cmap_name, cmap_name);
-
+    // Following example 5.17 in PDF 1.3 spec.
     AppendFormat(
         &resource,
         "/CIDInit /ProcSet findresource begin\n"
         "12 dict begin\n"
         "begincmap\n"
-        "/CIDSystemInfo 3 dict dup begin\n"
-        // These are supposedly required; just use a unique name.
-        "  /Registry (Reg{}) def\n"
-        "  /Ordering (Ordering{}) def\n"
-        "  /Supplement 0 def\n"
-        "end def\n", font->font_index, font->font_index);
+        "/CIDSystemInfo <<\n"
+        "  /Registry (Adobe) def\n"
+        "  /Ordering (UCS) def\n"
+        "  /Supplement 0\n"
+        ">> def\n");
 
     AppendFormat(
         &resource,
@@ -4465,7 +4434,7 @@ std::string PDF::AddTTF(std::string_view filename,
     AppendFormat(
         &resource,
         // This basically says that we are using 16-bit CIDs.
-        "begincodespacerange\n"
+        "1 begincodespacerange\n"
         "<0000> <FFFF>\n"
         "endcodespacerange\n");
 
@@ -4481,18 +4450,31 @@ std::string PDF::AddTTF(std::string_view filename,
                 return a.first < b.first;
               });
 
-    resource.append("beginbfchar\n");
+    // PERF: We can use bfrange here for more efficient encoding.
+    resource.append("2 beginbfchar\n");
     for (const auto &[glyph, codepoint] : mapping) {
-      AppendFormat(&resource, "<{:04x}> <{:08x}>\n", glyph, codepoint);
+      // Maps 16-bit glyph id to *strings* in Unicode (I think UTF-16).
+      // You could map a custom ligature glyph to a sequence of normal
+      // unicode characters, for example.
+      CHECK(codepoint <= 0xFFFF) << "This code needs to be extended "
+        "to represent codepoints beyond the BMP. It should be totally "
+        "doable with like, surrogate pairs. Alternatively, you could "
+        "just map the glyph to something else (or omit it) and the "
+        "only thing that would go wrong is copy/paste and search. "
+        << std::format("Saw: U+%{:08x}", codepoint);
+      AppendFormat(&resource, "<{:04x}> <{:04x}>\n", glyph, codepoint);
     }
     resource.append("endbfchar\n");
 
-    resource.append(
+    AppendFormat(
+        &resource,
+        "endcmap\n"
+        "CMapName currentdict /CMap defineresource pop\n"
         "end\n"
-        "end\n"
-        "%%EndResource\n"
-        "%%EOF\n");
+        "end\n");
+    // the endstream is supplied by the below.
 
+    // Adobe's example (p344) actually doesn't have /Type /CMap..
     cmap = AddStreamObject({{"/Type", "/CMap"}}, resource);
 
 
