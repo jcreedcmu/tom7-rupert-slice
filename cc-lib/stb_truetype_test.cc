@@ -134,7 +134,7 @@ static void TestCMap() {
   stbtt_fontinfo font;
   stbtt_InitFont(&font, contents.data(), contents.size(), 0);
 
-  std::unordered_map<uint16_t, uint32_t> codepoint_from_glyph =
+  std::unordered_map<uint16_t, std::vector<uint32_t>> codepoint_from_glyph =
     stbtt_GetGlyphs(&font);
 
   CHECK(!codepoint_from_glyph.empty());
@@ -143,10 +143,12 @@ static void TestCMap() {
 
   std::unordered_set<uint32_t> codepoints_found;
 
-  for (const auto &[glyph, codepoint] : codepoint_from_glyph) {
-    CHECK(codepoint > 0);
-    codepoints_found.insert(codepoint);
-    CHECK(stbtt_FindGlyphIndex(&font, codepoint) == glyph);
+  for (const auto &[glyph, cps] : codepoint_from_glyph) {
+    for (uint32_t codepoint : cps) {
+      CHECK(codepoint > 0);
+      codepoints_found.insert(codepoint);
+      CHECK(stbtt_FindGlyphIndex(&font, codepoint) == glyph);
+    }
   }
 
   CHECK(codepoints_found.contains('*'));
@@ -164,7 +166,7 @@ static void DebugFont() {
   stbtt_fontinfo font;
   stbtt_InitFont(&font, contents.data(), contents.size(), 0);
 
-  std::unordered_map<uint16_t, uint32_t> codepoint_from_glyph =
+  std::unordered_map<uint16_t, std::vector<uint32_t>> codepoint_from_glyph =
     stbtt_GetGlyphs(&font);
 
   CHECK(!codepoint_from_glyph.empty()) << "No glyphs. Musta failed";
@@ -174,21 +176,23 @@ static void DebugFont() {
   std::unordered_set<uint32_t> codepoints_found;
 
   int correct = 0;
-  for (const auto &[glyph, codepoint] : codepoint_from_glyph) {
-    CHECK(codepoint > 0);
-    codepoints_found.insert(codepoint);
-    int stb_glyph = stbtt_FindGlyphIndex(&font, codepoint);
-    if (stb_glyph != glyph) {
-      printf("\nstb glyph:\n");
-      ShowBitmapForGlyph(&font, 40, stb_glyph);
-      printf("\n\nmy glyph:\n");
-      ShowBitmapForGlyph(&font, 40, glyph);
-      printf("\n");
-      printf("For U+%04x stb got %04x, but I got %04x. Correct so far: %d\n",
-             codepoint, stb_glyph, glyph, correct);
-      LOG(FATAL) << "Failed";
-    }
-    correct++;
+  for (const auto &[glyph, codepoints] : codepoint_from_glyph) {
+    for (const uint32_t codepoint : codepoints) {
+      CHECK(codepoint > 0);
+      codepoints_found.insert(codepoint);
+      int stb_glyph = stbtt_FindGlyphIndex(&font, codepoint);
+      if (stb_glyph != glyph) {
+        printf("\nstb glyph:\n");
+        ShowBitmapForGlyph(&font, 40, stb_glyph);
+        printf("\n\nmy glyph:\n");
+        ShowBitmapForGlyph(&font, 40, glyph);
+        printf("\n");
+        printf("For U+%04x stb got %04x, but I got %04x. Correct so far: %d\n",
+               codepoint, stb_glyph, glyph, correct);
+        LOG(FATAL) << "Failed";
+      }
+      correct++;
+}
   }
 
   CHECK(codepoints_found.contains('*'));

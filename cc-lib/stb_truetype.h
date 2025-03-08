@@ -274,6 +274,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <vector>
 #include <cstddef>
 
 #ifdef STBTT_STATIC
@@ -537,7 +538,7 @@ STBTT_DEF int stbtt_FindGlyphIndex(const stbtt_fontinfo *info, int unicode_codep
 // Added by tom 7.
 // Compute the full mapping of 16-bit glyph id to unicode codepoint.
 // Should be the inverse of the above. The .notdef glyph 0 is absent.
-STBTT_DEF std::unordered_map<uint16_t, uint32_t> stbtt_GetGlyphs(const stbtt_fontinfo *info);
+STBTT_DEF std::unordered_map<uint16_t, std::vector<uint32_t>> stbtt_GetGlyphs(const stbtt_fontinfo *info);
 // For debugging. Get the "format" used to decode the cmap.
 STBTT_DEF int stbtt_GetEncodingFormat(const stbtt_fontinfo *info);
 

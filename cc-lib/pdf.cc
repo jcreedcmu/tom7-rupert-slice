@@ -231,6 +231,7 @@ const char *PDF::ObjTypeName(ObjType t) {
   case OBJ_font8: return "font8";
   case OBJ_font0: return "font0";
   case OBJ_fontcid: return "fontcid";
+  case OBJ_ttf: return "ttf";
   case OBJ_page: return "page";
   case OBJ_bookmark: return "bookmark";
   case OBJ_outline: return "outline";
@@ -517,6 +518,35 @@ const char *PDF::BuiltInFontName(BuiltInFont f) {
   }
 }
 
+std::string PDF::TrueTypeFontDescriptor(
+    const PDF::TTFObj *ttf,
+    int font_index) {
+  CHECK(ttf != nullptr);
+  // int x0 = 0, y0 = 0, x1 = 1, y1 = 1;
+  // stbtt_GetFontBoundingBox(ttf, &x0, &y0, &x1, &y1);
+  std::string ret;
+  AppendFormat(&ret,
+               "  /FontDescriptor <<\n"
+               "    /Type /FontDescriptor\n"
+               // FontName; we just use FontName<id>
+               "    /FontName /FontName{}\n"
+               // Refers to the embedded file in its own stream.
+               "    /FontFile2 {} 0 R\n",
+               font_index,
+               ttf->index);
+
+  const auto &[x0, y0, x1, y1] = ttf->bbox;
+  AppendFormat(&ret,
+               "  /FontBBox [{} {} {} {}]\n",
+               x0, y0, x1, y1);
+
+  AppendFormat(&ret,
+               "  >>\n");
+
+  return ret;
+}
+
+
 int PDF::SaveObject(FILE *fp, int index) {
   Object *object = GetObject(index);
   if (!object)
@@ -759,6 +789,14 @@ int PDF::SaveObject(FILE *fp, int index) {
     break;
   }
 
+  case OBJ_ttf: {
+    const TTFObj *tobj = (const TTFObj *)object;
+    fwrite(tobj->stream.data(),
+           tobj->stream.size(),
+           1, fp);
+    break;
+  }
+
   case OBJ_font0: {
     const Font0Obj *fobj = (const Font0Obj*)object;
     CHECK(fobj->font != nullptr);
@@ -825,16 +863,12 @@ int PDF::SaveObject(FILE *fp, int index) {
             "  /Type /Font\n"
             "  /Subtype /CIDFontType2\n"
             "  /BaseFont /Font%d\n"
-            "  /FontDescriptor <<\n"
-            "    /Type /FontDescriptor\n"
-            "    /FontName /FontName%d\n"
-            "    /FontFile2 %d 0 R\n"
-            "  >>\n"
+            "%s\n"
             // This is boilerplate saying that we want CID = glyph id.
             "  /CIDSystemInfo <<\n"
             "    /Registry (Adobe)\n"
             "    /Ordering (Identity)\n"
-            "  /Supplement 0\n"
+            "    /Supplement 0\n"
             "  >>\n"
             "  /CIDToGIDMap /Identity\n"
             // The default width (not really supported at the moment)
@@ -844,10 +878,7 @@ int PDF::SaveObject(FILE *fp, int index) {
             ">>\n",
             // Basefont: Just needs a unique name.
             fobj->index,
-            // FontName; we just FontName<id>
-            fobj->index,
-            // Refers to the embedded file in its own stream.
-            fobj->ttf->index,
+            TrueTypeFontDescriptor(fobj->ttf, fobj->index).c_str(),
             fobj->widths_obj->default_width,
             fobj->widths_obj->index);
 
@@ -873,21 +904,14 @@ int PDF::SaveObject(FILE *fp, int index) {
             "  /Subtype /TrueType\n"
             "  /BaseFont /Font%d\n"
             "  /Encoding /WinAnsiEncoding\n"
-            "  /FontDescriptor <<\n"
-            "    /Type /FontDescriptor\n"
-            "    /FontName /FontName%d\n"
-            "    /FontFile2 %d 0 R\n"
-            "  >>\n"
+            "%s"
             "  /FirstChar %d\n"
             "  /LastChar %d\n"
             "  /Widths %d 0 R\n"
             ">>\n",
             // Basefont: Just needs a unique name.
             fobj->index,
-            // FontName; we just use FontName<id>
-            fobj->index,
-            // Refers to the embedded file in its own stream.
-            fobj->ttf->index,
+            TrueTypeFontDescriptor(fobj->ttf, fobj->index).c_str(),
             // Widths
             fobj->widths_obj->firstchar,
             fobj->widths_obj->lastchar,
@@ -2650,13 +2674,16 @@ static std::optional<std::string> EncodePDFText(
       if (auto it = cmap.find(codepoint); it != cmap.end()) {
         StringAppendF(&ret, "%04x", it->second);
       } else {
-        if (VERBOSE) {
+        if (true || VERBOSE) {
           printf("Missing glyph for U+%04x\n", codepoint);
         }
         StringAppendF(&ret, "0000");
       }
     }
     ret.push_back('>');
+    if (VERBOSE) {
+      printf("Encoded: %s\n", ret.c_str());
+    }
     return ret;
   }
 }
@@ -4214,16 +4241,7 @@ std::string PDF::AddTTF(std::string_view filename,
   // Glyph -> codepoint(s) map. We use this temporarily to
   // load the kerning table in terms of codepoints, and then
   // to populate the ToUnicode CMap.
-  //
-  // In principle the same glyph can be used for multiple
-  // codepoints. We store the kerning tables using codepoints,
-  // but only for the "canonical" codepoint (whatever this
-  // maps the glyph to). This might get kerning wrong in the
-  // weird case where we have the same glyph for multiple
-  // codepoints, but for some reason want to display them
-  // with different kerning. (Could be fixed with some added
-  // complexity; an earlier version of this code did it.)
-  std::unordered_map<uint16_t, uint32_t> codepoint_from_glyph =
+  std::unordered_map<uint16_t, std::vector<uint32_t>> codepoint_from_glyph =
     stbtt_GetGlyphs(&ttf);
 
   // The set of all glyphs we can access.
@@ -4286,7 +4304,9 @@ std::string PDF::AddTTF(std::string_view filename,
     printf("\n");
   }
 
-  // Load the Kerning table.
+  // Load the Kerning table. The same glyph can be used for multiple
+  // codepoints. Note we store it for each codepoint pair, which means
+  // it could be quadratic size.
   std::unordered_map<std::pair<int, int>, double,
     Hashing<std::pair<int, int>>> kerning;
 
@@ -4311,10 +4331,14 @@ std::string PDF::AddTTF(std::string_view filename,
       auto cit2 = codepoint_from_glyph.find(kern.glyph2);
       if (cit1 != codepoint_from_glyph.end() &&
           cit2 != codepoint_from_glyph.end()) {
-        kerning[std::make_pair(cit1->second, cit2->second)] = advance;
-        if (VERBOSE) {
-          printf("'%c' '%c': %d (= %.5f)\n",
-                 cit1->second, cit2->second, kern.advance, advance);
+        for (uint32_t c1 : cit1->second) {
+          for (uint32_t c2 : cit2->second) {
+            kerning[std::make_pair(c1, c2)] = advance;
+            if (VERBOSE) {
+              printf("'%c' '%c': %d (= %.5f)\n",
+                     c1, c2, kern.advance, advance);
+            }
+          }
         }
       }
     }
@@ -4339,13 +4363,17 @@ std::string PDF::AddTTF(std::string_view filename,
           auto cit2 = codepoint_from_glyph.find(g2);
           if (cit1 != codepoint_from_glyph.end() &&
               cit2 != codepoint_from_glyph.end()) {
-            kerning[std::make_pair(cit1->second, cit2->second)] = advance;
-            if (VERBOSE) {
-              printf("U+%04x U+%04x = '%s' '%s': %d (= %.5f)\n",
-                     cit1->second, cit2->second,
-                     UTF8::Encode(cit1->second).c_str(),
-                     UTF8::Encode(cit2->second).c_str(),
-                     kern, advance);
+            for (uint32_t c1 : cit1->second) {
+              for (uint32_t c2 : cit2->second) {
+                kerning[std::make_pair(c1, c2)] = advance;
+                if (VERBOSE) {
+                  printf("U+%04x U+%04x = '%s' '%s': %d (= %.5f)\n",
+                         c1, c2,
+                         UTF8::Encode(c1).c_str(),
+                         UTF8::Encode(c2).c_str(),
+                         kern, advance);
+                }
+              }
             }
           }
         }
@@ -4358,37 +4386,45 @@ std::string PDF::AddTTF(std::string_view filename,
          (int)kerning.size());
 
   // Create the stream for the embedded data.
-  // XXX just use AddStreamObject here, although we need
-  // to pass keys for to set the /Type and /Length1 etc.
-  StreamObj *obj = AddObject(new StreamObj);
+  // We also put common metadata in here (e.g. bbox) that the
+  // FontDescriptor needs when we embed this TTF.
+  // XXX might be cleaner if this represented the FontDescriptor
+  // object, and we used an indirect reference to it.
+  TTFObj *ttf_obj = AddObject(new TTFObj);
 
-  StringAppendF(&obj->stream,
+  {
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    stbtt_GetFontBoundingBox(&ttf, &x0, &y0, &x1, &y1);
+    ttf_obj->bbox = std::make_tuple(x0, y0, x1, y1);
+  }
+
+  StringAppendF(&ttf_obj->stream,
                 "<<\n"
-                "  /Type /FontDescriptor\n"
-                // Size of *decompressed* TTF bytes.
-                "  /Length1 %lu\n",
-                (unsigned long) ttf_bytes.size());
-
+                // XXX might be unnecessary here?
+                "  /Type /FontDescriptor\n");
 
   if (options.use_compression) {
     const std::vector<uint8_t> flate_bytes =
       ZIP::ZlibVector(ttf_bytes, options.compression_level);
-    StringAppendF(&obj->stream,
+    StringAppendF(&ttf_obj->stream,
+                  // Size of *decompressed* TTF bytes.
+                  "  /Length1 %lu\n"
                   "  /Filter /FlateDecode\n"
                   "  /Length %lu\n"
                   ">>stream\n",
-                  (unsigned long) flate_bytes.size());
-    obj->stream.append((const char*)flate_bytes.data(), flate_bytes.size());
+                  (unsigned long)ttf_bytes.size(),
+                  (unsigned long)flate_bytes.size());
+    ttf_obj->stream.append((const char*)flate_bytes.data(), flate_bytes.size());
 
   } else {
-    StringAppendF(&obj->stream,
+    StringAppendF(&ttf_obj->stream,
                   "  /Length %lu\n"
                   ">>stream\n",
-                  (unsigned long) ttf_bytes.size());
-    obj->stream.append((const char*)ttf_bytes.data(), ttf_bytes.size());
+                  (unsigned long)ttf_bytes.size());
+    ttf_obj->stream.append((const char*)ttf_bytes.data(), ttf_bytes.size());
   }
 
-  StringAppendF(&obj->stream, "\nendstream\n");
+  StringAppendF(&ttf_obj->stream, "\nendstream\n");
 
   font->kerning = std::move(kerning);
 
@@ -4435,8 +4471,10 @@ std::string PDF::AddTTF(std::string_view filename,
 
     std::vector<std::pair<uint16_t, uint32_t>> mapping;
     mapping.reserve(codepoint_from_glyph.size());
-    for (const auto &[glyph, codepoint] : codepoint_from_glyph) {
-      mapping.emplace_back(glyph, codepoint);
+    for (const auto &[glyph, codepoints] : codepoint_from_glyph) {
+      for (uint32_t codepoint : codepoints) {
+        mapping.emplace_back(glyph, codepoint);
+      }
     }
     std::sort(mapping.begin(), mapping.end(),
               [](const auto &a, const auto &b) {
@@ -4457,9 +4495,20 @@ std::string PDF::AddTTF(std::string_view filename,
 
     cmap = AddStreamObject({{"/Type", "/CMap"}}, resource);
 
-    // Only need this for unicode compression.
-    for (const auto &[glyph, codepoint] : codepoint_from_glyph) {
-      font->glyph_from_codepoint[codepoint] = glyph;
+
+    for (const auto &[glyph, codepoints] : codepoint_from_glyph) {
+      for (uint32_t codepoint : codepoints) {
+        CHECK(!font->glyph_from_codepoint.contains(codepoint));
+        font->glyph_from_codepoint[codepoint] = glyph;
+      }
+    }
+
+    if (VERBOSE) {
+      std::vector<std::pair<uint32_t, uint16_t>> sorted =
+        MapToSortedVec(font->glyph_from_codepoint);
+      for (const auto &[codepoint, glyph] : sorted) {
+        printf("Codepoint U+%04x -> %d\n", codepoint, glyph);
+      }
     }
   }
   font->encoding = encoding;
@@ -4485,7 +4534,7 @@ std::string PDF::AddTTF(std::string_view filename,
   if (encoding == FontEncoding::WIN_ANSI) {
     Font8Obj *fobj = AddObject(new Font8Obj);
     fobj->font = font;
-    fobj->ttf = obj;
+    fobj->ttf = ttf_obj;
     fobj->widths_obj = wobj;
     font->f8obj = fobj;
   } else {
@@ -4500,7 +4549,7 @@ std::string PDF::AddTTF(std::string_view filename,
     f0obj->cmap_obj = cmap;
 
     fcobj->font = font;
-    fcobj->ttf = obj;
+    fcobj->ttf = ttf_obj;
     fcobj->widths_obj = wobj;
 
     font->f0obj = f0obj;

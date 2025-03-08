@@ -65,6 +65,7 @@ private:
     OBJ_font8,
     OBJ_font0,
     OBJ_fontcid,
+    OBJ_ttf,
     OBJ_page,
     OBJ_bookmark,
     OBJ_outline,
@@ -591,7 +592,7 @@ private:
   // XXX maybe this should just return the font pointer.
   std::string AddTTF(std::string_view filename,
                      // XXX use UNICODE when working
-                     FontEncoding encoding = FontEncoding::WIN_ANSI);
+                     FontEncoding encoding = FontEncoding::UNICODE);
 
   static const char *ObjTypeName(ObjType t);
 
@@ -600,19 +601,11 @@ private:
   PDF(const PDF &) = delete;
   PDF &operator=(const PDF &) = delete;
 
-// XXX OBSOLETE!
-  struct FontObj : public Object {
-    FontObj() : Object(OBJ_font) {}
-
-    // The corresponding Font object.
-    Font *font = nullptr;
-
-    // For embedded fonts, the data stream.
-    StreamObj *ttf = nullptr;
-    // For all fonts, the required widths array.
-    WidthsObj *widths_obj = nullptr;
-    // For embedded fonts with unicode encoding, the CMap.
-    StreamObj *cmap_obj = nullptr;
+  struct TTFObj : public Object {
+    TTFObj() : Object(OBJ_ttf) {}
+    std::tuple<int, int, int, int> bbox;
+    // The already-serialized TTF stream.
+    std::string stream;
   };
 
   struct BuiltInFontObj : public Object {
@@ -624,7 +617,7 @@ private:
   struct Font8Obj : public Object {
     Font8Obj() : Object(OBJ_font8) {}
     Font *font = nullptr;
-    StreamObj *ttf = nullptr;
+    TTFObj *ttf = nullptr;
     WidthsObj *widths_obj = nullptr;
   };
 
@@ -640,7 +633,7 @@ private:
     FontCIDObj() : Object(OBJ_fontcid) {}
     Font *font = nullptr;
     // Link to parent font0?
-    StreamObj *ttf = nullptr;
+    TTFObj *ttf = nullptr;
     WidthsObj *widths_obj = nullptr;
   };
 
@@ -805,6 +798,10 @@ private:
                          const uint8_t *jpeg_data,
                          size_t len,
                          Page *page);
+
+  static std::string TrueTypeFontDescriptor(
+      const PDF::TTFObj *ttf,
+      int font_index);
 
   std::string error_message;
   int errval = 0;

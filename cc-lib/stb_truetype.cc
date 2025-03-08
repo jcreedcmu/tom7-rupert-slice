@@ -580,16 +580,16 @@ STBTT_DEF int stbtt_FindGlyphIndex(const stbtt_fontinfo *info, int unicode_codep
          offset = ttUSHORT(data + index_map + 14 + segcount*6 + 2 + 2*item);
 
          if (VERBOSE)
-         printf("Got offset %04x, item %04x from range %04x-%04x, code %d\n",
-                offset, item, start, last, unicode_codepoint);
+           printf("Got offset %04x, item %04x from range %04x-%04x, code %d\n",
+                  offset, item, start, last, unicode_codepoint);
 
          if (offset == 0)
             return (stbtt_uint16) (unicode_codepoint + ttSHORT(data + index_map + 14 + segcount*4 + 2 + 2*item));
 
          if (VERBOSE)
-         printf("So %p + %04x + (%d-%d)*2 + %d + 14 + %d*6 + 2 + 2*%d\n",
-                data, offset, unicode_codepoint, start, index_map,
-                segcount, item);
+           printf("So %p + %04x + (%d-%d)*2 + %d + 14 + %d*6 + 2 + 2*%d\n",
+                  data, offset, unicode_codepoint, start, index_map,
+                  segcount, item);
 
          // It is common for fonts to have an invalid offset of 0xFFFF in
          // the sentinel segment. Just ignore the address if it points
@@ -630,9 +630,9 @@ STBTT_DEF int stbtt_FindGlyphIndex(const stbtt_fontinfo *info, int unicode_codep
    return 0;
 }
 
-std::unordered_map<uint16_t, uint32_t> stbtt_GetGlyphs(
+std::unordered_map<uint16_t, std::vector<uint32_t>> stbtt_GetGlyphs(
     const stbtt_fontinfo* font) {
-  std::unordered_map<uint16_t, uint32_t> mapping;
+  std::unordered_map<uint16_t, std::vector<uint32_t>> mapping;
 
   // Iterate over the cmap table to extract mappings.
   uint8_t *data = font->data;
@@ -645,7 +645,7 @@ std::unordered_map<uint16_t, uint32_t> stbtt_GetGlyphs(
     for (int codepoint = 0; codepoint < bytes - 6; codepoint++) {
       uint16_t glyph_id = ttBYTE(data + index_map + 6 + codepoint);
       if (glyph_id != 0) {
-        mapping[glyph_id] = (uint32_t)codepoint;
+        mapping[glyph_id].push_back((uint32_t)codepoint);
       }
     }
 
@@ -702,7 +702,7 @@ std::unordered_map<uint16_t, uint32_t> stbtt_GetGlyphs(
       for (uint32_t code = start; code <= (uint32_t)end; code++) {
         int glyph_id = stbtt_FindGlyphIndex(font, code);
         if (glyph_id > 0) {
-          mapping[glyph_id] = code;
+          mapping[glyph_id].push_back(code);
         }
       }
     }
@@ -786,7 +786,7 @@ std::unordered_map<uint16_t, uint32_t> stbtt_GetGlyphs(
       uint16_t glyph_id =
           ttUSHORT(data + index_map + 10 + (codepoint - first) * 2);
       if (glyph_id != 0) {
-        mapping[glyph_id] = codepoint;
+        mapping[glyph_id].push_back(codepoint);
       }
     }
 
@@ -801,7 +801,7 @@ std::unordered_map<uint16_t, uint32_t> stbtt_GetGlyphs(
            codepoint++) {
         uint16_t glyph_id = start_glyph + codepoint - start_char;
         if (glyph_id != 0) {
-          mapping[glyph_id] = codepoint;
+          mapping[glyph_id].push_back(codepoint);
         }
       }
     }
@@ -818,7 +818,7 @@ std::unordered_map<uint16_t, uint32_t> stbtt_GetGlyphs(
         // just return 32-bit ids here, but I think this is uncommon
         // since there can only be 65536 glyphs due to other constraints.
         if (glyph_id != 0 && glyph_id <= 0xFFFF) {
-          mapping[(uint16_t)glyph_id] = codepoint;
+          mapping[(uint16_t)glyph_id].push_back(codepoint);
         }
       }
     }

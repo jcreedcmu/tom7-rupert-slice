@@ -500,6 +500,38 @@ static void MakeMinimalPDF() {
   printf("Wrote " AGREEN("minimal.pdf") "\n");
 }
 
+static void SimpleUnicode() {
+  printf("Create PDF object.\n");
+  PDF::Options opt;
+  opt.use_compression = false;
+  PDF pdf(PDF::PDF_LETTER_WIDTH,
+          PDF::PDF_LETTER_HEIGHT,
+          opt);
+
+  [[maybe_unused]]
+  PDF::Page *page = pdf.AppendNewPage();
+  PDF::Info info;
+  snprintf(info.creator, 63, "pdf_test.cc");
+  snprintf(info.producer, 63, "Tom 7");
+  snprintf(info.title, 63, "Simple Unicode PDF");
+  snprintf(info.author, 63, "None");
+  snprintf(info.author, 63, "No subject");
+  snprintf(info.date, 63, "8 Jun 2024");
+  pdf.SetInfo(info);
+
+  std::string pala_name = pdf.AddTTF("pala.ttf",
+                                         PDF::FontEncoding::UNICODE);
+
+  pdf.SetFont(pala_name);
+  CHECK(pdf.AddText("High-way ! \"OK\"?",
+                    36,
+                    30, PDF::PDF_LETTER_HEIGHT - 72 - 36,
+                    PDF_RGB(0, 0, 0)));
+
+  pdf.Save("simple.pdf");
+  printf("Wrote " AGREEN("simple.pdf") "\n");
+}
+
 
 int main(int argc, char **argv) {
   ANSI::Init();
@@ -508,6 +540,7 @@ int main(int argc, char **argv) {
   SpaceLine();
 
   MakeMinimalPDF();
+  SimpleUnicode();
   MakeSimplePDF();
 
   printf("OK\n");
