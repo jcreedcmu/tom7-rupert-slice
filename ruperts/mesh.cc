@@ -262,6 +262,21 @@ void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
   printf("Wrote " AGREEN("%s") "\n", f.c_str());
 }
 
+TriangularMesh3D ConcatMeshes(const std::vector<TriangularMesh3D> &meshes) {
+  TriangularMesh3D out;
+  for (const TriangularMesh3D &mesh : meshes) {
+    int next_vertex = (int)out.vertices.size();
+    for (const vec3 &v : mesh.vertices)
+      out.vertices.push_back(v);
+    for (const auto &[a, b, c] : mesh.triangles) {
+      out.triangles.emplace_back(next_vertex + a,
+                                 next_vertex + b,
+                                 next_vertex + c);
+    }
+  }
+  return out;
+}
+
 #if 0
 // Face meshes need to be triangulated.
 void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,

@@ -29,6 +29,11 @@ TriangularMesh3D LoadSTL(std::string_view filename);
 void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
                std::string_view name = "");
 
+// Creates a mesh that is simply the concatenation of the argument meshes.
+// The geometry is not merged (not even duplicate vertices). This can
+// be used to save several objects in the same STL file, for example.
+TriangularMesh3D ConcatMeshes(const std::vector<TriangularMesh3D> &meshes);
+
 // Orients triangles to have a consistent winding order. The input
 // must be a connected manifold, since this is how we determine what
 // that order should be!
