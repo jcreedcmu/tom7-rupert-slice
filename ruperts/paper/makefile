@@ -15,8 +15,8 @@ RESIDUE_SVG=cube-residue.svg cuboctahedron-residue.svg deltoidalicositetrahedron
 default : $(RESIDUE_SVG) $(SOLID_SVG)
 
 
-paper.pdf : paper.bovex $(BOVEX_LIB)
-	$(BOVEX)/bovex.exe -v paper.bovex -o paper.pdf
+paper.pdf : paper.bovex ruperts.bib $(BOVEX_LIB)
+	$(BOVEX)/bovex.exe -I . -v paper.bovex -o paper.pdf
 
 clean :
 	rm -f paper.pdf $(RESIDUE_SVG) $(SOLID_SVG)

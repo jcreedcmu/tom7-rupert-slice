@@ -24,6 +24,7 @@
 #include "atomic-util.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
+#include "dyson.h"
 #include "mesh.h"
 #include "opt/large-optimizer.h"
 #include "opt/opt.h"
@@ -98,65 +99,23 @@ static void CubesToSTL(const std::array<frame3, NUM_CUBES> &cubes,
   }
 
   if (sphere.has_value()) {
-    const auto [center, d] = sphere.value();
+    const auto &[center, radius] = sphere.value();
     TriangularMesh3D geo = ApproximateSphere(2);
     for (vec3 &v : geo.vertices) {
-      v *= d;
+      v *= radius;
       v += center;
     }
     all.push_back(geo);
   }
 
-  SaveAsSTL(ConcatMeshes(all), filename, "shrinkwrap", true);
-}
-
-// Compute the intersection between the segment p1-p2 and
-// the unit cube. Nullopt if none. Otherwise, the interpolants
-// (i.e. each in [0, 1]) tmin and tmax where the segment
-// overlaps.
-// TODO: Factor this out
-static std::optional<std::pair<double, double>>
-SegmentIntersectsUnitCube(const vec3 &p1, const vec3 &p2) {
-  const vec3 cube_min(0.0, 0.0, 0.0);
-  const vec3 cube_max(1.0, 1.0, 1.0);
-
-  // Direction vector of the segment
-  vec3 d = p2 - p1;
-  double t_min = -std::numeric_limits<double>::infinity();
-  double t_max = std::numeric_limits<double>::infinity();
-
-  constexpr double EPSILON = 1e-10;
-
-  // Iterate through the three axes (x, y, z).
-  for (int i = 0; i < 3; i++) {
-    if (std::abs(d[i]) < EPSILON) {
-      // Parallel segment.
-      if (p1[i] < cube_min[i] || p1[i] > cube_max[i]) {
-        return std::nullopt;
-      }
-    } else {
-      // Compute intersection parameters with the near and far planes.
-      double t1 = (cube_min[i] - p1[i]) / d[i];
-      double t2 = (cube_max[i] - p1[i]) / d[i];
-
-      // Swap so t1 <= t2.
-      if (t1 > t2) {
-        std::swap(t1, t2);
-      }
-
-      // Clip the intersection interval.
-      t_min = std::max(t_min, t1);
-      t_max = std::min(t_max, t2);
-
-      // If the interval becomes empty, no intersection.
-      if (t_min > t_max) {
-        return std::nullopt;
-      }
-    }
+  // Also a tiny sphere at the origin.
+  {
+    TriangularMesh3D origin = ApproximateSphere(0);
+    for (vec3 &v : origin.vertices) v *= 0.01;
+    all.push_back(origin);
   }
 
-  // Intersection.
-  return {std::make_pair(t_min, t_max)};
+  SaveAsSTL(ConcatMeshes(all), filename, "shrinkwrap", true);
 }
 
 namespace {
@@ -165,7 +124,8 @@ struct Eval {
   // Non-negative costs
   double edge_overlap_sum = 0.0;
 
-  double radius = 0.0;
+  // Smallest sphere
+  std::pair<vec3, double> sphere = {vec3{0, 0, 0}, 0};
 };
 }
 
@@ -232,7 +192,14 @@ static Eval Evaluate(ArcFour *rc,
       {f, g},
     };
 
-    for (int idx2 = idx1 + 1; idx2 < NUM_CUBES; idx2++) {
+    // PERF: We actually have to check both directions, since
+    // one cube can intersect the other without any of *its*
+    // edges intersecting (point into face). A faster thing
+    // would be to just check whether any vertex is contained,
+    // though.
+    for (int idx2 = 0; idx2 < NUM_CUBES; idx2++) {
+      if (idx1 == idx2) continue;
+
       const frame3 &cube2 = cubes[idx2];
 
       // Put cube1's vertices in cube2's coordinate system.
@@ -244,7 +211,7 @@ static Eval Evaluate(ArcFour *rc,
       // Now test each edge for intersection with the unit cube.
       for (const auto &[n0, n1] : edges) {
         if (std::optional<std::pair<double, double>> to =
-            SegmentIntersectsUnitCube(v2[n0], v2[n1])) {
+            Dyson::SegmentIntersectsUnitCube(v2[n0], v2[n1])) {
           eval.num_edge_overlaps++;
           const auto &[tmin, tmax] = to.value();
           CHECK(tmin <= tmax);
@@ -254,7 +221,7 @@ static Eval Evaluate(ArcFour *rc,
     }
   }
 
-  eval.radius = SmallestSphere::Smallest(rc, all_points).second;
+  eval.sphere = SmallestSphere::Smallest(rc, all_points);
   return eval;
 }
 
@@ -326,6 +293,11 @@ static void Optimize() {
             initial_rot.push_back(RandomQuaternion(&rc));
           }
 
+          // PERF:
+          // Normally we would translate, rotate, and translate
+          // back. But since the optimization contains its own
+          // translation, we could just bake that in.
+
           auto SetCubes = [&](const std::array<double, NUM_ARGS> &args,
                               std::array<frame3, NUM_CUBES> *cubes) {
               for (int i = 0; i < NUM_CUBES; i++) {
@@ -343,10 +315,10 @@ static void Optimize() {
                 opt_frame.o.y = args[base + 5];
                 opt_frame.o.z = args[base + 6];
 
-                // Normally we would translate, rotate, and translate
-                // back. But since the optimization contains its own
-                // translation, we just bake that in.
-                (*cubes)[i] = translation_frame(-center) * opt_frame;
+                (*cubes)[i] =
+                  translation_frame(center) *
+                  opt_frame *
+                  translation_frame(-center);
               }
             };
 
@@ -364,8 +336,8 @@ static void Optimize() {
               }
 
               for (int o = 0; o < 3; o++) {
-                lb[idx] = 0.5 + -NUM_CUBES; // radius;
-                ub[idx] = 0.5 + +NUM_CUBES; // +radius;
+                lb[idx] = -NUM_CUBES; // radius;
+                ub[idx] = +NUM_CUBES; // +radius;
                 idx++;
               }
             }
@@ -380,7 +352,7 @@ static void Optimize() {
               double loss =
                 (eval.num_edge_overlaps * 1000.0) +
                 eval.edge_overlap_sum +
-                eval.radius;
+                eval.sphere.second;
                 // eval.max_sq_distance;
               return loss;
             };
@@ -533,9 +505,15 @@ static void Optimize() {
 
           } else {
 
+            Timer opt_timer;
             std::tie(args, error) =
-              Opt::Minimize<NUM_ARGS>(Loss, lb, ub, 100000, 3);
+              Opt::Minimize<NUM_ARGS>(Loss, lb, ub, 10000, 3);
+            double opt_sec = opt_timer.Seconds();
 
+            status.LineStatusf(
+                thread_idx,
+                "%s opt sec\n",
+                ANSI::Time(opt_sec).c_str());
           }
 
           {
@@ -545,18 +523,25 @@ static void Optimize() {
               status.Printf("New best! %.17g\n", best_error);
               std::array<frame3, NUM_CUBES> cubes;
               SetCubes(args, &cubes);
-              writer.Delay([&, c = std::move(cubes)]() {
-                  for (int i = 0; i < NUM_CUBES; i++) {
-                    status.Printf(
-                        "Cube %d:\n%s\n", i, FrameString(c[i]).c_str());
-                  }
-                  std::string filename = "shrinkwrap.stl";
-                  std::pair<vec3, double> sphere =
-                    {vec3{0, 0, 0}, std::sqrt(best_error)};
-                  CubesToSTL(c, {sphere}, filename);
-                  status.Printf("Wrote " AGREEN("%s") "\n",
-                                filename.c_str());
-                });
+              Eval eval = Evaluate(&rc, cubes);
+              // Sometimes the sphere is wrong (and we get a different
+              // answer here). This is presumably a numerical issue in
+              // smallest-sphere, like where we return 0 in some cases.
+              // Just reject it if it's not consistent.
+              if (eval.sphere.second < 0.99 * best_error) {
+                status.Printf(ARED("Invalid") "?!\n");
+              } else {
+                writer.Delay([&, c = std::move(cubes), eval]() {
+                    for (int i = 0; i < NUM_CUBES; i++) {
+                      status.Printf(
+                          "Cube %d:\n%s\n", i, FrameString(c[i]).c_str());
+                    }
+                    std::string filename = "shrinkwrap.stl";
+                    CubesToSTL(c, {eval.sphere}, filename);
+                    status.Printf("Wrote " AGREEN("%s") "\n",
+                                  filename.c_str());
+                  });
+              }
             }
 
             MaybeStatus();

@@ -38,7 +38,7 @@ CODEC_OBJECTS=$(CODEC)/mov.o $(CODEC)/mov-recorder.o
 CL_OBJECTS=$(CC_LIB)/opencl/clutil.o
 SQLITE_OBJECTS=$(SQLITE)/database.o $(SQLITE)/sqlite3.o
 
-OBJECTS=$(CC_LIB_OBJECTS) $(CODEC_OBJECTS) $(SQLITE_OBJECTS) polyhedra.o big-csg.o rendering.o solutions.o hull.o hull3d.o big-polyhedra.o symmetry-groups.o mesh.o smallest-sphere.o
+OBJECTS=$(CC_LIB_OBJECTS) $(CODEC_OBJECTS) $(SQLITE_OBJECTS) polyhedra.o big-csg.o rendering.o solutions.o hull.o hull3d.o big-polyhedra.o symmetry-groups.o mesh.o smallest-sphere.o dyson.o
 
 $(CC_LIB)/%.o : $(CC_LIB)/%.cc makefile
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -153,7 +153,7 @@ perspective.exe : perspective.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
-dyson.exe : dyson.o $(OBJECTS)
+dyson-fit.exe : dyson-fit.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
@@ -162,6 +162,10 @@ shrinkwrap.exe : shrinkwrap.o $(OBJECTS)
 	@echo -n "!"
 
 smallest-sphere_test.exe : smallest-sphere_test.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+dyson_test.exe : dyson_test.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

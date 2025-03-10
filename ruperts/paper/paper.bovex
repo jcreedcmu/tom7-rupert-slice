@@ -1,0 +1,271 @@
+
+(*   -*- electric-indent-local-mode: nil -*- *)
+let
+  import "stdlib.bovex"
+  import "layout.bovex"
+  import "palatino.bovex"
+  import "cite.bovex"
+  import "ruperts.bib"
+
+  val doc-title = "Still don’t have a good title"
+  val doc-subtitle = "There’s no subtitle either"
+
+  do set-doc-info {(PDFInfo)
+                   width = inch 8.5,
+                   height = inch 11.0,
+                   creator = "BoVeX",
+                   producer = "Huh?",
+                   title = doc-title,
+                   author = "Tom 7",
+                   subject = "Documents do not need a 'subject'"
+                   (* leaving out date, so it is the creation time. *) }
+
+  val tt = fixedersys
+
+  fun body-font lay = span
+    {(Span)
+     font-face = font-family PALATINO,
+     font-size = 12.0,
+     line-spacing = 1.0 } lay
+
+  fun footnote s = [([b[footnote]]: [s])]
+
+in
+
+(main-text (body-font
+[
+ [title (layout doc-title)]
+ [sub-title (layout doc-subtitle)]
+
+ [author[Dr. Tom Murphy VII, Ph.D.]][date[March 2025]]
+
+ How big is the unit cube? “1?” Seems obvious, right?
+ Let me ask you another way: [it[Where]] is the unit cube? “0?”
+
+
+This problem is pretty easy to specify precisely. The shape in
+question is a convex polyhedron, which is just defined by its set of
+vertices. For general polyhedra you also need to specify how those
+vertices are connected (the edges and faces), but convex polyhedra are
+easier. There’s just one way to stretch a “skin” over the points, so
+we don’t even need to describe it (or even think about it). We’ll take
+two copies of the points. One is the “outer” polyhedron and one is the
+“inner”. The goal is to find some way of arranging them so that the
+inner can pass through the outer.
+
+The inner one will pass through the outer along some line, so we say
+without loss of generality that this is the z axis. We’ll use the
+computer graphics convention that the camera is located at some
+positive z, looking down at the shapes, which are near the origin, and
+the inner polyhedron is moving along this same line of sight. Maybe
+like it’s shooting out of our eyeballs as a kind of abstract weapon of
+geometry. Viewed this way, what it means for the inner shape to be
+able to pass through the outer is that the two dimensional “shadow” of
+the inner shape is entirely contained within the shadow of the outer
+shape.
+
+We’ll specify the arrangement of the polyhedra as a rotation and
+translation; together these are a rigid frame (hereafter just
+“frame”). Because we know we’re traveling along the z axis, the z
+component of the translations are unimportant and we can just consider
+2D translations. Moreover, since we just care about the relative
+positions of the objects, we can say that the outer polyhedron is
+fixed at (0,0). We need to be able to rotate both shapes arbitrarily,
+though.
+
+The inner shadow being completely contained within the outer shadow is
+intuitive, but we should be more precise. The convex hull of a set of
+2D points is the minimal convex polygon that contains them all (here
+“contains” includes the boundary); this is the same idea as the
+minimal skin around the vertices of our convex polyhedron. To get the
+shape of the shadow, we just project the object to 2D along the z axis
+(easy: (x, y, z) just becomes (x, y)) and then compute the convex hull
+of the points using standard algorithms. Now we can just ask whether
+the inner hull is entirely contained within the outer hull. Since both
+are convex, this is a standard test that each point on the inner hull
+is contained within a convex 2D polygon. (There are many alternative
+formulations, some of which are discussed below.)
+
+The boundary condition here is very important. The inner points must
+be [it[strictly]] contained within the outer hull (less-than, not
+less-than-or-equal), never exactly on the boundary or coincident with
+an outer vertex. If we allow them to be on the hull, then carving the
+inner through the outer would make the residue disconnected (perhaps
+dramatically so). It also makes the problem trivial: If the outer and
+inner have the same frame, then their shadows are also the same, and
+the inner one is trivially (weakly) inside the outer. If you think
+this amounts to “passing one cube through the other and leaving a
+proper hole”, then you and I disagree about what proper hole means.
+
+So to solve the Rupert problem for some shape, you need to find two
+rigid frames that satisfy the above (and we know that one of the
+translations can be (0, 0, 0) and the other (x, y, 0)). How do we find
+such frames?
+
+If you have a fast enough test, sampling will suffice for easy objects
+like the cube. Here you just generate random frames and test whether
+the condition holds. You can try all orientations and reasonable
+bounds on the translation (you do not want to translate more than the
+diameter of the cube, for example, or it will definitely not go
+through it)!
+
+[subsection[Generating random orientations]]
+
+Generating random numbers is easy using floating point roundoff error
+(cite Rand). How do you generate a random rotation (orientation)?
+There are a few different ways to specify a rotation. You can use
+Euler angles, which are three parameters that give the rotation around
+the x, y, and z axes (“pitch,” “roll,” and “yaw”; see Figure `). This approach
+actually sucks (famously, Euler was not that good at math). You can
+get all orientations this way, but you will get some orientations more
+often than others.[footnote[Euler rotation is accomplished by rotating
+along each axis in turn. Imagine gimbal lock: Rotate the Earth such
+that ... The density of parameters that are close to this gimbal lock
+position is much higher.]] Maybe that is okay for you (or Eu-ler) but
+I want all orientations to be equally likely.
+
+[image { img = image-load "roll_pitch_yaw_mnemonic.png", width = inch 3.65 }]
+Figure 1. Wikipedia[cite roll-pitch-yaw] provides this useful mnemonic for remembering which
+axis corresponds to each of the three words. The [b[pitch]]er makes sense,
+since you famously use a pitcher by holding the handle away from you
+and turning your wrist to pour diagonally towards yourself. But d[b[oor]]
+must just be trolling, right?
+
+A good way to do this is using Quaternions, the even more mysterious
+cousins of the complex numbers. I will not try to give you an
+intuition for quaternions (since I do not really have one) but they
+can be used as a four-parameter representation of orientations that
+will leave you happy (and puzzled) instead of sad (and puzzled). Facts
+to know about the Quaternions:
+
+[ul([Most people don’t capitalize Quaternions.] ::
+
+    [Like complex numbers where you have a + bi, here we have a + bi +
+    cj + dk. The parameters are (a, b, c, d) and i,j,k are “even more
+    imaginary” “constants” that have some impossible relations, like
+    i^2 = -1 but also ijk = -1] ::
+
+    [You can just think of a quaternion as a four-dimensional vector
+    (a, b, c, d). If this is a unit-length vector, then represents an
+    orientation. There are exactly two unit quaternions representing
+    each unique orientation in 3D. No gimbal lock and no favorites.] ::
+
+    nil)]
+
+A good—but not great—way to generate random 4D unit vectors is to
+generate random points on a 4D hypersphere.
+
+Generating random 4D unit vectors is the same as generating points on
+the surface of a 4D hypersphere. There are very fancy ways to do this,
+but you run the risk of getting the math wrong, or head explosion
+etc., so I recommend rejection sampling. Rejection sampling is a very
+robust way to generate uniform samples in some set. What you do is
+generate random points inside some domain that contains the target
+set, and throw away points that aren’t in the target. For example, to
+generate points in a unit circle, you can generate points in the 2x2
+square (it’s [it[not]] the unit square) that contains that circle. π/4
+of these points will be in the circle, and so you get samples at an
+efficiency of about 78.5%.
+
+[image { img = image-load "sample-circle.png", width = inch 3.65 }]
+
+(sphere, hypersphere)
+
+
+
+Infinitely many
+What’s the best Rupert?
+
+
+ [section [Bibliography]]
+
+ [bibliography()]
+
+ ]))
+
+end
+
+(*
+
+how big is the unit cube?
+let me ask you this way. WHERE is the unit cube?
+how big is the unit sphere?
+(dice in sphere)
+
+now, most rich ..
+
+ It is just notes for now.
+
+ dice in sphere
+
+ point set version
+
+ illustrate all the hulls
+
+ table of best ratios
+
+ small noperts
+
+ gpu version
+ rational version
+ z3 version
+
+triangle man hates particle man
+
+ I'm definitely asking for it with floating points!!
+
+ upsetting symmetry thing
+
+ you get objects with names like these:
+ https://mathworld.wolfram.com/Octahedron.html
+ "gyrobifastigium"
+
+ triangle man hates particle man (degenerate triangles)
+
+ what's the best platonic solid?
+ icosahedron has a triforce in it (orthogonal projection with face
+ parallel to view plane)
+
+ floating space-yogi holding shapes
+
+ meta ruperts.
+ We'll always be asking if a shape can fit inside a convex
+ solid, which is the original e.g. cube.
+
+ But the cutting shape can be concave. One example would be a
+ complex of the inner/outer polyhedra in a rupert configuration.
+ Note that the z coordinate of the inner one is not fixed here
+ (we could consider it infinite?)
+
+ Then the question is whether we can pass one of these complexes
+ through the original solid, giving us a level-2 rupert, and so on.
+
+ If the extrusion is infinite, then this means we won't rotate the
+ inner complex, only the outer. So the question becomes: Can we
+ find an initial configuration, and a series of outer rotations,
+ each of which contains the previous? It's pretty clear that it
+ cannot reach a fixed point, since the area of each has to be
+ strictly increasing. But it is possible (likely?) that there are
+ chains of infinite length (if any exist at all).
+
+ Rather than think of the extrusion as infinite, we could put the
+ inner polyhedron at a position of our choice (along the penetrating
+ axis). It doesn't even need to be overlapping the outer polyhedron,
+ but it seems like you want to, because the next question is whether
+ you could pass this whole complex through another original
+ polyhedron. Here, rigid transformations of both the outer shape
+ and inner complex are permitted (and you have the additional
+ optimization parameter of the inner-inner shape's z position).
+ Could fixed points exist for this? Maybe?
+
+  it's like a katamari ball
+
+ heuristics: "inadequate equilibrium" is possibly interesting
+ here, because it does have this dimension analogy (here it
+ is a Blessing of Dimensionality): When optimizing two opposing
+ forces on a 1D line, you have no choice but to get stuck.
+ When you have two dimensions, it is possible to get trapped in
+ a local maximum. Adding more dimensions makes the optimization
+ problem potentially easier to solve simply by descent.
+
+ *)
