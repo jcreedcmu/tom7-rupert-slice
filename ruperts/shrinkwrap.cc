@@ -30,6 +30,7 @@
 #include "periodically.h"
 #include "polyhedra.h"
 #include "randutil.h"
+#include "smallest-sphere.h"
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
@@ -49,6 +50,7 @@ constexpr int NUM_CUBES = 3;
 
 // XXX factor it out
 static void CubesToSTL(const std::array<frame3, NUM_CUBES> &cubes,
+                       const std::optional<std::pair<vec3, double>> &sphere,
                        std::string_view filename) {
   std::vector<TriangularMesh3D> all;
   for (const frame3 &frame : cubes) {
@@ -95,7 +97,15 @@ static void CubesToSTL(const std::array<frame3, NUM_CUBES> &cubes,
     all.push_back(std::move(mesh));
   }
 
-  // all = {ApproximateSphere(1)};
+  if (sphere.has_value()) {
+    const auto [center, d] = sphere.value();
+    TriangularMesh3D geo = ApproximateSphere(2);
+    for (vec3 &v : geo.vertices) {
+      v *= d;
+      v += center;
+    }
+    all.push_back(geo);
+  }
 
   SaveAsSTL(ConcatMeshes(all), filename, "shrinkwrap", true);
 }
@@ -155,12 +165,16 @@ struct Eval {
   // Non-negative costs
   double edge_overlap_sum = 0.0;
 
-  double max_sq_distance = 0.0;
+  double radius = 0.0;
 };
 }
 
-static Eval Evaluate(const std::array<frame3, NUM_CUBES> &cubes) {
+static Eval Evaluate(ArcFour *rc,
+                     const std::array<frame3, NUM_CUBES> &cubes) {
   Eval eval;
+
+  std::vector<vec3> all_points;
+  all_points.reserve(8 * NUM_CUBES);
 
   for (int idx1 = 0; idx1 < NUM_CUBES; idx1++) {
     const frame3 &cube1 = cubes[idx1];
@@ -197,9 +211,10 @@ static Eval Evaluate(const std::array<frame3, NUM_CUBES> &cubes) {
 
     // Test if any vertices are outside the unit sphere.
     for (int i = 0; i < 8; i++) {
-      double dist = dot(v1[i], v1[i]);
+      all_points.push_back(v1[i]);
+      // double dist = dot(v1[i], v1[i]);
       // eval.max_sq_distance = std::max(eval.max_sq_distance, dist);
-      eval.max_sq_distance += dist;
+      // eval.max_sq_distance += dist;
     }
 
     std::initializer_list<std::pair<int, int>> edges = {
@@ -239,6 +254,7 @@ static Eval Evaluate(const std::array<frame3, NUM_CUBES> &cubes) {
     }
   }
 
+  eval.radius = SmallestSphere::Smallest(rc, all_points).second;
   return eval;
 }
 
@@ -359,12 +375,13 @@ static void Optimize() {
           auto Loss = [&](const std::array<double, NUM_ARGS> &args) {
               std::array<frame3, NUM_CUBES> cubes;
               SetCubes(args, &cubes);
-              Eval eval = Evaluate(cubes);
+              Eval eval = Evaluate(&rc, cubes);
               attempts++;
               double loss =
                 (eval.num_edge_overlaps * 1000.0) +
                 eval.edge_overlap_sum +
-                eval.max_sq_distance;
+                eval.radius;
+                // eval.max_sq_distance;
               return loss;
             };
 
@@ -534,7 +551,9 @@ static void Optimize() {
                         "Cube %d:\n%s\n", i, FrameString(c[i]).c_str());
                   }
                   std::string filename = "shrinkwrap.stl";
-                  CubesToSTL(c, filename);
+                  std::pair<vec3, double> sphere =
+                    {vec3{0, 0, 0}, std::sqrt(best_error)};
+                  CubesToSTL(c, {sphere}, filename);
                   status.Printf("Wrote " AGREEN("%s") "\n",
                                 filename.c_str());
                 });
