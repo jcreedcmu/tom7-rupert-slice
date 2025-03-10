@@ -397,6 +397,9 @@ std::optional<double> GetClearance(const Polyhedron &poly,
                                    const frame3 &outer_frame,
                                    const frame3 &inner_frame);
 
+// XXX docs
+TriangularMesh3D ApproximateSphere(int depth);
+
 // Takes ownership of the vertices, which should be a convex hull.
 // Creates faces as all planes where all the other points are on one
 // side. This is not fast; it's intended for a small number of

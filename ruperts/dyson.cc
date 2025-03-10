@@ -26,7 +26,6 @@
 #include "randutil.h"
 #include "timer.h"
 #include "yocto_matht.h"
-#include "hashing.h"
 #include "polyhedra.h"
 
 DECLARE_COUNTERS(iters, attempts);
@@ -43,111 +42,6 @@ constexpr int NUM_CUBES = 5;
 
 constexpr double SPHERE_RADIUS = 10.0;
 constexpr double SPHERE_SQ_RADIUS = SPHERE_RADIUS * SPHERE_RADIUS;
-
-TriangularMesh3D ApproximateSphere(int depth) {
-
-  #if 0
-  // Start with tetrahedron.
-  TriangularMesh3D mesh;
-  mesh.vertices = {
-    normalize(vec3{1.0,   1.0,  1.0}),
-    normalize(vec3{1.0,  -1.0, -1.0}),
-    normalize(vec3{-1.0,  1.0, -1.0}),
-    normalize(vec3{-1.0, -1.0,  1.0}),
-  };
-
-  for (int i = 0; i < 4; i++) {
-    for (int j = i + 1; j < 4; j++) {
-      for (int k = j + 1; k < 4; k++) {
-        mesh.triangles.emplace_back(i, j, k);
-      }
-    }
-  }
-  #endif
-
-
-  TriangularMesh3D mesh = []() {
-      Polyhedron icos = Icosahedron();
-      TriangularMesh3D mesh{
-        .vertices = icos.vertices,
-        .triangles = icos.faces->triangulation,
-      };
-      delete icos.faces;
-
-      for (vec3 &v : mesh.vertices) {
-        v = normalize(v);
-      }
-
-      OrientMesh(&mesh);
-
-      return mesh;
-    }();
-
-  // Triforce Subdivision.
-  while (depth--) {
-    std::unordered_map<std::pair<int, int>, int,
-                       Hashing<std::pair<int, int>>> midpoints;
-    TriangularMesh3D submesh;
-    submesh.vertices = mesh.vertices;
-
-    auto MidPoint = [&](int a, int b) {
-        if (a > b) std::swap(a, b);
-        auto it = midpoints.find(std::make_pair(a, b));
-        if (it == midpoints.end()) {
-          CHECK(b < mesh.vertices.size());
-          // We want the average, but since we are normalizing anyway,
-          // we can skip the scale.
-          vec3 m = normalize(mesh.vertices[a] + mesh.vertices[b]);
-          int id = submesh.vertices.size();
-          midpoints[std::make_pair(a, b)] = id;
-          submesh.vertices.push_back(m);
-          return id;
-        }
-        else return it->second;
-      };
-
-    for (const auto &[a, b, c] : mesh.triangles) {
-      //
-      //    a---d---b
-      //     \ / \ /
-      //      e---f
-      //       \ /
-      //        c
-      //
-      int d = MidPoint(a, b);
-      int e = MidPoint(a, c);
-      int f = MidPoint(b, c);
-
-      // Preserve clockwise winding.
-      submesh.triangles.emplace_back(a, d, e);
-      submesh.triangles.emplace_back(d, b, f);
-      submesh.triangles.emplace_back(d, f, e);
-      submesh.triangles.emplace_back(e, f, c);
-    }
-    mesh = std::move(submesh);
-  }
-
-  return mesh;
-};
-
-#if 0
-static inline quat4 RandomQuaternion(ArcFour *rc) {
-  const auto &[x, y, z, w] = RandomUnit4D(rc);
-  return quat4{.x = x, .y = y, .z = z, .w = w};
-}
-
-static std::string FrameString(const frame3 &f) {
-  return StringPrintf(
-      "frame3{.x = vec3(%.17g, %.17g, %.17g),\n"
-      "       .y = vec3(%.17g, %.17g, %.17g),\n"
-      "       .z = vec3(%.17g, %.17g, %.17g),\n"
-      "       .o = vec3(%.17g, %.17g, %.17g)}",
-      f.x.x, f.x.y, f.x.z,
-      f.y.x, f.y.y, f.y.z,
-      f.z.x, f.z.y, f.z.z,
-      f.o.x, f.o.y, f.o.z);
-}
-#endif
 
 static void CubesToSTL(const std::array<frame3, NUM_CUBES> &cubes,
                        std::string_view filename) {

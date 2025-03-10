@@ -235,7 +235,7 @@ void OrientMesh(TriangularMesh3D *mesh) {
 }
 
 void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
-               std::string_view name) {
+               std::string_view name, bool quiet) {
   std::string solid_name = name.empty() ? "mesh" : std::string(name);
   std::string contents = std::format("solid {}\n", solid_name);
 
@@ -259,7 +259,9 @@ void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
   AppendFormat(&contents, "endsolid {}\n", name);
   std::string f = (std::string)filename;
   Util::WriteFile(f, contents);
-  printf("Wrote " AGREEN("%s") "\n", f.c_str());
+  if (!quiet) {
+    printf("Wrote " AGREEN("%s") "\n", f.c_str());
+  }
 }
 
 TriangularMesh3D ConcatMeshes(const std::vector<TriangularMesh3D> &meshes) {

@@ -6,6 +6,7 @@
 #include <limits>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <unordered_set>
 #include <algorithm>
 #include <bit>
@@ -1544,6 +1545,95 @@ std::pair<quat4, vec3> UnpackFrame(const frame3 &f) {
 
   return std::make_pair(normalize(quat4(x, y, z, w)),
                         yocto::translation(f));
+}
+
+
+TriangularMesh3D ApproximateSphere(int depth) {
+
+  #if 0
+  // Start with tetrahedron.
+  // You get a cool looking shape, but it's actually pretty
+  // irregular.
+  TriangularMesh3D mesh;
+  mesh.vertices = {
+    normalize(vec3{1.0,   1.0,  1.0}),
+    normalize(vec3{1.0,  -1.0, -1.0}),
+    normalize(vec3{-1.0,  1.0, -1.0}),
+    normalize(vec3{-1.0, -1.0,  1.0}),
+  };
+
+  for (int i = 0; i < 4; i++) {
+    for (int j = i + 1; j < 4; j++) {
+      for (int k = j + 1; k < 4; k++) {
+        mesh.triangles.emplace_back(i, j, k);
+      }
+    }
+  }
+  #endif
+
+  // Icosahedron is way better!
+  TriangularMesh3D mesh = []() {
+      Polyhedron icos = Icosahedron();
+      TriangularMesh3D mesh{
+        .vertices = icos.vertices,
+        .triangles = icos.faces->triangulation,
+      };
+      delete icos.faces;
+
+      for (vec3 &v : mesh.vertices) {
+        v = normalize(v);
+      }
+
+      OrientMesh(&mesh);
+
+      return mesh;
+    }();
+
+  // Triforce Subdivision.
+  while (depth--) {
+    std::unordered_map<std::pair<int, int>, int,
+                       Hashing<std::pair<int, int>>> midpoints;
+    TriangularMesh3D submesh;
+    submesh.vertices = mesh.vertices;
+
+    auto MidPoint = [&](int a, int b) {
+        if (a > b) std::swap(a, b);
+        auto it = midpoints.find(std::make_pair(a, b));
+        if (it == midpoints.end()) {
+          CHECK(b < mesh.vertices.size());
+          // We want the average, but since we are normalizing anyway,
+          // we can skip the scale.
+          vec3 m = normalize(mesh.vertices[a] + mesh.vertices[b]);
+          int id = submesh.vertices.size();
+          midpoints[std::make_pair(a, b)] = id;
+          submesh.vertices.push_back(m);
+          return id;
+        }
+        else return it->second;
+      };
+
+    for (const auto &[a, b, c] : mesh.triangles) {
+      //
+      //    a---d---b
+      //     \ / \ /
+      //      e---f
+      //       \ /
+      //        c
+      //
+      int d = MidPoint(a, b);
+      int e = MidPoint(a, c);
+      int f = MidPoint(b, c);
+
+      // Preserve clockwise winding.
+      submesh.triangles.emplace_back(a, d, e);
+      submesh.triangles.emplace_back(d, b, f);
+      submesh.triangles.emplace_back(d, f, e);
+      submesh.triangles.emplace_back(e, f, c);
+    }
+    mesh = std::move(submesh);
+  }
+
+  return mesh;
 }
 
 // Take all planes where all of the other vertices

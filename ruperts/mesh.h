@@ -27,7 +27,7 @@ struct Mesh3D {
 TriangularMesh3D LoadSTL(std::string_view filename);
 
 void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
-               std::string_view name = "");
+               std::string_view name = "", bool quiet = false);
 
 // Creates a mesh that is simply the concatenation of the argument meshes.
 // The geometry is not merged (not even duplicate vertices). This can
@@ -38,5 +38,6 @@ TriangularMesh3D ConcatMeshes(const std::vector<TriangularMesh3D> &meshes);
 // must be a connected manifold, since this is how we determine what
 // that order should be!
 void OrientMesh(TriangularMesh3D *mesh);
+
 
 #endif
