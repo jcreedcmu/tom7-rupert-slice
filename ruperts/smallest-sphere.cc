@@ -2,19 +2,25 @@
 #include "smallest-sphere.h"
 
 #include <cmath>
+#include <cstdio>
 #include <format>
 #include <optional>
 #include <span>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
 #include <yocto_matht.h>
 
+#include "ansi.h"
 #include "arcfour.h"
 #include "base/logging.h"
 #include "randutil.h"
 
 using vec3 = yocto::vec<double, 3>;
+
+bool SmallestSphere::verbose = false;
+#define VERBOSE SmallestSphere::verbose
 
 // Since yocto uses column major, we expand the arguments
 // to these to avoid confusion.
@@ -197,6 +203,7 @@ Circumsphere(const std::vector<vec3> &pts,
       // TODO: There is no "circumsphere", but we could
       // remove a duplicate (or the center point)
       // and treat this as a smaller set of points...
+      if (VERBOSE) { printf("Colinear points.\n"); }
       return std::make_pair(vec3(0, 0, 0), 0.0);
     }
 
@@ -271,6 +278,33 @@ Circumsphere(const std::vector<vec3> &pts,
     const vec3& b = pts[r[1]];
     const vec3& c = pts[r[2]];
     const vec3& d = pts[r[3]];
+    if (VERBOSE) {
+      printf("%d. (%.5g, %.5g, %.5g)\n", r[0], a.x, a.y, a.z);
+      printf("%d. (%.5g, %.5g, %.5g)\n", r[1], b.x, b.y, b.z);
+      printf("%d. (%.5g, %.5g, %.5g)\n", r[2], c.x, c.y, c.z);
+      printf("%d. (%.5g, %.5g, %.5g)\n", r[3], d.x, d.y, d.z);
+    }
+
+    {
+      // If all four are coplanar, then the tetrahedron is degenerate,
+      // so don't use that method.
+      auto v1 = b - a;
+      auto v2 = c - a;
+      auto v3 = d - a;
+      double scalar_triple_product = dot(v1, cross(v2, v3));
+      if (std::abs(scalar_triple_product) < 1.0e-10) {
+        // Any three of these points uniquely determine a circle.
+        // Since we're looking for the smallest sphere, we use that
+        // circle as the equator (i.e. as opposed to a small "cap")
+        // of the sphere. This is actually the same sphere we would
+        // get if we just take three of the points and compute its
+        // smallest sphere. So we can just recurse.
+        r.pop_back();
+        if (VERBOSE) { printf("Degenerate tetrahedron.\n"); }
+        return Circumsphere(pts, r);
+      }
+    }
+
 
     double m00 = 2 * (b.x - a.x);
     double m01 = 2 * (b.y - a.y);
@@ -311,14 +345,56 @@ Circumsphere(const std::vector<vec3> &pts,
   }
 }
 
+static std::string Indent(int depth) {
+  std::string s;
+  while (depth--) s += AGREY("▏ ");
+  return s; // std::string(depth * 2, ' ');
+}
+
 static std::pair<vec3, double> SmallestSphereRec(
+    int depth,
     const std::vector<vec3> &pts,
     // Points remaining
     std::span<const int> p,
     // Points on the boundary
     const std::vector<int> &r) {
 
+  if (VERBOSE) {
+    printf("%sSmallest (",
+           Indent(depth).c_str());
+    for (int x : p) printf("%d", x);
+    printf(", ");
+    for (int x : r) printf("%d", x);
+    printf(")\n");
+  }
+
   if (r.size() == 4) {
+    if (VERBOSE) {
+      printf("%sHave four points: %d %d %d %d\n",
+             Indent(depth).c_str(),
+             r[0], r[1], r[2], r[3]);
+    }
+
+
+    // What's going wrong is that we reach the point where r
+    // has four points that must be on the sphere, but they
+    // are all coplanar (one of the cube's faces). It is true
+    // that they are all on the sphere, but we aren't actually
+    // done; four coplanar points don't uniquely define a sphere.
+    // In fact ALL points of a cube will be on the smallest sphere,
+    // since it is cyclic.
+    //
+    // So it may be that we have to avoid adding these
+    // to r in the first place, or that once we have four, we should
+    // reject one if they are coplanar.
+    //
+    // But! The contract of the method is to return the smallest
+    // sphere that encompasses all of them. So it is correct to
+    // return a small sphere when the input has just four points.
+    // I think the problem is actually that we should not assume
+    // that once we have four points in r, we are done.
+
+
     // If four points are required to be on the sphere, then
     // we are done.
     return Circumsphere(pts, r);
@@ -327,19 +403,32 @@ static std::pair<vec3, double> SmallestSphereRec(
   if (p.empty()) {
     CHECK(r.size() <= 4) << "It should not be possible for "
       "more than four points to be required on the surface.";
+    if (VERBOSE) {
+      printf("%sHave %d points:",
+             Indent(depth).c_str(),
+             (int)r.size());
+      for (int x : r) printf(" %d", x);
+      printf("\n");
+    }
+
     return Circumsphere(pts, r);
   }
 
   int pt = p[0];
   p = p.subspan(1);
-  const auto &[o, radius] = SmallestSphereRec(pts, p, r);
+  const auto &[o, radius] = SmallestSphereRec(depth + 1, pts, p, r);
   const vec3 &v = pts[pt];
   if (distance(v, o) > radius) {
+    if (VERBOSE) {
+      printf("%sPt %d outside sphere((%.5g, %.5g, %.5g), %.6g)\n",
+             Indent(depth).c_str(),
+             pt, o.x, o.y, o.z, radius);
+    }
     // then actually pt is on the smallest sphere. Add it
     // to r (unless it is "very close" to a point already).
     std::vector<int> rr = r;
     rr.push_back(pt);
-    return SmallestSphereRec(pts, p, rr);
+    return SmallestSphereRec(depth + 1, pts, p, rr);
   } else {
     return std::make_pair(o, radius);
   }
@@ -353,5 +442,20 @@ std::pair<vec3, double> SmallestSphere::Smallest(
   p.reserve(pts.size());
   for (int i = 0; i < pts.size(); i++) p.push_back(i);
   Shuffle(rc, &p);
-  return SmallestSphereRec(pts, p, {});
+  if (VERBOSE) {
+    printf("----------------\n");
+    for (int i = 0; i < pts.size(); i++) {
+      printf("%d. (%.11g, %.11g, %.11g)\n",
+             i, pts[i].x, pts[i].y, pts[i].z);
+    }
+  }
+
+  auto sphere = SmallestSphereRec(0, pts, p, {});
+  const auto &[o, radius] = sphere;
+  if (VERBOSE) {
+    printf(AYELLOW("final") ": sphere((%.11g, %.11g, %.11g), %.11g)\n",
+           o.x, o.y, o.z, radius);
+  }
+
+  return sphere;
 }

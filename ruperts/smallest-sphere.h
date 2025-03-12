@@ -20,6 +20,8 @@ struct SmallestSphere {
   static std::pair<vec3, double> Smallest(
       ArcFour *rc,
       const std::vector<vec3> &pts);
+
+  static bool verbose;
 };
 
 #endif

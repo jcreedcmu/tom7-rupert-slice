@@ -37,7 +37,7 @@
 #include "timer.h"
 #include "yocto_matht.h"
 
-DECLARE_COUNTERS(iters, attempts);
+DECLARE_COUNTERS(iters, attempts, invalid);
 
 using namespace yocto;
 
@@ -47,7 +47,7 @@ using quat4 = quat<double, 4>;
 
 // We just represent the unit cube (0,0,0)-(1,1,1) as its
 // rigid transformation.
-constexpr int NUM_CUBES = 3;
+constexpr int NUM_CUBES = 4;
 
 // XXX factor it out
 static void CubesToSTL(const std::array<frame3, NUM_CUBES> &cubes,
@@ -261,6 +261,11 @@ static void Optimize() {
   double best_error = std::numeric_limits<double>::infinity();
   Timer run_timer;
 
+  static constexpr int MAX_GOOD = 10;
+  std::vector<std::tuple<double,
+                         std::vector<quat4>,
+                         std::array<double, NUM_ARGS>>> good;
+
   {
     std::vector<std::string> lines(NUM_THREADS, "?");
     lines.push_back("Start");
@@ -289,9 +294,29 @@ static void Optimize() {
 
         for (;;) {
           std::vector<quat4> initial_rot;
-          for (int i = 0; i < NUM_CUBES; i++) {
-            initial_rot.push_back(RandomQuaternion(&rc));
+          std::array<double, NUM_ARGS> initial_args;
+
+          const bool can_reuse = [&]{
+              MutexLock ml(&mu);
+              return good.size() > std::max(MAX_GOOD >> 1, 1);
+            }();
+
+          bool did_reuse = false;
+          if (can_reuse && (rc.Byte() & 1)) {
+            did_reuse = true;
+            MutexLock ml(&mu);
+            int idx = RandTo(&rc, good.size());
+            double err_unused = 0.0;
+            std::tie(err_unused, initial_rot, initial_args) = good[idx];
+
+          } else {
+            for (int i = 0; i < NUM_CUBES; i++) {
+              initial_rot.push_back(RandomQuaternion(&rc));
+            }
+
+            for (double &a : initial_args) a = 0.0;
           }
+
 
           // PERF:
           // Normally we would translate, rotate, and translate
@@ -373,7 +398,10 @@ static void Optimize() {
               }, NUM_ARGS, Rand64(&rc));
 
             {
-              std::vector<double> sample_args(NUM_ARGS, 0.0);
+              std::vector<double> sample_args(NUM_ARGS);
+              for (int i = 0; i < NUM_ARGS; i++) {
+                sample_args[i] = initial_args[i];
+              }
               lopt.Sample(sample_args);
             }
 
@@ -391,7 +419,10 @@ static void Optimize() {
 
             Timer opt_timer;
             int passes = 0;
-            while (opt_timer.Seconds() < 12.0) {
+
+            double time_limit = 9.0 + RandDouble(&rc) * 120.0;
+
+            while (opt_timer.Seconds() < time_limit) {
               // First, optimize only positions.
               Timer pos_timer;
               lopt.Run(largs,
@@ -478,15 +509,17 @@ static void Optimize() {
               CHECK(best.has_value());
               status.LineStatusf(
                   thread_idx,
-                  "%d" ABLUE("×") " best %.6g, "
-                  "%s + %s + %s + %s\n",
+                  "% 3d" ABLUE("×") " %s best %.6g, "
+                  "%s + %s + %s + %s / %s\n",
                   passes,
+                  did_reuse ? APURPLE("∞") : " ",
                   best.value().second,
                   // ANSI::Time(opt_timer.Seconds()).c_str(),
                   ANSI::Time(pos_seconds).c_str(),
                   ANSI::Time(sub_seconds).c_str(),
                   ANSI::Time(every_seconds).c_str(),
-                  ANSI::Time(best_seconds).c_str());
+                  ANSI::Time(best_seconds).c_str(),
+                  ANSI::Time(time_limit).c_str());
 
               {
                 MutexLock ml(&mu);
@@ -519,8 +552,6 @@ static void Optimize() {
           {
             MutexLock ml(&mu);
             if (error < best_error) {
-              best_error = error;
-              status.Printf("New best! %.17g\n", best_error);
               std::array<frame3, NUM_CUBES> cubes;
               SetCubes(args, &cubes);
               Eval eval = Evaluate(&rc, cubes);
@@ -528,15 +559,32 @@ static void Optimize() {
               // answer here). This is presumably a numerical issue in
               // smallest-sphere, like where we return 0 in some cases.
               // Just reject it if it's not consistent.
-              if (eval.sphere.second < 0.99 * best_error) {
+              if (eval.sphere.second < 0.99 * error) {
                 status.Printf(ARED("Invalid") "?!\n");
+                invalid++;
               } else {
+                best_error = error;
+                status.Printf("New best! %.17g\n", best_error);
+
+                good.emplace_back(error, initial_rot, args);
+                std::sort(good.begin(), good.end(),
+                          [](const auto &a, const auto &b) {
+                            return std::get<0>(a) < std::get<0>(b);
+                          });
+                if (good.size() > MAX_GOOD)
+                  good.resize(MAX_GOOD);
+
                 writer.Delay([&, c = std::move(cubes), eval]() {
                     for (int i = 0; i < NUM_CUBES; i++) {
                       status.Printf(
-                          "Cube %d:\n%s\n", i, FrameString(c[i]).c_str());
+                          "Cube %d:\n%s\n"
+                          ABLUE("Radius") ": %.11g\n",
+                          i, FrameString(c[i]).c_str(),
+                          eval.sphere.second);
+
                     }
-                    std::string filename = "shrinkwrap.stl";
+                    std::string filename =
+                      std::format("shrinkwrap{}.stl", NUM_CUBES);
                     CubesToSTL(c, {eval.sphere}, filename);
                     status.Printf("Wrote " AGREEN("%s") "\n",
                                   filename.c_str());
