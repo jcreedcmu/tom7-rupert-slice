@@ -21,7 +21,7 @@ struct SmallestSphere {
       ArcFour *rc,
       const std::vector<vec3> &pts);
 
-  static bool verbose;
+  // static bool verbose;
 };
 
 #endif

@@ -19,8 +19,9 @@
 
 using vec3 = yocto::vec<double, 3>;
 
-bool SmallestSphere::verbose = false;
-#define VERBOSE SmallestSphere::verbose
+// bool SmallestSphere::verbose = false;
+// #define VERBOSE SmallestSphere::verbose
+static constexpr bool VERBOSE = false;
 
 static constexpr bool SELF_CHECK = true;
 
@@ -153,6 +154,10 @@ struct SmallSimplex {
     return pts[i];
   }
 
+  SmallSimplex() {}
+  SmallSimplex(const SmallSimplex &other) = default;
+  SmallSimplex &operator =(const SmallSimplex &other) = default;
+
   void Push(const vec3 &pt) {
     switch (num) {
     case 0: {
@@ -236,20 +241,14 @@ struct SmallSimplex {
 // For [0..4] vertices. Beyond that, the circumsphere may
 // not exist. You probably want SmallestSphere anyway.
 static std::pair<vec3, double>
-Circumsphere(const std::vector<vec3> &pts,
-             const std::vector<int> &r) {
-
-  SmallSimplex simplex;
-  for (int x : r) {
-    simplex.Push(pts[x]);
-  }
+Circumsphere(const SmallSimplex &simplex) {
 
   switch (simplex.size()) {
   case 0:
     return std::make_pair(vec3(0, 0, 0), 0.0);
 
   case 1:
-    return std::make_pair(pts[r[0]], 0.0);
+    return std::make_pair(simplex[0], 0.0);
 
   case 2: {
     vec3 o = (simplex[0] + simplex[1]) * 0.5;
@@ -367,10 +366,10 @@ Circumsphere(const std::vector<vec3> &pts,
     const vec3 &c = simplex[2];
     const vec3 &d = simplex[3];
     if (VERBOSE) {
-      printf("%d. (%.5g, %.5g, %.5g)\n", r[0], a.x, a.y, a.z);
-      printf("%d. (%.5g, %.5g, %.5g)\n", r[1], b.x, b.y, b.z);
-      printf("%d. (%.5g, %.5g, %.5g)\n", r[2], c.x, c.y, c.z);
-      printf("%d. (%.5g, %.5g, %.5g)\n", r[3], d.x, d.y, d.z);
+      printf("(%.5g, %.5g, %.5g)\n", a.x, a.y, a.z);
+      printf("(%.5g, %.5g, %.5g)\n", b.x, b.y, b.z);
+      printf("(%.5g, %.5g, %.5g)\n", c.x, c.y, c.z);
+      printf("(%.5g, %.5g, %.5g)\n", d.x, d.y, d.z);
     }
 
     if (SELF_CHECK) {
@@ -441,18 +440,22 @@ static std::pair<vec3, double> SmallestSphereRec(
     // Points remaining
     std::span<const int> p,
     // Points on the boundary
-    const std::vector<int> &r) {
+    const SmallSimplex &simplex) {
 
   if (VERBOSE) {
     printf("%sSmallest (",
            Indent(depth).c_str());
     for (int x : p) printf("%d", x);
     printf(", ");
-    for (int x : r) printf("%d", x);
+    for (int i = 0; i < simplex.size(); i++) {
+      const vec3 &v = simplex[i];
+      printf("(%.3f,%.3f,%.3f)", v.x, v.y, v.z);
+    }
     printf(")\n");
   }
 
   #if 0
+  // PERF: we can do this again now!
   // It is possible to stop early if we have four points
   // and they are not coplanar.
   if (r.size() == 4) {
@@ -481,12 +484,12 @@ static std::pair<vec3, double> SmallestSphereRec(
     }
     #endif
 
-    return Circumsphere(pts, r);
+    return Circumsphere(simplex);
   }
 
   int pt = p[0];
   p = p.subspan(1);
-  const auto &[o, radius] = SmallestSphereRec(depth + 1, pts, p, r);
+  const auto &[o, radius] = SmallestSphereRec(depth + 1, pts, p, simplex);
   const vec3 &v = pts[pt];
   if (distance(v, o) > radius) {
     if (VERBOSE) {
@@ -498,9 +501,9 @@ static std::pair<vec3, double> SmallestSphereRec(
     }
     // then actually pt is on the smallest sphere. Add it
     // to r (unless it is "very close" to a point already).
-    std::vector<int> rr = r;
-    rr.push_back(pt);
-    return SmallestSphereRec(depth + 1, pts, p, rr);
+    SmallSimplex ssimplex = simplex;
+    ssimplex.Push(v);
+    return SmallestSphereRec(depth + 1, pts, p, ssimplex);
   } else {
     return std::make_pair(o, radius);
   }
@@ -522,7 +525,8 @@ std::pair<vec3, double> SmallestSphere::Smallest(
     }
   }
 
-  auto sphere = SmallestSphereRec(0, pts, p, {});
+  SmallSimplex simplex;
+  auto sphere = SmallestSphereRec(0, pts, p, simplex);
   const auto &[o, radius] = sphere;
   if (VERBOSE) {
     printf(AYELLOW("final") ": sphere((%.11g, %.11g, %.11g), %.11g)\n",
