@@ -22,6 +22,8 @@ using vec3 = yocto::vec<double, 3>;
 bool SmallestSphere::verbose = false;
 #define VERBOSE SmallestSphere::verbose
 
+static constexpr bool SELF_CHECK = true;
+
 // Since yocto uses column major, we expand the arguments
 // to these to avoid confusion.
 
@@ -137,56 +139,129 @@ Solve44(double m00, double m01, double m02, double m03,
   return std::make_tuple(d0 / d, d1 / d, d2 / d, d3 / d);
 }
 
-#if 0
 // This is like vector<vec3>, but it can only hold up to
-// four elements. Moreover, the
+// four elements. Moreover, the points are a proper simplex
+// (no close duplicates; if four, they are not coplanar; etc.)
 namespace {
-struct SmallPointVec {
-  size_t size() const { return sz; }
+struct SmallSimplex {
+  size_t size() const { return num; }
+  const vec3 *data() const { return pts; }
+  const vec3 &operator[](size_t i) const {
+    if (SELF_CHECK) {
+      CHECK(i < num);
+    }
+    return pts[i];
+  }
 
+  void Push(const vec3 &pt) {
+    switch (num) {
+    case 0: {
+      pts[0] = pt;
+      num = 1;
+      break;
+    }
+
+    case 1: {
+      if (TooClose(pts[0], pt))
+        break;
+
+      pts[1] = pt;
+      num = 2;
+      break;
+    }
+
+    case 2: {
+      if (TooClose(pts[0], pt) ||
+          TooClose(pts[1], pt))
+        break;
+
+      // XXX check colinearity.
+
+      pts[2] = pt;
+      num = 3;
+      break;
+    }
+
+    case 3: {
+      if (TooClose(pts[0], pt) ||
+          TooClose(pts[1], pt) ||
+          TooClose(pts[2], pt))
+        break;
+
+      // Check that they are not coplanar.
+      // PERF: Can store cross product to make this
+      // cheaper.
+      auto v1 = pts[1] - pts[0];
+      auto v2 = pts[2] - pts[0];
+      auto v3 = pt - pts[0];
+      double scalar_triple_product = dot(v1, cross(v2, v3));
+      if (std::abs(scalar_triple_product) < flatness_threshold) {
+        // Don't add the point.
+        // TODO: We could replace a point if it makes the
+        // triangle less narrow.
+        break;
+      }
+      pts[3] = pt;
+      num = 4;
+      break;
+    }
+
+    case 4: {
+      // Ignore the point, since we already have a tetrahedron.
+      // TODO: We could replace a point if it makes the tetrahedron
+      // less narrow.
+      break;
+    }
+
+    default:
+      LOG(FATAL) << "Invalid state.";
+      break;
+    }
+  }
+
+  // Points that are closer than this are considered duplicates.
+  static constexpr double distance_threshold = 1.0e-10;
+  static constexpr double flatness_threshold = 1.0e-10;
+  static bool TooClose(const vec3 &a, const vec3 &b) {
+    // PERF avoid square roots
+    return distance(a, b) < distance_threshold;
+  }
+
+ private:
   vec3 pts[4] = {};
-  int num = 0
+  size_t num = 0;
 };
 }
-#endif
 
 // For [0..4] vertices. Beyond that, the circumsphere may
 // not exist. You probably want SmallestSphere anyway.
 static std::pair<vec3, double>
 Circumsphere(const std::vector<vec3> &pts,
-             const std::vector<int> &r_in) {
+             const std::vector<int> &r) {
 
-  // Remove nearly coincident points.
-  std::vector<int> r;
-  r.reserve(r_in.size());
-  for (int i = 0; i < r_in.size(); i++) {
-    int p1 = r_in[i];
-    for (int j = 0; j < i; j++) {
-      int p2 = r_in[j];
-      CHECK(p1 != p2) << "Bug: Should not have literal duplicates.";
-      if (distance(pts[i], pts[j]) < 1.0e-10) {
-        goto skip_point;
-      }
-    }
-    r.push_back(p1);
-
-    skip_point:;
+  SmallSimplex simplex;
+  for (int x : r) {
+    simplex.Push(pts[x]);
   }
 
-  if (r.size() == 0) {
+  switch (simplex.size()) {
+  case 0:
     return std::make_pair(vec3(0, 0, 0), 0.0);
-  } else if (r.size() == 1) {
-    return std::make_pair(pts[r[0]], 0.0);
-  } else if (r.size() == 2) {
-    vec3 o = (pts[r[0]] + pts[r[1]]) * 0.5;
-    return std::make_pair(o, length(pts[r[1]] - o));
-  } else if (r.size() == 3) {
 
+  case 1:
+    return std::make_pair(pts[r[0]], 0.0);
+
+  case 2: {
+    vec3 o = (simplex[0] + simplex[1]) * 0.5;
+    return std::make_pair(o, distance(simplex[1], o));
+  }
+
+  case 3: {
     // a,b,c form a triangle, but we want the edge b-c to be
     // the (a) longest one.
-    vec3 a = pts[r[0]];
-    vec3 b = pts[r[1]];
-    vec3 c = pts[r[2]];
+    vec3 a = simplex[0];
+    vec3 b = simplex[1];
+    vec3 c = simplex[2];
 
     {
       double dist_ab = distance_squared(a, b);
@@ -275,8 +350,9 @@ Circumsphere(const std::vector<vec3> &pts,
 
     double r = distance(o, a);
     return {std::make_pair(o, r)};
+  }
 
-  } else if (r.size() == 4) {
+  case 4: {
 
     // Then we know
     // (a - o)^2 = r^2
@@ -286,10 +362,10 @@ Circumsphere(const std::vector<vec3> &pts,
 
     // We subtract one equation from the other 3 to get a 3x3 system.
 
-    const vec3 &a = pts[r[0]];
-    const vec3 &b = pts[r[1]];
-    const vec3 &c = pts[r[2]];
-    const vec3 &d = pts[r[3]];
+    const vec3 &a = simplex[0];
+    const vec3 &b = simplex[1];
+    const vec3 &c = simplex[2];
+    const vec3 &d = simplex[3];
     if (VERBOSE) {
       printf("%d. (%.5g, %.5g, %.5g)\n", r[0], a.x, a.y, a.z);
       printf("%d. (%.5g, %.5g, %.5g)\n", r[1], b.x, b.y, b.z);
@@ -297,26 +373,15 @@ Circumsphere(const std::vector<vec3> &pts,
       printf("%d. (%.5g, %.5g, %.5g)\n", r[3], d.x, d.y, d.z);
     }
 
-    {
+    if (SELF_CHECK) {
       // If all four are coplanar, then the tetrahedron is degenerate,
       // so don't use that method.
       auto v1 = b - a;
       auto v2 = c - a;
       auto v3 = d - a;
       double scalar_triple_product = dot(v1, cross(v2, v3));
-      if (std::abs(scalar_triple_product) < 1.0e-10) {
-        // Any three of these points uniquely determine a circle.
-        // Since we're looking for the smallest sphere, we use that
-        // circle as the equator (i.e. as opposed to a small "cap")
-        // of the sphere. This is actually the same sphere we would
-        // get if we just take three of the points and compute its
-        // smallest sphere. So we can just recurse.
-        r.pop_back();
-        if (VERBOSE) { printf("Degenerate tetrahedron.\n"); }
-        return Circumsphere(pts, r);
-      }
+      CHECK(std::abs(scalar_triple_product) >= 1.0e-10);
     }
-
 
     double m00 = 2 * (b.x - a.x);
     double m01 = 2 * (b.y - a.y);
@@ -341,65 +406,26 @@ Circumsphere(const std::vector<vec3> &pts,
                        m20, m21, m22,
                        v0, v1, v2);
 
-    if (!sol.has_value()) {
-      // Coplanar or coincident as above. Could handle this case by
-      // trying subsets of the points.
-      return std::make_pair(vec3(0, 0, 0), 0.0);
+    if (SELF_CHECK) {
+      CHECK(sol.has_value()) << "Since the simplex is not degenerate, "
+        "this should have a solution. But it might come from a "
+        "disagreement about 'epsilon'.";
+    } else {
+      if (!sol.has_value()) {
+        // Coplanar or coincident as above. Could handle this case by
+        // trying subsets of the points.
+        return std::make_pair(vec3(0, 0, 0), 0.0);
+      }
     }
 
     const auto &[x, y, z] = sol.value();
     vec3 o{x, y, z};
     double radius = distance(o, a);
     return std::make_pair(o, radius);
+  }
 
-  } else {
-
-    // Find four points that are not coplanar, or use three
-    // coplanar ones.
-    if (VERBOSE) {
-      printf("Have %d points.\n", r.size());
-    }
-
-    const vec3 &a = pts[r[0]];
-    const vec3 &b = pts[r[1]];
-    const vec3 &c = pts[r[2]];
-
-    const vec3 v1 = b - a;
-    const vec3 v2 = c - a;
-    const vec3 cx = cross(v1, v2);
-
-    for (int i = 3; i < r.size(); i++) {
-      const vec3 &d = pts[r[i]];
-
-      const vec3 v3 = d - a;
-      double scalar_triple_product = dot(v3, cx);
-      if (std::abs(scalar_triple_product) > 1.0e-10) {
-        r[3] = r[i];
-        // Now the first four vertices are a proper tetrahedron.
-        r.resize(4);
-        if (VERBOSE) {
-          vec3 d = pts[r[3]];
-          printf("Proper tetrahedron now:\n");
-          printf("  %d. (%.5g, %.5g, %.5g)\n", r[0], a.x, a.y, a.z);
-          printf("  %d. (%.5g, %.5g, %.5g)\n", r[1], b.x, b.y, b.z);
-          printf("  %d. (%.5g, %.5g, %.5g)\n", r[2], c.x, c.y, c.z);
-          printf("  %d. (%.5g, %.5g, %.5g)\n", r[3], d.x, d.y, d.z);
-        }
-        return Circumsphere(pts, r);
-      }
-    }
-
-    // If all four are coplanar, then the tetrahedron is degenerate,
-    // so don't use that method.
-
-    // Any three of these points uniquely determine a circle.
-    // Since we're looking for the smallest sphere, we use that
-    // circle as the equator (i.e. as opposed to a small "cap")
-    // of the sphere. This is actually the same sphere we would
-    // get if we just take three of the points and compute its
-    // smallest sphere. So we can just recurse.
-    r.resize(3);
-    return Circumsphere(pts, r);
+  default:
+    LOG(FATAL) << "Bad simplex";
   }
 }
 
