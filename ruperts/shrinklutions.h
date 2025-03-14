@@ -23,11 +23,13 @@ struct ShrinklutionDB {
 
   static constexpr int METHOD_INVALID = 0;
   static constexpr int METHOD_RANDOM = 1;
+  static constexpr int METHOD_MANUAL = 2;
 
   static const char *MethodName(int m) {
     switch (m) {
     case METHOD_INVALID: return "INVALID";
     case METHOD_RANDOM: return "METHOD_RANDOM";
+    case METHOD_MANUAL: return "METHOD_MANUAL";
     default: return "UNKNOWN";
     }
   }
@@ -68,6 +70,10 @@ struct ShrinklutionDB {
   std::vector<Solution> GetSolutionsFor(int num);
   // Or abort.
   Solution GetBestSolutionFor(int num);
+
+  // To avoid reinserting a manual solution, for example.
+  // Tolerance is 1e-10.
+  bool HasSolutionWithRadius(int num, double radius);
 
   void AddSolution(int num,
                    const std::vector<frame3> &cubes,

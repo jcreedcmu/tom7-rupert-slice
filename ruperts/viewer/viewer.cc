@@ -148,7 +148,7 @@ struct Scene {
     Reset();
   }
 
-  void Draw(RediImageRGBA *img) {
+  void Draw(ImageRGBA *img) {
     img->Clear32(0x000000FF);
 
     constexpr double SCALE = 300.0;
@@ -245,7 +245,7 @@ struct UI {
   enum class EventResult { NONE, DIRTY, EXIT, };
   EventResult HandleEvents();
 
-  std::unique_ptr<RediImageRGBA> drawing;
+  std::unique_ptr<ImageRGBA> drawing;
   int mousex = 0, mousey = 0;
   bool dragging = false;
 
@@ -256,7 +256,7 @@ struct UI {
 };
 
 UI::UI(TriangularMesh3D mesh) : scene(std::move(mesh)), fps_per(1.0 / 60.0) {
-  drawing.reset(new RediImageRGBA(SCREENW, SCREENH));
+  drawing.reset(new ImageRGBA(SCREENW, SCREENH));
   CHECK(drawing != nullptr);
   drawing->Clear32(0x000000FF);
 }

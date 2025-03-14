@@ -47,7 +47,7 @@ using quat4 = quat<double, 4>;
 
 // We just represent the unit cube (0,0,0)-(1,1,1) as its
 // rigid transformation.
-static constexpr int NUM_CUBES = 6;
+static constexpr int NUM_CUBES = 5;
 
 [[maybe_unused]]
 static std::vector<std::array<frame3, 3>> Manual3() {
@@ -89,35 +89,32 @@ static std::vector<std::array<frame3, 4>> Manual4() {
 static std::vector<std::array<frame3, 5>> Manual5() {
   std::vector<std::array<frame3, 5>> v;
 
-  // This is just a previous "good" solution
-  frame3 cube1 =
-    frame3{.x = vec3(0.61211709447829854, 0.15825284178178359, -0.77477009539310127),
-    .y = vec3(-0.74299986347763747, -0.22026657940597877, -0.63200778228515631),
-    .z = vec3(-0.2706729863131111, 0.96251684248369351, -0.017247098757847829),
-    .o = vec3(0.39441862282094664, 0.46851371084117571, 0.13174313866636145)};
-  frame3 cube2 =
-    frame3{.x = vec3(0.43229774385230235, 0.19108955498876951, -0.88125106674227838),
-    .y = vec3(-0.33618938046497532, 0.94098142162553888, 0.039123709156422271),
-    .z = vec3(0.83671701376438246, 0.27935415896273014, 0.4710264246806547),
-    .o = vec3(-0.65637438738788523, 1.1701364532038565, 0.35730899514265996)};
-  frame3 cube3 =
-    frame3{.x = vec3(0.53819386971636152, 0.27092628120546897, -0.79808916090365678),
-    .y = vec3(-0.73801526919160232, -0.30582621247584646, -0.60150128030015437),
-    .z = vec3(-0.40703909030924107, 0.91272628860729832, 0.035353939601859986),
-    .o = vec3(0.43150042578266656, 0.42246780560695302, 1.5670040993203462)};
-  frame3 cube4 =
-    frame3{.x = vec3(0.74680790405057973, 0.2152719120160779, 0.62923442240910721),
-    .y = vec3(0.56683394945785859, 0.28880227065978198, -0.7715520217093339),
-    .z = vec3(-0.3478178089022852, 0.93287258098772341, 0.093656390341061893),
-    .o = vec3(0.34853819868403635, 0.4375799903007862, 0.20496087038554472)};
-  frame3 cube5 =
-    frame3{.x = vec3(-0.36975367394300884, 0.9260670062271833, -0.07537984202072566),
-    .y = vec3(0.60412404295338262, 0.17798393501889964, -0.77675984680005705),
-    .z = vec3(-0.7059152649796625, -0.33274858204447777, -0.62526955772377302),
-    .o = vec3(-0.28950678218380221, 0.2338036220003018, 0.83321855365986708)};
+  {
+    // 2x2 with one centered above
+    frame3 cube1 = translation_frame(vec3{0, 0, 0});
+    frame3 cube2 = translation_frame(vec3{1, 0, 0});
+    frame3 cube3 = translation_frame(vec3{0, 1, 0});
+    frame3 cube4 = translation_frame(vec3{1, 1, 0});
+    frame3 cube5 = translation_frame(vec3{0.5, 0.5, 1.0});
 
-  v.push_back(std::array<frame3, 5>(
-                  {cube1, cube2, cube3, cube4, cube5}));
+    v.push_back(std::array<frame3, 5>(
+                    {cube1, cube2, cube3, cube4, cube5}));
+  }
+
+  {
+    // [ | ]
+    //  [ ]
+    // with one centered above and below.
+    frame3 cube1 = translation_frame(vec3{0, 0, 0});
+    frame3 cube2 = translation_frame(vec3{1, 0, 0});
+    frame3 cube3 = translation_frame(vec3{0.5, 1, 0});
+    // above and below
+    frame3 cube4 = translation_frame(vec3{0.5, 0.5, 1});
+    frame3 cube5 = translation_frame(vec3{0.5, 0.5, -1});
+
+    v.push_back(std::array<frame3, 5>(
+                    {cube1, cube2, cube3, cube4, cube5}));
+  }
 
   return v;
 }
@@ -373,7 +370,11 @@ static void Optimize() {
       CubesToSTL(cubes, {eval.sphere}, filename);
       status.Printf("Wrote " AGREEN("%s") "\n",
                     filename.c_str());
-      good.push_back(Good{.radius = eval.sphere.second, .cubes = cubes});
+      double radius = eval.sphere.second;
+      good.push_back(Good{.radius = radius, .cubes = cubes});
+      if (!db.HasSolutionWithRadius(NUM_CUBES, radius)) {
+        db.AddSolution(cubes, ShrinklutionDB::METHOD_MANUAL, 0, radius);
+      }
     }
   }
 

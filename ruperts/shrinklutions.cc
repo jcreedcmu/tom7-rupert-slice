@@ -137,6 +137,23 @@ ShrinklutionDB::Solution ShrinklutionDB::GetBestSolutionFor(int num) {
   return sols[0];
 }
 
+bool ShrinklutionDB::HasSolutionWithRadius(int num, double radius) {
+  static constexpr double tol = 1.0e-10;
+  std::vector<Solution> sols = GetSolutionsForQuery(
+    db->ExecuteString(
+        std::format(
+            "select "
+            "id, num, cubes, method, source, createdate, radius "
+            "from shrinksol "
+            "where num = '{}' "
+            "and radius > {:17g} "
+            "and radius < {:17g} "
+            "and invalid = 0 "
+            "limit 1",
+            num, radius - tol, radius + tol)));
+  return !sols.empty();
+}
+
 ShrinklutionDB::Solution ShrinklutionDB::GetSolution(int id) {
   std::vector<Solution> sols = GetSolutionsForQuery(
     db->ExecuteString(
