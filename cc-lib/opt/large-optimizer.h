@@ -124,7 +124,11 @@ struct LargeOptimizer {
       std::optional<double> max_seconds = std::nullopt,
       // Stop as soon as we have any output with a score <= target.
       std::optional<double> target_score = std::nullopt,
-      int params_per_pass = 24);
+      // The maximum number of parameters to optimize at a time.
+      int params_per_pass = 24,
+      // If present, then only arguments marked true are optimized
+      // in this call.
+      const std::optional<std::vector<bool>> &arg_mask = {});
 
   // Get the best argument we found (with its score), if
   // any were feasible.
@@ -232,17 +236,14 @@ inline void LargeOptimizer<CACHE>::Run(
     std::optional<int> max_feasible_calls,
     std::optional<double> max_seconds,
     std::optional<double> target_score,
-    int params_per_pass) {
+    int params_per_pass,
+    const std::optional<std::vector<bool>> &arg_mask) {
   assert(params_per_pass > 0);
   const auto time_start = std::chrono::steady_clock::now();
-
-  // TODO: This should somehow be dynamically determined?
-  // static constexpr int PARAMS_PER_PASS = 32;
 
   // In here we pass off the optimization to Opt. But since
   // we have more parameters than Opt can handle at a time,
   // we choose subsets of the parameters to optimize greedily.
-
   static constexpr auto LFSRNext = [](uint32_t state) -> uint32_t {
     const uint32_t bit = std::popcount<uint32_t>(state & 0x8D777777) & 1;
     return (state << 1) | bit;
@@ -269,8 +270,22 @@ inline void LargeOptimizer<CACHE>::Run(
   };
 
   std::vector<int> optcounts(arginfos.size(), 0);
-  std::vector<int> indices(arginfos.size());
-  for (int i = 0; i < (int)indices.size(); i++) indices[i] = i;
+
+  // The indices that we can optimize this round.
+  std::vector<int> eligible_indices;
+  eligible_indices.reserve(arginfos.size());
+  if (arg_mask.has_value()) {
+    assert(arg_mask.value().size() == arginfos.size());
+    for (int i = 0; i < arginfos.size(); i++) {
+      if (arg_mask.value()[i]) {
+        eligible_indices.push_back(i);
+      }
+    }
+  } else {
+    for (int i = 0; i < arginfos.size(); i++) {
+      eligible_indices.push_back(i);
+    }
+  }
 
   auto Shuffle = [&RandTo32](std::vector<int> *v) {
       if (v->size() <= 1) return;
@@ -282,17 +297,17 @@ inline void LargeOptimizer<CACHE>::Run(
       }
     };
 
-  auto GetSubset = [&optcounts, &indices, &Shuffle](int size) {
+  auto GetSubset = [&optcounts, &eligible_indices, &Shuffle](int size) {
       // Get up to 'size' random indices.
-      Shuffle(&indices);
+      Shuffle(&eligible_indices);
       std::vector<int> subset;
       subset.reserve(size);
-      for (int i = 0; i < (int)indices.size() && i < size; i++)
-        subset.push_back(indices[i]);
+      for (int i = 0; i < (int)eligible_indices.size() && i < size; i++)
+        subset.push_back(eligible_indices[i]);
 
       // Keep track of how many times we've used them.
       // (XXX but we aren't using this yet!)
-      for (int idx : indices) optcounts[idx]++;
+      for (int idx : subset) optcounts[idx]++;
 
       return subset;
     };

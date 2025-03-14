@@ -124,6 +124,16 @@ static std::string Float(float f) {
   }
 }
 
+// Return the Latin-1 (ISO 8859-1) encoded character if it exists
+// (always one byte, and in fact always the same as the input), or zero
+// otherwise.
+static uint8_t UnicodeToLatin1(uint32_t codepoint) {
+  // Printable ASCII.
+  if (codepoint >= 0x20 && codepoint < 0x7e) return (uint8_t)codepoint;
+  if (codepoint >= 0xA0 && codepoint <= 0xFF) return (uint8_t)codepoint;
+  return 0;
+}
+
 namespace {
 
 // Prefer this one, which is already converted into native byte order.
@@ -303,14 +313,6 @@ void PDF::SetInfo(const PDF::Info &info) {
     "constructor!";
 
   obj->info = info;
-
-  // Make sure the strings are nul-terminated.
-  obj->info.creator[sizeof(obj->info.creator) - 1] = '\0';
-  obj->info.producer[sizeof(obj->info.producer) - 1] = '\0';
-  obj->info.title[sizeof(obj->info.title) - 1] = '\0';
-  obj->info.author[sizeof(obj->info.author) - 1] = '\0';
-  obj->info.subject[sizeof(obj->info.subject) - 1] = '\0';
-  obj->info.date[sizeof(obj->info.date) - 1] = '\0';
 }
 
 const PDF::Info &PDF::GetInfo() const {
@@ -326,19 +328,14 @@ PDF::PDF(float width, float height, Options options) :
   /* We don't want to use ID 0 */
   (void)AddObject(new NoneObj);
 
-  /* Create the 'info' object */
+  // Defaults for the info object.
   InfoObj *obj = AddObject(new InfoObj);
   CHECK(obj != nullptr);
 
-  // XXX: Should be quoting PDF strings?
-  strncpy(obj->info.creator, "pdf.cc", 64);
-  strncpy(obj->info.producer, "pdf.cc", 64);
-  strncpy(obj->info.title, "Untitled", 64);
-  strncpy(obj->info.author, "", 64);
-  strncpy(obj->info.subject, "", 64);
-
-  std::string t = Util::FormatTime("%Y%m%d%H%M%SZ", time(nullptr));
-  strncpy(obj->info.date, t.c_str(), 64);
+  obj->info.creator = "pdf.cc";
+  obj->info.producer = "pdf.cc";
+  obj->info.title = "Untitled";
+  obj->info.date = Util::FormatTime("%Y%m%d%H%M%SZ", time(nullptr));
 
   CHECK(AddObject(new PagesObj) != nullptr);
   CHECK(AddObject(new CatalogObj) != nullptr);
@@ -564,6 +561,245 @@ PDF::Object *PDF::TrueTypeFontDescriptor(
   return desc;
 }
 
+// returns the number of bytes parsed. non-positive means error.
+static int utf8_to_utf32(const char *utf8, int len, uint32_t *utf32) {
+  uint8_t mask = 0;
+
+  if (len <= 0 || !utf8 || !utf32)
+    return -EINVAL;
+
+  uint32_t ch = *(const uint8_t *)utf8;
+  if ((ch & 0x80) == 0) {
+    len = 1;
+    mask = 0x7f;
+  } else if ((ch & 0xe0) == 0xc0 && len >= 2) {
+    len = 2;
+    mask = 0x1f;
+  } else if ((ch & 0xf0) == 0xe0 && len >= 3) {
+    len = 3;
+    mask = 0xf;
+  } else if ((ch & 0xf8) == 0xf0 && len >= 4) {
+    len = 4;
+    mask = 0x7;
+  } else {
+    return -EINVAL;
+  }
+
+  ch = 0;
+  for (int i = 0; i < len; i++) {
+    int shift = (len - i - 1) * 6;
+    if (!*utf8)
+      return -EINVAL;
+    if (i == 0)
+      ch |= ((uint32_t)(*utf8++) & mask) << shift;
+    else
+      ch |= ((uint32_t)(*utf8++) & 0x3f) << shift;
+  }
+
+  *utf32 = ch;
+
+  return len;
+}
+
+static std::optional<uint32_t> UTF8NextCodepoint(std::string_view *s) {
+  uint32_t cp = 0;
+  int len = utf8_to_utf32(s->data(), s->size(), &cp);
+  if (len <= 0) return std::nullopt;
+  s->remove_prefix(len);
+  return {cp};
+}
+
+// Codepoints aside from 0-128 that are mapped.
+static constexpr std::initializer_list<uint16_t> MAPPED_CODEPOINTS = {
+  0x152, 0x153, 0x160, 0x161, 0x178, 0x17d, 0x17e, 0x192, 0x2c6, 0x2dc,
+  0x2013, 0x2014, 0x2018, 0x2019, 0x201a, 0x201c, 0x201d, 0x201e, 0x2020,
+  0x2021, 0x2022, 0x2026, 0x2030, 0x2039, 0x203a, 0x20ac, 0x2122,
+  // Added by Tom 7
+  0x00BF, 0x00E9, 0x00F4, 0x00F1, 0x00D7,
+};
+
+static constexpr std::optional<int> MapCodepointWinAnsi(int codepoint) {
+  // Note this does not match the code below, which I think is a bug.
+  if (codepoint < 128) return {codepoint};
+  switch (codepoint) {
+    // TODO: Include a more complete mapping.
+    // We support *some* minimal UTF-8 characters.
+    // See Appendix D of
+    // opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/
+    //    pdfreference1.7old.pdf
+  case 0x152: // Latin Capital Ligature OE
+    return {0214};
+  case 0x153: // Latin Small Ligature oe
+    return {0234};
+  case 0x160: // Latin Capital Letter S with caron
+    return {0212};
+  case 0x161: // Latin Small Letter S with caron
+    return {0232};
+  case 0x178: // Latin Capital Letter y with diaeresis
+    return {0237};
+  case 0x17d: // Latin Capital Letter Z with caron
+    return {0216};
+  case 0x17e: // Latin Small Letter Z with caron
+    return {0236};
+  case 0x192: // Latin Small Letter F with hook
+    return {0203};
+  case 0x2c6: // Modifier Letter Circumflex Accent
+    return {0210};
+  case 0x2dc: // Small Tilde
+    return {0230};
+  case 0x2013: // Endash
+    return {0226};
+  case 0x2014: // Emdash
+    return {0227};
+  case 0x2018: // Left Single Quote
+    return {0221};
+  case 0x2019: // Right Single Quote
+    return {0222};
+  case 0x201a: // Single low-9 Quotation Mark
+    return {0202};
+  case 0x201c: // Left Double Quote
+    return {0223};
+  case 0x201d: // Right Double Quote
+    return {0224};
+  case 0x201e: // Double low-9 Quotation Mark
+    return {0204};
+  case 0x2020: // Dagger
+    return {0206};
+  case 0x2021: // Double Dagger
+    return {0207};
+  case 0x2022: // Bullet
+    return {0225};
+  case 0x2026: // Horizontal Ellipsis
+    return {0205};
+  case 0x2030: // Per Mille Sign
+    return {0211};
+  case 0x2039: // Single Left-pointing Angle Quotation Mark
+    return {0213};
+  case 0x203a: // Single Right-pointing Angle Quotation Mark
+    return {0233};
+  case 0x20ac: // Euro
+    return {0200};
+  case 0x2122: // Trade Mark Sign
+    return {0231};
+  case 0x00BF: // Rotated question mark
+    return {0277};
+  case 0x00E9: // e acute
+    return {0351};
+  case 0x00F4: // o circumflex
+    return {0364};
+  case 0x00F1: // n tilde
+    return {0361};
+  case 0x00D7: // multiplication sign
+    return {0327};
+  default:
+    break;
+  }
+
+  return std::nullopt;
+}
+
+static int UTF8ToWinAnsiEncoding(const char *utf8, int len, uint8_t *res) {
+  *res = 0;
+
+  uint32_t code = 0;
+  int code_len = utf8_to_utf32(utf8, len, &code);
+  CHECK(code_len >= 0) << "Invalid UTF-8 encoding";
+
+  // XXX Bug? Does this encoding really map U+0080 to U+00FF?
+  if (code > 255) {
+    const auto co = MapCodepointWinAnsi(code);
+    CHECK(co.has_value()) <<
+      StringPrintf("Unsupported UTF-8 character: 0x%x 0o%o %s",
+                   code, code, utf8);
+    *res = co.value();
+  } else {
+    *res = code;
+  }
+
+  return code_len;
+}
+
+// Encode a string in "PDF Document Encoding", which is the encoding
+// used for text strings (like the title) within PDF itself. Input
+// text is UTF-8, but only Latin-1 is supported. Unsupported
+// codepoints are dropped.
+static std::string PDFDocEncodeString(std::string_view utf8_text) {
+  std::string ret = "(";
+  ret.reserve(utf8_text.size());
+  while (!utf8_text.empty()) {
+
+    std::optional<uint32_t> cpo = UTF8NextCodepoint(&utf8_text);
+    if (!cpo.has_value()) break;
+    uint8_t latin1 = UnicodeToLatin1(cpo.value());
+    switch (latin1) {
+    case 0:
+      // could not be converted; just skip
+      continue;
+    case '(':
+    case ')':
+    case '\\':
+      // Escape these.
+      ret.push_back('\\');
+      ret.push_back(latin1);
+      break;
+    case '\n':
+    case '\r':
+    case '\t':
+    case '\b':
+    case '\f':
+      // Skip over these characters.
+      break;
+    default:
+      if (latin1 >= 32 && latin1 <= 128) {
+        ret.push_back(latin1);
+      } else {
+        StringAppendF(&ret, "\\%03o", latin1);
+      }
+    }
+  }
+  ret.push_back(')');
+  return ret;
+}
+
+static std::optional<std::string> WinAnsiEncodeString(std::string_view text) {
+  std::string ret = "(";
+  ret.reserve(text.size());
+  while (!text.empty()) {
+    uint8_t pdf_char = 0;
+    const int code_len =
+      UTF8ToWinAnsiEncoding(text.data(), text.size(), &pdf_char);
+    if (code_len < 0) {
+      return std::nullopt;
+    }
+    text.remove_prefix(code_len);
+
+    switch (pdf_char) {
+    case '(':
+    case ')':
+    case '\\':
+      // Escape these.
+      ret.push_back('\\');
+      ret.push_back(pdf_char);
+      break;
+    case '\n':
+    case '\r':
+    case '\t':
+    case '\b':
+    case '\f':
+      // Skip over these characters.
+      break;
+    default:
+      if (pdf_char >= 32 && pdf_char <= 128) {
+        ret.push_back(pdf_char);
+      } else {
+        StringAppendF(&ret, "\\%03o", pdf_char);
+      }
+    }
+  }
+  ret.push_back(')');
+  return ret;
+}
+
 
 int PDF::SaveObject(FILE *fp, int index) {
   Object *object = GetObject(index);
@@ -607,18 +843,29 @@ int PDF::SaveObject(FILE *fp, int index) {
     const PDF::Info *info = &iobj->info;
 
     fprintf(fp, "<<\n");
-    if (info->creator[0])
-      fprintf(fp, "  /Creator (%s)\n", info->creator);
-    if (info->producer[0])
-      fprintf(fp, "  /Producer (%s)\n", info->producer);
-    if (info->title[0])
-      fprintf(fp, "  /Title (%s)\n", info->title);
-    if (info->author[0])
-      fprintf(fp, "  /Author (%s)\n", info->author);
-    if (info->subject[0])
-      fprintf(fp, "  /Subject (%s)\n", info->subject);
+    if (!info->creator.empty())
+      fprintf(fp, "  /Creator %s\n",
+              PDFDocEncodeString(info->creator).c_str());
+    if (!info->producer.empty())
+      fprintf(fp, "  /Producer %s\n",
+              PDFDocEncodeString(info->producer).c_str());
+    if (!info->title.empty())
+      fprintf(fp, "  /Title %s\n",
+              PDFDocEncodeString(info->title).c_str());
+    if (!info->author.empty())
+      fprintf(fp, "  /Author %s\n",
+              PDFDocEncodeString(info->author).c_str());
+    if (!info->subject.empty())
+      fprintf(fp, "  /Subject %s\n",
+              PDFDocEncodeString(info->subject).c_str());
+    if (!info->keywords.empty())
+      fprintf(fp, "  /Keywords %s\n",
+              PDFDocEncodeString(info->keywords).c_str());
+
     if (info->date[0])
-      fprintf(fp, "  /CreationDate (D:%s)\n", info->date);
+      fprintf(fp, "  /CreationDate %s\n",
+              PDFDocEncodeString(
+                  std::string("D:") + info->date).c_str());
     fprintf(fp, ">>\n");
     break;
   }
@@ -2153,155 +2400,6 @@ bool PDF::AddLink(float x, float y,
   return true;
 }
 
-static int utf8_to_utf32(const char *utf8, int len, uint32_t *utf32) {
-  uint8_t mask = 0;
-
-  if (len <= 0 || !utf8 || !utf32)
-    return -EINVAL;
-
-  uint32_t ch = *(const uint8_t *)utf8;
-  if ((ch & 0x80) == 0) {
-    len = 1;
-    mask = 0x7f;
-  } else if ((ch & 0xe0) == 0xc0 && len >= 2) {
-    len = 2;
-    mask = 0x1f;
-  } else if ((ch & 0xf0) == 0xe0 && len >= 3) {
-    len = 3;
-    mask = 0xf;
-  } else if ((ch & 0xf8) == 0xf0 && len >= 4) {
-    len = 4;
-    mask = 0x7;
-  } else {
-    return -EINVAL;
-  }
-
-  ch = 0;
-  for (int i = 0; i < len; i++) {
-    int shift = (len - i - 1) * 6;
-    if (!*utf8)
-      return -EINVAL;
-    if (i == 0)
-      ch |= ((uint32_t)(*utf8++) & mask) << shift;
-    else
-      ch |= ((uint32_t)(*utf8++) & 0x3f) << shift;
-  }
-
-  *utf32 = ch;
-
-  return len;
-}
-
-// Codepoints aside from 0-128 that are mapped.
-static constexpr std::initializer_list<uint16_t> MAPPED_CODEPOINTS = {
-  0x152, 0x153, 0x160, 0x161, 0x178, 0x17d, 0x17e, 0x192, 0x2c6, 0x2dc,
-  0x2013, 0x2014, 0x2018, 0x2019, 0x201a, 0x201c, 0x201d, 0x201e, 0x2020,
-  0x2021, 0x2022, 0x2026, 0x2030, 0x2039, 0x203a, 0x20ac, 0x2122,
-  // Added by Tom 7
-  0x00BF, 0x00E9, 0x00F4, 0x00F1, 0x00D7,
-};
-
-static constexpr std::optional<int> MapCodepointWinAnsi(int codepoint) {
-  // Note this does not match the code below, which I think is a bug.
-  if (codepoint < 128) return {codepoint};
-  switch (codepoint) {
-    // TODO: Include a more complete mapping.
-    // We support *some* minimal UTF-8 characters.
-    // See Appendix D of
-    // opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/
-    //    pdfreference1.7old.pdf
-  case 0x152: // Latin Capital Ligature OE
-    return {0214};
-  case 0x153: // Latin Small Ligature oe
-    return {0234};
-  case 0x160: // Latin Capital Letter S with caron
-    return {0212};
-  case 0x161: // Latin Small Letter S with caron
-    return {0232};
-  case 0x178: // Latin Capital Letter y with diaeresis
-    return {0237};
-  case 0x17d: // Latin Capital Letter Z with caron
-    return {0216};
-  case 0x17e: // Latin Small Letter Z with caron
-    return {0236};
-  case 0x192: // Latin Small Letter F with hook
-    return {0203};
-  case 0x2c6: // Modifier Letter Circumflex Accent
-    return {0210};
-  case 0x2dc: // Small Tilde
-    return {0230};
-  case 0x2013: // Endash
-    return {0226};
-  case 0x2014: // Emdash
-    return {0227};
-  case 0x2018: // Left Single Quote
-    return {0221};
-  case 0x2019: // Right Single Quote
-    return {0222};
-  case 0x201a: // Single low-9 Quotation Mark
-    return {0202};
-  case 0x201c: // Left Double Quote
-    return {0223};
-  case 0x201d: // Right Double Quote
-    return {0224};
-  case 0x201e: // Double low-9 Quotation Mark
-    return {0204};
-  case 0x2020: // Dagger
-    return {0206};
-  case 0x2021: // Double Dagger
-    return {0207};
-  case 0x2022: // Bullet
-    return {0225};
-  case 0x2026: // Horizontal Ellipsis
-    return {0205};
-  case 0x2030: // Per Mille Sign
-    return {0211};
-  case 0x2039: // Single Left-pointing Angle Quotation Mark
-    return {0213};
-  case 0x203a: // Single Right-pointing Angle Quotation Mark
-    return {0233};
-  case 0x20ac: // Euro
-    return {0200};
-  case 0x2122: // Trade Mark Sign
-    return {0231};
-  case 0x00BF: // Rotated question mark
-    return {0277};
-  case 0x00E9: // e acute
-    return {0351};
-  case 0x00F4: // o circumflex
-    return {0364};
-  case 0x00F1: // n tilde
-    return {0361};
-  case 0x00D7: // multiplication sign
-    return {0327};
-  default:
-    break;
-  }
-
-  return std::nullopt;
-}
-
-static int UTF8ToWinAnsiEncoding(const char *utf8, int len, uint8_t *res) {
-  *res = 0;
-
-  uint32_t code = 0;
-  int code_len = utf8_to_utf32(utf8, len, &code);
-  CHECK(code_len >= 0) << "Invalid UTF-8 encoding";
-
-  // XXX Bug? Does this encoding really map U+0080 to U+00FF?
-  if (code > 255) {
-    const auto co = MapCodepointWinAnsi(code);
-    CHECK(co.has_value()) <<
-      StringPrintf("Unsupported UTF-8 character: 0x%x 0o%o %s",
-                   code, code, utf8);
-    *res = co.value();
-  } else {
-    *res = code;
-  }
-
-  return code_len;
-}
-
 void PDF::AddLine(float x1, float y1,
                   float x2, float y2,
                   float width, uint32_t color_rgb,
@@ -2624,6 +2722,7 @@ static std::optional<std::vector<uint16_t>> TextToCIDs(
 }
 
 
+
 // Encode the text using the given encoding, including the surrounding
 // () or <> characters as appropriate.
 static std::optional<std::string> EncodePDFText(
@@ -2631,38 +2730,7 @@ static std::optional<std::string> EncodePDFText(
     FontEncoding encoding,
     const std::unordered_map<uint32_t, uint16_t> &cmap) {
   if (encoding == FontEncoding::WIN_ANSI) {
-    std::string ret = "(";
-    ret.reserve(text.size() + 2);
-    while (!text.empty()) {
-      uint8_t pdf_char = 0;
-      const int code_len =
-        UTF8ToWinAnsiEncoding(text.data(), text.size(), &pdf_char);
-      if (code_len < 0) {
-        return std::nullopt;
-      }
-      text.remove_prefix(code_len);
-
-      switch (pdf_char) {
-      case '(':
-      case ')':
-      case '\\':
-        // Escape these.
-        ret.push_back('\\');
-        ret.push_back(pdf_char);
-        break;
-      case '\n':
-      case '\r':
-      case '\t':
-      case '\b':
-      case '\f':
-        // Skip over these characters.
-        break;
-      default:
-        ret.push_back(pdf_char);
-      }
-    }
-    ret.push_back(')');
-    return ret;
+    return std::format("{}", PDFDocEncodeString(text));
 
   } else {
     std::string ret = "<";

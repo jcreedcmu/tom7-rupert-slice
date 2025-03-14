@@ -22,9 +22,10 @@
 // Note: All coordinates/sizes are in points (1/72 of an inch).
 // All coordinates are based on 0,0 being the bottom left of the page.
 // All colors are specified as a packed 32-bit value - see @ref PDF_RGB.
-// Text strings are interpreted as UTF-8 encoded, but only a small subset of
-// characters beyond 7-bit ascii are supported (see @ref pdf_add_text for
-// details). (XXX update docs)
+//
+// All text strings should be UTF-8. If you are not using embedded fonts
+// in Unicode mode (i.e., if you use a built-in font) then only a subset
+// of characters are supported.
 
 static constexpr inline float PDF_INCH_TO_POINT(float inch) {
   return inch * 72.0f;
@@ -93,7 +94,6 @@ private:
 
   struct StreamObj;
   struct WidthsObj;
-  struct FontObj;
   struct Font8Obj;
   struct Font0Obj;
   struct FontCIDObj;
@@ -122,19 +122,20 @@ private:
   static const char *BuiltInFontName(BuiltInFont bif);
 
   // Metadata to be inserted into the header of the output PDF.
-  // Because these fields must be null-terminated, the maximum
-  // length is actually 63.
+  // Like everything, these should be UTF-8 encoded, but only
+  // the Latin-1 subset is supported (other codepoints are dropped).
   struct Info {
     // Software used to create the PDF.
-    char creator[64] = {};
-    char producer[64] = {};
+    std::string creator;
+    std::string producer;
+    std::string keywords;
+    std::string subject;
+    std::string author;
     // The title of the PDF (typically displayed in the
     // window bar when viewing).
-    char title[64] = {};
-    char author[64] = {};
-    char subject[64] = {};
+    std::string title;
     // The date the PDF was created.
-    char date[64] = {};
+    std::string date;
   };
 
   // Page is the only object that you need to think about.
@@ -211,12 +212,10 @@ private:
     friend struct PDF;
     Font() {}
     // Probably I can stop using these?
-    Font(FontObj *fobj) : fobj(fobj) {}
     Font(Font8Obj *f8obj) : f8obj(f8obj) {}
     Font(Font0Obj *f0obj) : f0obj(f0obj) {}
     Font(BuiltInFontObj *bfobj) : bfobj(bfobj) {}
     // Maybe not needed at all?
-    FontObj *fobj = nullptr;
     Font8Obj *f8obj = nullptr;
     Font0Obj *f0obj = nullptr;
     BuiltInFontObj *bfobj = nullptr;

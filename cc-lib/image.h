@@ -250,6 +250,8 @@ struct ImageRGB {
   std::string SaveJPGToString(int quality = 90) const;
 
   void Clear(uint8 r, uint8 g, uint8 b);
+  // Ignores alpha component.
+  void Clear32(uint32_t rgba);
 
   // Clipped.
   inline void SetPixel(int x, int y, uint8 r, uint8 g, uint8 b);
@@ -258,6 +260,14 @@ struct ImageRGB {
 
   int Width() const { return width; }
   int Height() const { return height; }
+
+  // Alpha blending onto the RGB surface.
+  void BlendImage(int x, int y, const ImageRGBA &other);
+  void BlendImageRect(int destx, int desty, const ImageRGBA &other,
+                      int srcx, int srcy, int srcw, int srch);
+
+  void BlendPixel(int x, int y, uint8 r, uint8 g, uint8 b, uint8 a);
+  void BlendPixel32(int x, int y, uint32_t color);
 
   // Convert to RGBA format with a constant alpha value; typically 0xFF.
   ImageRGBA AddAlpha(uint8_t a = 0xFF) const;

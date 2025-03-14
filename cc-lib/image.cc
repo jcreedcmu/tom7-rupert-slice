@@ -1316,6 +1316,11 @@ void ImageRGB::Clear(uint8 r, uint8 g, uint8 b) {
   }
 }
 
+void ImageRGB::Clear32(uint32_t rgba) {
+  const auto &[r, g, b, a_] = Unpack32(rgba);
+  Clear(r, g, b);
+}
+
 ImageRGBA ImageRGB::AddAlpha(uint8_t a) const {
   const int size = width * height;
   std::vector<uint32_t> rgba(size, 0);
@@ -1360,6 +1365,63 @@ string ImageRGB::SaveJPGToString(int quality) const {
   return VecToString(SaveJPGToVec(quality));
 }
 
+void ImageRGB::BlendPixel(int x, int y,
+                          uint8 r, uint8 g, uint8 b, uint8 a) {
+
+  if ((unsigned)x >= (unsigned)width) return;
+  if ((unsigned)y >= (unsigned)height) return;
+
+  using word = uint16_t;
+
+  // This uses the same logic as the ImageRGBA version.
+  const auto &[old_r, old_g, old_b] = GetPixel(x, y);
+
+  // so a + oma = 255.
+  const word oma = 0xFF - a;
+  const word rr = (((word)r * (word)a) + (old_r * oma)) / 0xFF;
+  const word gg = (((word)g * (word)a) + (old_g * oma)) / 0xFF;
+  const word bb = (((word)b * (word)a) + (old_b * oma)) / 0xFF;
+  // Note that the components cannot be > 0xFF.
+  if (rr > 0xFF) __builtin_unreachable();
+  if (gg > 0xFF) __builtin_unreachable();
+  if (bb > 0xFF) __builtin_unreachable();
+
+  SetPixel(x, y, rr, gg, bb);
+}
+
+void ImageRGB::BlendPixel32(int x, int y, uint32 color) {
+  const auto [r, g, b, a] = Unpack32(color);
+  BlendPixel(x, y, r, g, b, a);
+}
+
+void ImageRGB::BlendImageRect(int dstx, int dsty, const ImageRGBA &other,
+                              int srcx, int srcy, int srcw, int srch) {
+  for (int yy = 0; yy < srch; yy++) {
+    const int syy = srcy + yy;
+    const int dyy = dsty + yy;
+    // Exit early if outside destination.
+    if (dyy >= height) break;
+    // Exit early if outside source.
+    if (syy >= other.Height()) break;
+
+    if (syy >= 0 && dyy >= 0) {
+      for (int xx = 0; xx < srcw; xx++) {
+        const int sxx = srcx + xx;
+        const int dxx = dstx + xx;
+        if (dxx >= width) break;
+        if (sxx >= other.Width()) break;
+
+        if (sxx >= 0 && dxx >= 0) {
+          BlendPixel32(dxx, dyy, other.GetPixel32(sxx, syy));
+        }
+      }
+    }
+  }
+}
+
+void ImageRGB::BlendImage(int x, int y, const ImageRGBA &other) {
+  BlendImageRect(x, y, other, 0, 0, other.Width(), other.Height());
+}
 
 
 ImageA::ImageA(vector<uint8> alpha_in, int width, int height)
