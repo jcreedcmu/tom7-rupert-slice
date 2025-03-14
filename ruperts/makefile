@@ -38,7 +38,7 @@ CODEC_OBJECTS=$(CODEC)/mov.o $(CODEC)/mov-recorder.o
 CL_OBJECTS=$(CC_LIB)/opencl/clutil.o
 SQLITE_OBJECTS=$(SQLITE)/database.o $(SQLITE)/sqlite3.o
 
-OBJECTS=$(CC_LIB_OBJECTS) $(CODEC_OBJECTS) $(SQLITE_OBJECTS) polyhedra.o big-csg.o rendering.o solutions.o hull.o hull3d.o big-polyhedra.o symmetry-groups.o mesh.o smallest-sphere.o dyson.o
+OBJECTS=$(CC_LIB_OBJECTS) $(CODEC_OBJECTS) $(SQLITE_OBJECTS) polyhedra.o big-csg.o rendering.o solutions.o shrinklutions.o hull.o hull3d.o big-polyhedra.o symmetry-groups.o mesh.o smallest-sphere.o dyson.o
 
 $(CC_LIB)/%.o : $(CC_LIB)/%.cc makefile
 	@$(CXX) $(CXXFLAGS) -c $< -o $@

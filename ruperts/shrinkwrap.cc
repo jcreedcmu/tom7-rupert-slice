@@ -15,7 +15,6 @@
 #include <string>
 #include <string_view>
 #include <tuple>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -31,6 +30,7 @@
 #include "periodically.h"
 #include "polyhedra.h"
 #include "randutil.h"
+#include "shrinklutions.h"
 #include "smallest-sphere.h"
 #include "status-bar.h"
 #include "threadutil.h"
@@ -47,7 +47,93 @@ using quat4 = quat<double, 4>;
 
 // We just represent the unit cube (0,0,0)-(1,1,1) as its
 // rigid transformation.
-constexpr int NUM_CUBES = 4;
+static constexpr int NUM_CUBES = 6;
+
+[[maybe_unused]]
+static std::vector<std::array<frame3, 3>> Manual3() {
+  std::vector<std::array<frame3, 3>> v;
+  frame3 cube1 = translation_frame(vec3{0, 0, 0});
+  frame3 cube2 = translation_frame(vec3{1, 0, 0});
+  frame3 cube3 = translation_frame(vec3{0.5, 0, 1});
+  v.push_back(std::array<frame3, 3>(
+                  {cube1, cube2, cube3}));
+  return v;
+}
+
+[[maybe_unused]]
+static std::vector<std::array<frame3, 4>> Manual4() {
+  std::vector<std::array<frame3, 4>> v;
+
+  {
+    frame3 cube1 = translation_frame(vec3{0, 0, 0});
+    frame3 cube2 = translation_frame(vec3{1, 0, 0});
+    frame3 cube3 = translation_frame(vec3{0, 0, 1});
+    frame3 cube4 = translation_frame(vec3{1, 0, 1});
+    v.push_back(std::array<frame3, 4>(
+                    {cube1, cube2, cube3, cube4}));
+  }
+
+  {
+    frame3 cube1 = translation_frame(vec3{0, 0, 0});
+    frame3 cube2 = translation_frame(vec3{1, 0, 0});
+    frame3 cube3 = translation_frame(vec3{0.5, 0, 1});
+    frame3 cube4 = translation_frame(vec3{0.5, 1.0, 0.333});
+    v.push_back(std::array<frame3, 4>(
+                    {cube1, cube2, cube3, cube4}));
+  }
+
+  return v;
+}
+
+[[maybe_unused]]
+static std::vector<std::array<frame3, 5>> Manual5() {
+  std::vector<std::array<frame3, 5>> v;
+
+  // This is just a previous "good" solution
+  frame3 cube1 =
+    frame3{.x = vec3(0.61211709447829854, 0.15825284178178359, -0.77477009539310127),
+    .y = vec3(-0.74299986347763747, -0.22026657940597877, -0.63200778228515631),
+    .z = vec3(-0.2706729863131111, 0.96251684248369351, -0.017247098757847829),
+    .o = vec3(0.39441862282094664, 0.46851371084117571, 0.13174313866636145)};
+  frame3 cube2 =
+    frame3{.x = vec3(0.43229774385230235, 0.19108955498876951, -0.88125106674227838),
+    .y = vec3(-0.33618938046497532, 0.94098142162553888, 0.039123709156422271),
+    .z = vec3(0.83671701376438246, 0.27935415896273014, 0.4710264246806547),
+    .o = vec3(-0.65637438738788523, 1.1701364532038565, 0.35730899514265996)};
+  frame3 cube3 =
+    frame3{.x = vec3(0.53819386971636152, 0.27092628120546897, -0.79808916090365678),
+    .y = vec3(-0.73801526919160232, -0.30582621247584646, -0.60150128030015437),
+    .z = vec3(-0.40703909030924107, 0.91272628860729832, 0.035353939601859986),
+    .o = vec3(0.43150042578266656, 0.42246780560695302, 1.5670040993203462)};
+  frame3 cube4 =
+    frame3{.x = vec3(0.74680790405057973, 0.2152719120160779, 0.62923442240910721),
+    .y = vec3(0.56683394945785859, 0.28880227065978198, -0.7715520217093339),
+    .z = vec3(-0.3478178089022852, 0.93287258098772341, 0.093656390341061893),
+    .o = vec3(0.34853819868403635, 0.4375799903007862, 0.20496087038554472)};
+  frame3 cube5 =
+    frame3{.x = vec3(-0.36975367394300884, 0.9260670062271833, -0.07537984202072566),
+    .y = vec3(0.60412404295338262, 0.17798393501889964, -0.77675984680005705),
+    .z = vec3(-0.7059152649796625, -0.33274858204447777, -0.62526955772377302),
+    .o = vec3(-0.28950678218380221, 0.2338036220003018, 0.83321855365986708)};
+
+  v.push_back(std::array<frame3, 5>(
+                  {cube1, cube2, cube3, cube4, cube5}));
+
+  return v;
+}
+
+static auto Manual() {
+  if constexpr (NUM_CUBES == 3) {
+    return Manual3();
+  } else if constexpr (NUM_CUBES == 4) {
+    return Manual4();
+  } else if constexpr (NUM_CUBES == 5) {
+    return Manual5();
+  } else {
+    return std::vector<std::array<frame3, NUM_CUBES>>();
+  }
+}
+
 
 // XXX factor it out
 static void CubesToSTL(const std::array<frame3, NUM_CUBES> &cubes,
@@ -195,8 +281,8 @@ static Eval Evaluate(ArcFour *rc,
     // PERF: We actually have to check both directions, since
     // one cube can intersect the other without any of *its*
     // edges intersecting (point into face). A faster thing
-    // would be to just check whether any vertex is contained,
-    // though.
+    // would be to just check whether any vertex is contained
+    // (in one direction) or an edge is contained in the other.
     for (int idx2 = 0; idx2 < NUM_CUBES; idx2++) {
       if (idx1 == idx2) continue;
 
@@ -242,29 +328,55 @@ struct DelayedWrite {
     timer.Reset();
   }
 
+  double SecondsSinceImprovement() {
+    std::unique_lock ml(m);
+    return timer.Seconds();
+  }
+
   std::mutex m;
   double delay_time = 1.0;
   Timer timer;
   std::function<void()> f;
 };
 
-static void Optimize() {
+struct Good {
+  double radius = 0.0;
+  std::array<frame3, NUM_CUBES> cubes;
+};
 
+static void Optimize() {
   static constexpr int ARGS_PER_CUBE = 7;
   static constexpr int NUM_ARGS = ARGS_PER_CUBE * NUM_CUBES;
   constexpr int NUM_THREADS = 6;
-  StatusBar status(NUM_THREADS + 1);
 
+  StatusBar status(NUM_THREADS + 1);
+  std::mutex mu;
+  ShrinklutionDB db;
+  static constexpr int METHOD = ShrinklutionDB::METHOD_RANDOM;
+  static constexpr int MAX_GOOD = 10;
+  std::vector<Good> good;
   DelayedWrite writer(15.0);
   Periodically status_per(5.0);
-  std::mutex mu;
   double best_error = std::numeric_limits<double>::infinity();
   Timer run_timer;
 
-  static constexpr int MAX_GOOD = 10;
-  std::vector<std::tuple<double,
-                         std::vector<quat4>,
-                         std::array<double, NUM_ARGS>>> good;
+  {
+    std::vector<std::array<frame3, NUM_CUBES>> manual = Manual();
+    ArcFour rc("manual");
+    for (int m = 0; m < manual.size(); m++) {
+      const std::array<frame3, NUM_CUBES> &cubes = manual[m];
+      Eval eval = Evaluate(&rc, cubes);
+      status.Printf("Manual solution #%d has radius: %.11g\n", m,
+                    eval.sphere.second);
+      std::string filename =
+        std::format("shrinkwrap-manual{}-{}.stl", m, NUM_CUBES);
+      CubesToSTL(cubes, {eval.sphere}, filename);
+      status.Printf("Wrote " AGREEN("%s") "\n",
+                    filename.c_str());
+      good.push_back(Good{.radius = eval.sphere.second, .cubes = cubes});
+    }
+  }
+
 
   {
     std::vector<std::string> lines(NUM_THREADS, "?");
@@ -277,12 +389,34 @@ static void Optimize() {
       status_per.RunIf([&]() {
           status.LineStatusf(
               NUM_THREADS,
-              "%lld iters, %lld attempts. Best: %.17g [%s]\n",
-              iters.Read(), attempts.Read(), best_error,
+              "%lld iters, %s attempts. Best: %.17g "
+              " %s ago. "
+              "Invalid: " AORANGE("%lld") " [%s]\n",
+              iters.Read(), FormatNum(attempts.Read()).c_str(),
+              best_error,
+              ANSI::Time(writer.SecondsSinceImprovement()).c_str(),
+              invalid.Read(),
               ANSI::Time(run_timer.Seconds()).c_str());
           writer.Tick();
         });
     };
+
+  auto InitializeFromGood = [&](const Good &good,
+                                std::vector<quat4> *initial_rot,
+                                std::array<double, NUM_ARGS> *initial_args) {
+      initial_rot->clear();
+      for (int c = 0; c < NUM_CUBES; c++) {
+        const frame3 &cube = good.cubes[c];
+        initial_rot->push_back(Dyson::rotation_quat(cube));
+        // four quaternion components, initially zero
+        for (int i = 0; i < 4; i++)
+          (*initial_args)[c * ARGS_PER_CUBE + i] = 0.0;
+        // translation
+        vec3 t = translation(cube);
+        for (int i = 3; i < 3; i++)
+          (*initial_args)[c * ARGS_PER_CUBE + 4 + i] = t[i];
+      }
+  };
 
 
   // while (run_timer.Seconds() < 60.0 * 60.0) {
@@ -291,6 +425,7 @@ static void Optimize() {
       [&](int thread_idx) {
         ArcFour rc(std::format("{}.shrinkwrap.{}",
                                thread_idx, time(nullptr)));
+        Periodically my_status_per(5.0);
 
         for (;;) {
           std::vector<quat4> initial_rot;
@@ -306,8 +441,7 @@ static void Optimize() {
             did_reuse = true;
             MutexLock ml(&mu);
             int idx = RandTo(&rc, good.size());
-            double err_unused = 0.0;
-            std::tie(err_unused, initial_rot, initial_args) = good[idx];
+            InitializeFromGood(good[idx], &initial_rot, &initial_args);
 
           } else {
             for (int i = 0; i < NUM_CUBES; i++) {
@@ -351,7 +485,7 @@ static void Optimize() {
 
           std::array<double, NUM_ARGS> lb, ub;
           {
-            double radius = std::min(best_error, (double)NUM_CUBES);
+            // double radius = std::min(best_error, (double)NUM_CUBES);
             int idx = 0;
             for (int i = 0; i < NUM_CUBES; i++) {
               for (int q = 0; q < 4; q++) {
@@ -383,7 +517,8 @@ static void Optimize() {
             };
 
 
-          static constexpr bool USE_LARGE_OPTIMIZER = true;
+          // static constexpr bool USE_LARGE_OPTIMIZER = true;
+          const bool USE_LARGE_OPTIMIZER = (thread_idx % 3) != 0;
 
           std::array<double, NUM_ARGS> args;
           double error;
@@ -462,7 +597,8 @@ static void Optimize() {
 
               Timer best_timer;
               {
-                // Then, optimize the cube that's furthest away.
+                // Then, optimize the cube that's furthest away
+                // from the minimal sphere's center.
                 auto best = lopt.GetBest();
                 CHECK(best.has_value()) << "Everything is \"feasible\".";
                 std::array<double, NUM_ARGS> args;
@@ -470,21 +606,32 @@ static void Optimize() {
                   args[i] = best.value().first[i];
                 std::array<frame3, NUM_CUBES> cubes;
                 SetCubes(args, &cubes);
-                std::optional<int> besti;
-                double furthest = 0.0;
+                std::vector<vec3> all_points;
+                all_points.reserve(NUM_CUBES * 8);
                 for (int i = 0; i < NUM_CUBES; i++) {
                   auto Vertex = [&](double x, double y, double z) {
                       vec3 v = transform_point(cubes[i],
                                                vec3{.x = x, .y = y, .z = z});
-                      double sqdist = dot(v, v);
-                      if (!besti.has_value() || sqdist > furthest) {
-                        besti = {i};
-                        furthest = sqdist;
-                      }
+                      all_points.push_back(v);
                     };
 
                   for (uint8_t b = 0b000; b < 0b1000; b++) {
                     Vertex(b & 0b100, b & 0b010, b & 0b001);
+                  }
+                }
+
+                Eval eval = Evaluate(&rc, cubes);
+
+                std::optional<int> besti;
+                double furthest = 0.0;
+                for (int i = 0; i < NUM_CUBES; i++) {
+                  for (int j = 0; j < 8; j++) {
+                    const vec3 &v = all_points[i * 8 + j];
+                    double sqdist = distance_squared(eval.sphere.first, v);
+                    if (!besti.has_value() || sqdist > furthest) {
+                      besti = {i};
+                      furthest = sqdist;
+                    }
                   }
                 }
                 CHECK(besti.has_value());
@@ -543,10 +690,16 @@ static void Optimize() {
               Opt::Minimize<NUM_ARGS>(Loss, lb, ub, 10000, 3);
             double opt_sec = opt_timer.Seconds();
 
-            status.LineStatusf(
-                thread_idx,
-                "%s opt sec\n",
-                ANSI::Time(opt_sec).c_str());
+            my_status_per.RunIf([&]() {
+                status.LineStatusf(
+                    thread_idx,
+                    AGREY("---") ACYAN("o") "   best %.6g, "
+                    "%s ea.\n",
+                    best_error,
+                    // ANSI::Time(opt_timer.Seconds()).c_str(),
+                    ANSI::Time(opt_sec).c_str());
+              });
+
           }
 
           {
@@ -558,18 +711,24 @@ static void Optimize() {
               // Sometimes the sphere is wrong (and we get a different
               // answer here). This is presumably a numerical issue in
               // smallest-sphere, like where we return 0 in some cases.
-              // Just reject it if it's not consistent.
-              if (eval.sphere.second < 0.99 * error) {
+              // Just reject it if it's not consistent. (Probably fixed
+              // now.)
+              if (eval.sphere.second < 0.99 * error ||
+                  eval.num_edge_overlaps > 0) {
                 status.Printf(ARED("Invalid") "?!\n");
                 invalid++;
               } else {
                 best_error = error;
                 status.Printf("New best! %.17g\n", best_error);
 
-                good.emplace_back(error, initial_rot, args);
+                good.emplace_back(Good{
+                    .radius = eval.sphere.second,
+                    .cubes = cubes
+                  });
+
                 std::sort(good.begin(), good.end(),
                           [](const auto &a, const auto &b) {
-                            return std::get<0>(a) < std::get<0>(b);
+                            return a.radius < b.radius;
                           });
                 if (good.size() > MAX_GOOD)
                   good.resize(MAX_GOOD);
@@ -577,17 +736,18 @@ static void Optimize() {
                 writer.Delay([&, c = std::move(cubes), eval]() {
                     for (int i = 0; i < NUM_CUBES; i++) {
                       status.Printf(
-                          "Cube %d:\n%s\n"
-                          ABLUE("Radius") ": %.11g\n",
-                          i, FrameString(c[i]).c_str(),
-                          eval.sphere.second);
-
+                          "Cube %d:\n%s\n",
+                          i, FrameString(c[i]).c_str());
                     }
+                    status.Printf(ABLUE("Radius") ": %.11g\n",
+                                  eval.sphere.second);
                     std::string filename =
                       std::format("shrinkwrap{}.stl", NUM_CUBES);
                     CubesToSTL(c, {eval.sphere}, filename);
                     status.Printf("Wrote " AGREEN("%s") "\n",
                                   filename.c_str());
+                    db.AddSolution<NUM_CUBES>(cubes, METHOD, 0,
+                                              eval.sphere.second);
                   });
               }
             }
