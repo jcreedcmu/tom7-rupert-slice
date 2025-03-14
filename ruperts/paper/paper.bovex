@@ -43,6 +43,60 @@ in
  Let me ask you another way: [it[Where]] is the unit cube? “0?”
 
 
+ Now that I've gotten the "dice in sphere" pun out of the way, we can
+ move onto the real topic of this paper.
+
+ Late some night I was admiring the Wikipedia article on the
+ Dodecahedron, my favorite Platonic solid. On this page I was reminded
+ that the Dodecahedron is Rupert, like the cube. This seemed right,
+ since if the cube has a pleasing property and the Dodecahedron is
+ awesome, it should also have that pleasing property. This is of
+ course not true. For example, the cube can tile space and the
+ dodecahedron obviously cannot. The property of having pleasing
+ properties is itself pleasing, though, and throughout history
+ people have ... (Bertrand Russell, Godel)
+
+ Indeed, all the Platonic solids have the Rupert property. The Platonic
+ solids are beautiful and so the fact that all of them have this pleasing
+ property recommends it further. Then I read the phrase "it has been
+ conjectured that all 3-dimensional convex polyhedra have this
+ property," which made my brain feel surprised but happy. I might have
+ even gotten to sleep, had I stopped reading at that moment. But then I
+ read "of the 13 Archimedean solids, it is known that at least ten have
+ the Rupert property," and this made my brain surprised and angry. How
+ could it be the case that we think this is true for *all* convex
+ polyhedra (infinitely many, and mostly gigantic weird ugly ones) but
+ we don't know for some 3 simple beautiful ones? Did nobody check? It
+ seemed to me it would be pretty easy to write a search procedure that
+ would look for them, and it also seemed like if we think it's
+ possible, it would be easy to find solutions.
+
+Here were my Naive Heuristics:
+[ul
+
+ [This is a continuous problem. If you have some way of fitting the
+  shape through itself, then there will be some adjacent small
+  variation on that that will also work. Problems where the solution
+  needs to be exact (e.g. problems on integers) tend to be much
+  harder. These solutions won't need to be exact because of [it[NO
+  TOUCHING!]] ] ::
+
+ [This might be a problem that not that many people have tried (only
+  stamp collectors), since serious mathematicians would be interested
+  in a real solution (i.e. a proof that the general conjecture is
+  true).] ::
+
+ [I am definitely not the best mathematician to have tried this, but
+  it's possible that I'm the best programmer to try it, and plausible
+  that nobody has tried it with a very fast and hot GPU.] ::
+
+ [I can whip this up in a day (or maybe a weekend) and then put it
+  aside if I can't solve it.] ::
+
+ nil]
+
+So I set aside two and a half months to work on it.
+
 This problem is pretty easy to specify precisely. The shape in
 question is a convex polyhedron, which is just defined by its set of
 vertices. For general polyhedra you also need to specify how those
@@ -59,10 +113,10 @@ computer graphics convention that the camera is located at some
 positive z, looking down at the shapes, which are near the origin, and
 the inner polyhedron is moving along this same line of sight. Maybe
 like it’s shooting out of our eyeballs as a kind of abstract weapon of
-geometry. Viewed this way, what it means for the inner shape to be
-able to pass through the outer is that the two dimensional “shadow” of
-the inner shape is entirely contained within the shadow of the outer
-shape.
+geometry. A Platomic Bomb. Viewed this way, what it means for the
+inner shape to be able to pass through the outer is that the two
+dimensional “shadow” of the inner shape is entirely contained within
+the shadow of the outer shape.
 
 We’ll specify the arrangement of the polyhedra as a rotation and
 translation; together these are a rigid frame (hereafter just
@@ -81,9 +135,11 @@ minimal skin around the vertices of our convex polyhedron. To get the
 shape of the shadow, we just project the object to 2D along the z axis
 (easy: (x, y, z) just becomes (x, y)) and then compute the convex hull
 of the points using standard algorithms. Now we can just ask whether
-the inner hull is entirely contained within the outer hull. Since both
-are convex, this is a standard test that each point on the inner hull
-is contained within a convex 2D polygon. (There are many alternative
+  the inner hull is entirely contained within the outer hull. Since
+  the outer hull is convex, this amounts to a standard test that
+  each point on the inner hull is contained within a convex 2D polygon.
+  You can find slightly buggy code for this all over the internet.
+ (There are many alternative
 formulations, some of which are discussed below.)
 
 The boundary condition here is very important. The inner points must
@@ -115,24 +171,26 @@ Generating random numbers is easy using floating point roundoff error
 (cite Rand). How do you generate a random rotation (orientation)?
 There are a few different ways to specify a rotation. You can use
 Euler angles, which are three parameters that give the rotation around
-the x, y, and z axes (“pitch,” “roll,” and “yaw”; see Figure `). This approach
-actually sucks (famously, Euler was not that good at math). You can
-get all orientations this way, but you will get some orientations more
-often than others.[footnote[Euler rotation is accomplished by rotating
-along each axis in turn. Imagine gimbal lock: Rotate the Earth such
-that ... The density of parameters that are close to this gimbal lock
-position is much higher.]] Maybe that is okay for you (or Eu-ler) but
-I want all orientations to be equally likely.
+the x, y, and z axes (“pitch,” “roll,” and “yaw”; see Figure `). This
+approach actually sucks (famously, Euler was not that good at math).
+You can get all orientations this way, but you will get some
+orientations more often than others.[footnote[Euler rotation is
+accomplished by rotating along each axis in turn. Imagine gimbal lock:
+Rotate the Earth such that ... The density of parameters that are
+close to this gimbal lock position is much higher.]] Maybe that is
+okay for you (or Eu-ler) but I want all orientations to be equally
+likely.
 
-[image { img = image-load "roll_pitch_yaw_mnemonic.png", width = inch 3.65 }]
-Figure 1. Wikipedia[cite roll-pitch-yaw] provides this useful mnemonic for remembering which
-axis corresponds to each of the three words. The [b[pitch]]er makes sense,
-since you famously use a pitcher by holding the handle away from you
-and turning your wrist to pour diagonally towards yourself. But d[b[oor]]
-must just be trolling, right?
+[image { img = image-load "roll_pitch_yaw_mnemonic.png",
+         width = inch 3.65 }]
+Figure 1. Wikipedia[cite roll-pitch-yaw] provides this useful mnemonic
+for remembering which axis corresponds to each of the three words. The
+[b[pitch]]er makes sense, since you famously use a pitcher by holding
+the handle away from you and turning your wrist to pour diagonally
+towards yourself. But d[b[oor]] must just be trolling, right?
 
 A good way to do this is using Quaternions, the even more mysterious
-cousins of the complex numbers. I will not try to give you an
+second cousins of the complex numbers. I will not try to give you an
 intuition for quaternions (since I do not really have one) but they
 can be used as a four-parameter representation of orientations that
 will leave you happy (and puzzled) instead of sad (and puzzled). Facts
@@ -153,19 +211,17 @@ to know about the Quaternions:
     nil)]
 
 A good—but not great—way to generate random 4D unit vectors is to
-generate random points on a 4D hypersphere.
-
-Generating random 4D unit vectors is the same as generating points on
-the surface of a 4D hypersphere. There are very fancy ways to do this,
-but you run the risk of getting the math wrong, or head explosion
-etc., so I recommend rejection sampling. Rejection sampling is a very
-robust way to generate uniform samples in some set. What you do is
-generate random points inside some domain that contains the target
-set, and throw away points that aren’t in the target. For example, to
-generate points in a unit circle, you can generate points in the 2x2
-square (it’s [it[not]] the unit square) that contains that circle. π/4
-of these points will be in the circle, and so you get samples at an
-efficiency of about 78.5%.
+generate random points on a 4D hypersphere, because these are the same
+thing. There are very fancy ways to do this, but you run the risk of
+getting the math wrong, or head explosion etc., so I recommend
+rejection sampling. Rejection sampling is a very robust way to
+generate uniform samples in some set. What you do is generate random
+points inside some domain that contains the target set, and throw away
+points that aren’t in the target. For example, to generate points in a
+unit circle, you can generate points in the 2x2 square (it’s [it[not]]
+the unit square) that contains that circle. π/4 of these points will
+be in the circle, and so you get samples at an efficiency of about
+78.5%.
 
 [image { img = image-load "sample-circle.png", width = inch 3.65 }]
 
