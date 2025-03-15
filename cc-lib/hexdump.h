@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 
 // "Pretty"-print binary data.
 struct HexDump {

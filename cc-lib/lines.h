@@ -270,7 +270,7 @@ Line<Int>::Line(Int x0, Int y0, Int x1, Int y1,
 }
 
 template<class Int>
-Line<Int>::Line<Int> Line<Int>::Empty() {
+Line<Int> Line<Int>::Empty() {
   // Any line such that .begin() == .end()
   Line<int> empty(
     // x0, y0, x1, y1 (we passed the end by one pixel)

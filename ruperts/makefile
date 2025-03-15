@@ -6,6 +6,12 @@ default : ruperts.exe soltostl.exe topng.exe gpuperts.exe polyhedra_test.exe sco
 # see how I used to do this for the mingw toolchain in
 # ../cc-lib/opencl/makefile.
 
+UNAME := $(shell uname -o)
+ifeq ($(findstring Linux,$(UNAME)),Linux)
+CC=clang
+CXX=clang++ -stdlib=libc++
+endif
+
 CL_LFLAGS=-lOpenCL
 
 # This is optional; if you want to use plain C++ code, just
@@ -23,7 +29,6 @@ SQLITE=../sqlite
 
 OPT=-O3 -flto=thin
 # ASAN=-g -fsanitize=address -fsanitize=undefined
-# ASAN=-g -fsanitize=thread
 # OPT=-O
 
 CXXFLAGS=$(ASAN) $(OPT) $(GMP_CFLAGS) -march=native -Wall -Wno-psabi -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -I. -I$(CC_LIB) -I$(CODEC) -I$(SQLITE) --std=c++23

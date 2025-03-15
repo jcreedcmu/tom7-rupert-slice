@@ -49,8 +49,8 @@ struct Dirty {
       // dia / r
       float span = dia / r;
       for (float theta = 0.0f; theta < 2.0 * std::numbers::pi; theta += span) {
-        int xpos = std::round(x + std::cosf(theta) * r);
-        int ypos = std::round(y + std::sinf(theta) * r);
+        int xpos = std::round(x + std::cos(theta) * r);
+        int ypos = std::round(y + std::sin(theta) * r);
         if (!IsUsed(xpos, ypos, w, h)) {
           return std::make_pair(xpos, ypos);
         }

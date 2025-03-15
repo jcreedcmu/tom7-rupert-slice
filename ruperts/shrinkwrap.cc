@@ -1074,7 +1074,7 @@ struct Shrinkwrap {
 
         AddGood(Good{.radius = eval.sphere.second, .cubes = cubes});
 
-        writer.Delay([&, c = std::move(cubes), eval]() {
+        writer.Delay([this, method, c = std::move(cubes), eval]() {
           for (int i = 0; i < NUM_CUBES; i++) {
             status.Printf("Cube %d:\n%s\n", i, FrameString(c[i]).c_str());
           }
@@ -1082,7 +1082,7 @@ struct Shrinkwrap {
           std::string filename = std::format("shrinkwrap{}.stl", NUM_CUBES);
           CubesToSTL(c, {eval.sphere}, filename);
           status.Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
-          db.AddSolution<NUM_CUBES>(cubes, method, 0, eval.sphere.second);
+          db.AddSolution<NUM_CUBES>(c, method, 0, eval.sphere.second);
         });
       }
     }
