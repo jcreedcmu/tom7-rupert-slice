@@ -23,6 +23,7 @@ SQLITE=../sqlite
 
 OPT=-O3 -flto=thin
 # ASAN=-g -fsanitize=address -fsanitize=undefined
+# ASAN=-g -fsanitize=thread
 # OPT=-O
 
 CXXFLAGS=$(ASAN) $(OPT) $(GMP_CFLAGS) -march=native -Wall -Wno-psabi -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -I. -I$(CC_LIB) -I$(CODEC) -I$(SQLITE) --std=c++23

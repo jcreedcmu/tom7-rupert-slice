@@ -3,9 +3,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <optional>
+#include <span>
 #include <utility>
+#include <vector>
 
 #include "yocto_matht.h"
 
@@ -68,6 +71,23 @@ struct Dyson {
 
     // Intersection.
     return {std::make_pair(t_min, t_max)};
+  }
+
+  static std::vector<vec3> CubesToPoints(std::span<frame3> cubes) {
+    std::vector<vec3> all_points;
+    all_points.reserve(cubes.size() * 8);
+    for (const frame3 &cube : cubes) {
+      auto Vertex = [&](double x, double y, double z) {
+          vec3 v = transform_point(cube,
+                                   vec3{.x = x, .y = y, .z = z});
+          all_points.push_back(v);
+        };
+
+      for (uint8_t b = 0b000; b < 0b1000; b++) {
+        Vertex(b & 0b100, b & 0b010, b & 0b001);
+      }
+    }
+    return all_points;
   }
 
   // Extract just the orientation from the rigid frame.

@@ -146,8 +146,8 @@ bool ShrinklutionDB::HasSolutionWithRadius(int num, double radius) {
             "id, num, cubes, method, source, createdate, radius "
             "from shrinksol "
             "where num = '{}' "
-            "and radius > {:17g} "
-            "and radius < {:17g} "
+            "and radius > {:.17g} "
+            "and radius < {:.17g} "
             "and invalid = 0 "
             "limit 1",
             num, radius - tol, radius + tol)));

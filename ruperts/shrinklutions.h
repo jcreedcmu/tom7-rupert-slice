@@ -24,12 +24,14 @@ struct ShrinklutionDB {
   static constexpr int METHOD_INVALID = 0;
   static constexpr int METHOD_RANDOM = 1;
   static constexpr int METHOD_MANUAL = 2;
+  static constexpr int METHOD_SAME_ANGLE = 3;
 
   static const char *MethodName(int m) {
     switch (m) {
     case METHOD_INVALID: return "INVALID";
     case METHOD_RANDOM: return "METHOD_RANDOM";
     case METHOD_MANUAL: return "METHOD_MANUAL";
+    case METHOD_SAME_ANGLE: return "METHOD_SAME_ANGLE";
     default: return "UNKNOWN";
     }
   }

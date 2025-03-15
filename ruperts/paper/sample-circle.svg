@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 360 360">
+<defs>
+<style>
+.st0, .st1 {
+fill: none;
+stroke: #000;
+stroke-miterlimit: 10;
+}
+
+.st1 {
+stroke-width: 3px;
+}
+</style>
+</defs>
+<line class="st0" x1="9" y1="180" x2="351" y2="180"/>
+<line class="st0" x1="180" y1="351" x2="180" y2="9"/>
+<rect class="st1" x="36" y="36" width="288" height="288"/>
+<circle class="st1" cx="180" cy="180" r="144"/>
+<circle cx="112.5" cy="130.5" r="4.5"/>
+<circle cx="238.5" cy="238.5" r="4.5"/>
+<circle cx="256.5" cy="220.5" r="4.5"/>
+<circle cx="234.66" cy="121.5" r="4.5"/>
+<circle cx="234.66" cy="58.5" r="4.5"/>
+<circle cx="220.5" cy="292.5" r="4.5"/>
+<circle cx="157.5" cy="202.5" r="4.5"/>
+<circle cx="67.5" cy="247.5" r="4.5"/>
+<circle class="st0" cx="310.5" cy="85.5" r="4.5"/>
+<circle cx="301.5" cy="184.5" r="4.5"/>
+<circle class="st0" cx="85.5" cy="58.5" r="4.5"/>
+<circle cx="202.5" cy="247.5" r="4.5"/>
+<circle cx="247.5" cy="112.5" r="4.5"/>
+<circle cx="76.5" cy="247.5" r="4.5"/>
+<circle cx="139.5" cy="121.5" r="4.5"/>
+<circle cx="166.5" cy="301.5" r="4.5"/>
+<circle cx="103.5" cy="175.5" r="4.5"/>
+</svg>

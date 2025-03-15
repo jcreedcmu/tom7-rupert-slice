@@ -1,5 +1,4 @@
-
-(*   -*- electric-indent-local-mode: nil -*- *)
+(*   -*- electric-indent-local-mode: -1 -*- *)
 let
   import "stdlib.bovex"
   import "layout.bovex"
@@ -30,6 +29,16 @@ let
 
   fun footnote s = [([b[footnote]]: [s])]
 
+  val next-figure-id = ref 1
+  fun figure-id () =
+    let val s = int-to-string (!next-figure-id)
+    in
+      next-figure-id := !next-figure-id + 1;
+      layout s
+    end
+
+  val ROLL-PITCH-YAW = figure-id()
+
 in
 
 (main-text (body-font
@@ -43,7 +52,7 @@ in
  Let me ask you another way: [it[Where]] is the unit cube? “0?”
 
 
- Now that I've gotten the "dice in sphere" pun out of the way, we can
+ Now that I’ve gotten the "dice in sphere" pun out of the way, we can
  move onto the real topic of this paper.
 
  Late some night I was admiring the Wikipedia article on the
@@ -58,27 +67,27 @@ in
 
  Indeed, all the Platonic solids have the Rupert property. The Platonic
  solids are beautiful and so the fact that all of them have this pleasing
- property recommends it further. Then I read the phrase "it has been
+ property recommends it further. Then I read the phrase “it has been
  conjectured that all 3-dimensional convex polyhedra have this
- property," which made my brain feel surprised but happy. I might have
+ property,” which made my brain feel surprised but happy. I might have
  even gotten to sleep, had I stopped reading at that moment. But then I
- read "of the 13 Archimedean solids, it is known that at least ten have
- the Rupert property," and this made my brain surprised and angry. How
+ read “of the 13 Archimedean solids, it is known that at least ten have
+ the Rupert property,” and this made my brain surprised and angry. How
  could it be the case that we think this is true for *all* convex
  polyhedra (infinitely many, and mostly gigantic weird ugly ones) but
- we don't know for some 3 simple beautiful ones? Did nobody check? It
+ we don’t know for some 3 simple beautiful ones? Did nobody check? It
  seemed to me it would be pretty easy to write a search procedure that
- would look for them, and it also seemed like if we think it's
+ would look for them, and it also seemed like if we think it’s
  possible, it would be easy to find solutions.
 
 Here were my Naive Heuristics:
 [ul
 
- [This is a continuous problem. If you have some way of fitting the
+ ([This is a continuous problem. If you have some way of fitting the
   shape through itself, then there will be some adjacent small
   variation on that that will also work. Problems where the solution
   needs to be exact (e.g. problems on integers) tend to be much
-  harder. These solutions won't need to be exact because of [it[NO
+  harder. These solutions won’t need to be exact because of [it[NO
   TOUCHING!]] ] ::
 
  [This might be a problem that not that many people have tried (only
@@ -87,13 +96,13 @@ Here were my Naive Heuristics:
   true).] ::
 
  [I am definitely not the best mathematician to have tried this, but
-  it's possible that I'm the best programmer to try it, and plausible
+  it’s possible that I’m the best programmer to try it, and plausible
   that nobody has tried it with a very fast and hot GPU.] ::
 
  [I can whip this up in a day (or maybe a weekend) and then put it
-  aside if I can't solve it.] ::
+  aside if I can’t solve it.] ::
 
- nil]
+ nil)]
 
 So I set aside two and a half months to work on it.
 
@@ -135,12 +144,12 @@ minimal skin around the vertices of our convex polyhedron. To get the
 shape of the shadow, we just project the object to 2D along the z axis
 (easy: (x, y, z) just becomes (x, y)) and then compute the convex hull
 of the points using standard algorithms. Now we can just ask whether
-  the inner hull is entirely contained within the outer hull. Since
-  the outer hull is convex, this amounts to a standard test that
-  each point on the inner hull is contained within a convex 2D polygon.
-  You can find slightly buggy code for this all over the internet.
- (There are many alternative
-formulations, some of which are discussed below.)
+the inner hull is entirely contained within the outer hull. Since
+the outer hull is convex, this amounts to a standard test that
+each point on the inner hull is contained within a convex 2D polygon.
+You can find slightly buggy code for this all over the internet.
+(There are many alternative formulations, some of which are discussed
+below.)
 
 The boundary condition here is very important. The inner points must
 be [it[strictly]] contained within the outer hull (less-than, not
@@ -167,11 +176,10 @@ through it)!
 
 [subsection[Generating random orientations]]
 
-Generating random numbers is easy using floating point roundoff error
-(cite Rand). How do you generate a random rotation (orientation)?
+Generating random numbers is easy using floating point roundoff error[cite murphy2023grad]. How do you generate a random rotation (orientation)?
 There are a few different ways to specify a rotation. You can use
 Euler angles, which are three parameters that give the rotation around
-the x, y, and z axes (“pitch,” “roll,” and “yaw”; see Figure `). This
+the x, y, and z axes (“pitch,” “roll,” and “yaw”; see Figure [ROLL-PITCH-YAW]). This
 approach actually sucks (famously, Euler was not that good at math).
 You can get all orientations this way, but you will get some
 orientations more often than others.[footnote[Euler rotation is
@@ -183,7 +191,8 @@ likely.
 
 [image { img = image-load "roll_pitch_yaw_mnemonic.png",
          width = inch 3.65 }]
-Figure 1. Wikipedia[cite roll-pitch-yaw] provides this useful mnemonic
+Figure [ROLL-PITCH-YAW].
+Wikipedia[cite wikipedia-roll-pitch-yaw] provides this useful mnemonic
 for remembering which axis corresponds to each of the three words. The
 [b[pitch]]er makes sense, since you famously use a pitcher by holding
 the handle away from you and turning your wrist to pour diagonally
@@ -225,8 +234,67 @@ be in the circle, and so you get samples at an efficiency of about
 
 [image { img = image-load "sample-circle.png", width = inch 3.65 }]
 
-(sphere, hypersphere)
+To generate points inside a sphere, you do the same thing, but in a
+2x2x2 cube. This sphere has volume 4π/3 and the cube has volume 8,
+so you get samples at an efficiency of about 52.4%.
 
+To generate 4D points inside a 4D hypersphere[footnote
+[We should say “3-sphere,” or “hyperball”, since the convention
+ is that a normal sphere in 3D is called a 2-sphere, since its
+ surface is actually two dimensional. It would just seem to add
+confusion here, though.]], you do the same thing,
+but now the hypervolume is π^2/2, and the 4D hypercube has hypervolume
+16, so you get samples at an efficiency of about 30.8%.
+
+Upsettingly, as we increase dimensions, the hypervolume of the
+[it[n]]-dimensional hypersphere approaches zero (!?) and the
+[it[n]]-dimensional hypercube's grows exponentially, so this
+technique approaches perfect 0% efficiency.
+
+[image { img = image-load "sample-nd-hypersphere.png", width = inch 3.65 }]
+
+Fortunately, we only need 4D vectors, and 30% efficiency is fine
+because my computer can calculate like 1 billion samples per second
+and I only need two.
+
+The two samples give the orientations of the outer and inner polyhedra,
+and we also pick random positions. We then project to 2D, compute
+the convex hulls, and
+
+[subsection[The convex hulls]]
+
+Computing the convex hull is also “standard,” meaning that you can
+find lots slightly buggy implementations of various algorithms on the
+internet. The bugs are usually because the routines are intended for
+computer graphics and so they don't have to “work,” and because the
+algorithms are conceptualized in the mathematical world where when you
+look at a point that's really close to a line segment, the point stays
+on the same side of the line when you look at it from different
+directions. This is unfortunately not the case for naive
+implementations using floating point. It usually “doesn't matter that
+much,” or “just add a magic constant you named epsilon,[cite
+murphy2014epsilon]” but unfortunately when you are working with
+extremely regular shapes like Platonic solids, you will frequently get
+points that are colinear or coplanar and exercise the too-optimistic
+beliefs of the code you found. So this is another good way to make
+your afternoon project take several months.
+
+You only need to compute the outer hull, but I found it was faster
+to compute a convex hull for the inner polyhedron as well. That way
+you only need to do the point-in-polygon test for the points on
+the inner hull. [* XXX incircle? *]
+
+[subsection[Optimizing]]
+
+Now we can test whether some random orientations and positions (frames)
+demonstrate the Rupert property. It is easy to find solutions for
+the cube by just sampling. But of course we want to make it faster,
+first of all just for the heck of it, but also so that we can solve
+the unknown cases, which are presumably harder.
+
+I started with black-box optimization, again using my own twisted
+variant of BiteOpt[cite vaneev2024biteopt]. Black box optimization
+is good for people like me and Euler who are bad at math.
 
 
 Infinitely many
@@ -324,9 +392,12 @@ triangle man hates particle man
  a local maximum. Adding more dimensions makes the optimization
  problem potentially easier to solve simply by descent.
 
+ tier
+
  communing with perverted aliens
 
  man-made horrors like,
    - typos in unicode
+   - conventions about the size of a unit sphere and cube
 
  *)

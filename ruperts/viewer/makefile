@@ -1,5 +1,5 @@
 
-default: viewer.exe
+default: viewer.exe shrinkplacer.exe
 
 all: viewer.exe
 
@@ -23,7 +23,7 @@ SDLOPATH=$(SDLSDK)/build
 # SDLINCLUDES=-ISDL/include
 SDLINCLUDES=-I$(SDLSDK)/include
 
-RUPERT_OBJECTS=../polyhedra.o ../mesh.o ../solutions.o ../hull3d.o ../hull.o
+RUPERT_OBJECTS=../polyhedra.o ../mesh.o ../solutions.o ../hull3d.o ../hull.o ../dyson.o ../smallest-sphere.o
 
 SQLITE_OBJECTS=$(SQLITE)/sqlite3.o $(SQLITE)/database.o
 
@@ -37,12 +37,6 @@ RE2_OBJECTS=$(CC_LIB)/re2/bitstate.o $(CC_LIB)/re2/compile.o $(CC_LIB)/re2/dfa.o
 UTIL_OBJECTS=$(CC_LIB)/util.o $(CC_LIB)/arcfour.o $(CC_LIB)/base/stringprintf.o $(CC_LIB)/base/logging.o $(CC_LIB)/stb_image.o $(CC_LIB)/stb_image_write.o $(CC_LIB)/stb_truetype.o $(CC_LIB)/color-util.o $(CC_LIB)/image.o $(CC_LIB)/crypt/sha256.o $(CC_LIB)/ansi.o $(CC_LIB)/ansi-image.o $(CC_LIB)/image-resize.o $(CC_LIB)/zip.o $(CC_LIB)/miniz.o
 
 CODEC_OBJECTS=$(CODEC)/mov.o $(CODEC)/mov-recorder.o
-
-# bad command line 2022
-# x86_64-w64-mingw32-g++ -Wall -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -I/usr/local/include -I/usr/include -ISDL/include -I. -I../../cc-lib -I../../cc-lib/re2 -std=c++17 -DHAVE_ASPRINTF -m64 -g -O2 -D__MINGW32__ -DHAVE_ALLOCA -DNOWINSTUFF -Ic:/code/SDL/include    -I / -I /re2 --std=c++20  -c -o ../../cc-lib/util.o ../../cc-lib/util.cc
-
-# good 2022
-# x86_64-w64-mingw32-g++ -DHAVE_ASPRINTF -m64 -O3 -D__MINGW32__ -DHAVE_ALLOCA -DNOWINSTUFF -Ic:/code/SDL/include    -I ../../cc-lib/ -I ../../cc-lib/re2 --std=c++20 -march=native -m64 -Wall -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -Ic:/code/SDL/include -I. -I../../cc-lib -I../../cc-lib/re2 -std=c++20 -c viewping.cc -o viewping.o
 
 # old
 # XXX can't they just be in CXXFLAGS?

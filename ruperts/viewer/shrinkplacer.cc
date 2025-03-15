@@ -10,8 +10,10 @@
 #include <format>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <mutex>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <thread>
@@ -41,11 +43,13 @@
 #include "arcfour.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
+#include "dyson.h"
 #include "image.h"
 #include "lines.h"
 #include "periodically.h"
 #include "randutil.h"
 #include "re2/re2.h"
+#include "smallest-sphere.h"
 #include "threadutil.h"
 #include "timer.h"
 #include "util.h"
@@ -141,6 +145,9 @@ struct ScopeExit {
 struct Scene {
   vec3 camera_pos = vec3{-1.0, -.03, 4.0};
   const vec3 object_pos = vec3{0.0, 0.0, 0.0};
+  ArcFour rc = ArcFour(std::format("shrink.{}", time(nullptr)));
+
+  double best_radius = std::numeric_limits<double>::infinity();
 
   std::vector<frame3> cubes;
 
@@ -152,14 +159,42 @@ struct Scene {
     std::vector<std::string> lines =
       Util::NormalizeLines(Util::ReadFileToLines("manual.txt"));
 
+    cubes.clear();
     for (const std::string &line : lines) {
-      double x, z, y;
-      if (RE2::FullMatch(line, " *([-0-9.]+) +([-0-9.]+) +([-0-9.]+) *",
+      constexpr vec3 center(0.5, 0.5, 0.5);
+      double ax, ay, az;
+      double deg;
+      double x, y, z;
+      if (RE2::FullMatch(line,
+                         " *"
+                         // axis (from origin)
+                         "([-0-9.]+) +([-0-9.]+) +([-0-9.]+)"
+                         // angle (degrees)
+                         " +([-0-9.]+)"
+                         // translation
+                         " +([-0-9.]+) +([-0-9.]+) +([-0-9.]+)"
+                         " *",
+                         &ax, &ay, &az,
+                         &deg,
                          &x, &y, &z)) {
-        frame3 cube = translation_frame(vec3{x, y, z});
+        frame3 cube = translation_frame(-center);
+        cube = rotation_frame(vec3{ax, ay, az},
+                              deg * (std::numbers::pi / 180.0)) * cube;
+        cube = translation_frame(vec3{x, y, z}) * cube;
+        cube = translation_frame(center) * cube;
         cubes.push_back(cube);
       }
     }
+
+    std::vector<vec3> all_points =
+      Dyson::CubesToPoints(cubes);
+
+    const auto &[center, radius] =
+      SmallestSphere::Smallest(&rc, all_points);
+
+    best_radius = std::min(radius, best_radius);
+    printf("Radius: %.11g. Best: %.11g\n",
+           radius, best_radius);
   }
 
   Scene() {
@@ -199,18 +234,26 @@ struct Scene {
     mat4 persp = yocto::perspective_mat(FOVY, ASPECT_RATIO, NEAR_PLANE,
                                         FAR_PLANE);
 
-    // frame3 frame = translation_frame(-camera_pos);
-
+    frame3 frame = translation_frame(-camera_pos);
+    /*
     frame3 frame = inverse(lookat_frame(camera_pos, object_pos,
                                         vec3{0.0, 1.0, 0.0}));
+    */
 
+    [[maybe_unused]]
     vec3 xpos = ProjectPt(persp, transform_point(frame, vec3{1, 0, 0}));
+    [[maybe_unused]]
     vec3 ypos = ProjectPt(persp, transform_point(frame, vec3{0, 1, 0}));
+    [[maybe_unused]]
     vec3 zpos = ProjectPt(persp, transform_point(frame, vec3{0, 0, 1}));
+    [[maybe_unused]]
     vec3 origin = ProjectPt(persp, transform_point(frame, vec3{0, 0, 0}));
 
-    for (const frame3 &cube : cubes) {
+    DrawLine(origin, xpos, 0xFF0000FF);
+    DrawLine(origin, ypos, 0x00FF00FF);
+    DrawLine(origin, zpos, 0x0000FFFF);
 
+    for (const frame3 &cube : cubes) {
       auto Vertex = [&](double x, double y, double z) {
           vec3 model_vertex =
             transform_point(cube, vec3{.x = x, .y = y, .z = z});
@@ -327,17 +370,6 @@ UI::EventResult UI::HandleEvents() {
       mousex = e->x;
       mousey = e->y;
 
-      #if 0
-      if (dragging) {
-        switch (mode) {
-        case Mode::PLAY:
-
-          break;
-        default:;
-        }
-        ui_dirty = true;
-      }
-      #endif
       break;
     }
 
@@ -374,8 +406,10 @@ UI::EventResult UI::HandleEvents() {
         break;
 
       case 3:
+        vel.y = MapAxis(j->value);
+        break;
+
       case 4:
-        // TODO: Look
         break;
       }
 
