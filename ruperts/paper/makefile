@@ -27,8 +27,8 @@ $(SQLITE)/%.o : $(SQLITE)/%.cc makefile
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
 	@echo -n "."
 
-%.svg : %.stl
-	../makesvg.exe $< $@
+%.svg : %.stl %.view makesvg.exe
+	./makesvg.exe $< $@
 
 BOVEX_LIB=$(BOVEX)/stdlib.bovex $(BOVEX)/cite.bovex $(BOVEX)/layout.bovex $(BOVEX)/palatino.bovex $(BOVEX)/paper.bib $(BOVEX)/hyph-en-us.tex
 

@@ -26,7 +26,9 @@ void TransformMesh(const mat4 &mtx, TriangularMesh3D *mesh) {
   for (vec3 &v : mesh->vertices) v = yocto::transform_point(mtx, v);
 }
 
-static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
+static void SaveSVG(std::string_view infile, std::string_view outfile) {
+
+  TriangularMesh3D mesh = LoadSTL(infile);
 
   // Should always be safe to reorient the mesh.
   OrientMesh(&mesh);
@@ -39,39 +41,36 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
                                       "px",
                                       "ruperts");
 
-  // vec3 camera_pos = vec3{-4, 16, 8};
-  // vec3 camera_pos = vec3{30, -60, 90}; // vec3{-4, 16, 8};
+  std::string view_file = Util::Replace(infile, ".stl", ".view");
+  MeshView view;
+  if (Util::ExistsFile(view_file)) {
+    printf("Loading view from %s.\n", view_file.c_str());
+    view = MeshView::FromString(Util::ReadFile(view_file));
+  }
 
-  vec3 camera_pos = vec3{0, 16, 4};
-
-  frame3 f = yocto::lookat_frame(
+  frame3 f = inverse(yocto::lookat_frame(
       // eye, elevated off xy plane and
       // backed away from the model along y.
-      camera_pos,
-      // looking at origin
+      view.camera_pos,
+      // always looking at origin
       vec3{0, 0, 0},
       // up is up
-      vec3{0, 0, 1},
-      /* inv_xz */ false);
+      view.up_vector,
+      /* inv_xz */ false));
 
-  constexpr double FOVY = 0.5; // 1.0; // 1 radian is about 60 deg
-  constexpr double ASPECT_RATIO = 1.0;
-  constexpr double NEAR_PLANE = 0.1;
-  constexpr double FAR_PLANE = 100.0;
-  mat4 persp = yocto::perspective_mat(FOVY, ASPECT_RATIO, NEAR_PLANE);
-  // , FAR_PLANE);
-
-  // printf("Frame:\n%s\n", FrameString(f).c_str());
+  mat4 persp = yocto::perspective_mat(view.fov, 1.0, view.near_plane, view.far_plane);
 
   mat4 mtx = persp;
 
   TransformMesh(f, &mesh);
   TransformMesh(mtx, &mesh);
 
+  /*
   for (const vec3 &v : mesh.vertices) {
     printf("  vertex: %.6g %.6g %.6g\n",
            v.x, v.y, v.z);
   }
+  */
 
   Bounds bounds;
   for (const vec3 &v : mesh.vertices) {
@@ -87,13 +86,15 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
   // FlipY is buggy when some are negative?
   Bounds::Scaler scaler = bounds.ScaleToFit(WIDTH, HEIGHT); // .FlipY();
 
-  // Sort triangles by ascending z coordinate. Positive z is closer
-  // to the camera.
+  // Sort triangles by ascending z coordinate, after projection.
+  // Positive z is closer to the camera.
   std::sort(mesh.triangles.begin(),
             mesh.triangles.end(),
             [&mesh](const auto &t1, const auto &t2) -> bool {
               const auto &[a1, b1, c1] = t1;
               const auto &[a2, b2, c2] = t2;
+
+              /*
               double z1 = std::max({
                   mesh.vertices[a1].z,
                   mesh.vertices[b1].z,
@@ -102,11 +103,22 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
                   mesh.vertices[a2].z,
                   mesh.vertices[b2].z,
                   mesh.vertices[c2].z});
-              return z1 < z2;
+              */
+
+              double avg1 =
+                (mesh.vertices[a1].z +
+                 mesh.vertices[b1].z +
+                 mesh.vertices[c1].z);
+              double avg2 =
+                (mesh.vertices[a2].z +
+                 mesh.vertices[b2].z +
+                 mesh.vertices[c2].z);
+
+              return avg1 < avg2;
             });
 
-  mat3 rotation = yocto::rotation(f);
-  vec3 camera_dir = yocto::normalize(vec3{0, 0, 0} - camera_pos);
+  // mat3 rotation = yocto::rotation(f);
+  // vec3 camera_dir = yocto::normalize(vec3{0, 0, 0} - view.camera_pos);
 
   for (const auto &[a, b, c] : mesh.triangles) {
     vec3 v0 = mesh.vertices[a];
@@ -114,7 +126,7 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
     vec3 v2 = mesh.vertices[c];
 
     vec3 normal = yocto::normalize(yocto::cross(v1 - v0, v2 - v0));
-    vec3 normal_camera = yocto::transform_direction(rotation, normal);
+    // vec3 normal_camera = yocto::transform_direction(rotation, normal);
 
     // Backface culling.
     bool backface = normal.z < 0;
@@ -137,8 +149,8 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
 
   svg += TextSVG::Footer();
 
-  Util::WriteFile(filename, svg);
-  printf("Wrote %s\n", std::string(filename).c_str());
+  Util::WriteFile(outfile, svg);
+  printf("Wrote %s\n", std::string(outfile).c_str());
 }
 
 int main(int argc, char **argv) {
@@ -148,9 +160,7 @@ int main(int argc, char **argv) {
   std::string infile = argv[1];
   std::string outfile = argv[2];
 
-  TriangularMesh3D mesh = LoadSTL(infile);
-
-  SaveSVG(mesh, outfile);
+  SaveSVG(infile, outfile);
 
   return 0;
 }
