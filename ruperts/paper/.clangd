@@ -1,0 +1,16 @@
+Diagnostics:
+  ClangTidy:
+    # Only availabile in clang 18+
+    FastCheckFilter: Strict
+  MissingIncludes: Strict
+  Includes:
+    IgnoreHeader: [base/logging.h, <cstdint>, <cstddef>]
+
+# I'm not showing these, so disable them in the hopes of saving
+# time.
+InlayHints:
+  Enabled: No
+
+# -DBIG_USE_GMP=1,
+CompileFlags:
+  Add: [-xc++, -Wall, -Wshadow-field, --std=c++23, -I.., -I../../cc-lib, -I../../codec, -I../../sqlite]

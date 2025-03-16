@@ -6,7 +6,9 @@ let
   import "cite.bovex"
   import "ruperts.bib"
 
-  val doc-title = "Still don’t have a good title"
+  import "solution-table.bovex"
+
+  val doc-title = "Some upsetting things about shapes"
   val doc-subtitle = "There’s no subtitle either"
 
   do set-doc-info {(PDFInfo)
@@ -27,6 +29,11 @@ let
      font-size = 12.0,
      line-spacing = 1.0 } lay
 
+  fun sup lay =
+    span {(Span) font-size = 8.0,
+          (* Don't rephrase the text in these. *)
+          no-rephrase = true } lay
+
   fun footnote s = [([b[footnote]]: [s])]
 
   val next-figure-id = ref 1
@@ -38,6 +45,79 @@ let
     end
 
   val ROLL-PITCH-YAW = figure-id()
+
+  fun make-sol-table () =
+    let
+
+      (* for positive f, return g * 10^e such that 1.0 <= g < 10.0. *)
+      fun exp-notation f =
+        if f >=. 10.0
+        then let val (g, e) = exp-notation (f /. 10.0)
+             in (g, e + 1)
+             end
+        else if f <. 1.0
+             then
+               let val (g, e) = exp-notation (f *. 10.0)
+               in (g, e - 1)
+               end
+             else (f, 0)
+
+      fun render-finite-float f =
+        if f <. 0.0
+        then [-[render-finite-float (0.0 -. f)]]
+        else
+          let
+            val ipart : int = trunc f
+            val fpart : float = int-to-float ipart -. f
+          in
+            if ipart >= 1000000 andalso ipart <= 100000000
+            then layout (int-to-string ipart)
+            else
+              let
+                val (g, exp) = exp-notation f
+
+                (* now render g as a fixed number of decimal
+                   points. *)
+                val n = round (g *. 1000000.0)
+                val s = int-to-string n
+                do string-size s != 7
+                   andthen fail ("huh? " ^ s)
+              in
+                layout (string-prefix (s, 1)) ^^ [.] ^^
+                layout (substr-rest (s, 1)) ^^
+                (if exp == 0
+                 then []
+                 else [×10[sup (layout (int-to-string exp))]])
+              end
+          end
+
+      fun render-float f =
+        if float-is-nan f then ["NaN"]
+        else if f ==. float-inf then [∞]
+             else if f ==. float-inf then [-∞]
+                  else render-finite-float f
+
+      fun make-box lay =
+        get-boxes (layout-map-text normalize-whitespace lay)
+
+      fun one-row (_, name, NONE) =
+        (get-boxes (layout name),
+         get-boxes [?],
+         get-boxes [?])
+        | one-row (_, name, SOME(ratio, clearance)) =
+        (get-boxes (layout name),
+         get-boxes (render-float ratio),
+         get-boxes (render-float clearance))
+
+      val rows = list-map one-row solution-table
+
+      fun rec nil = []
+        | rec ((name, r, c) :: rest) =
+        name ^^ r ^^ c ^^ hfill() ^^ break() ^^
+        rec rest
+    in
+      rec rows
+    end
 
 in
 
@@ -51,6 +131,29 @@ in
  How big is the unit cube? “1?” Seems obvious, right?
  Let me ask you another way: [it[Where]] is the unit cube? “0?”
 
+ Or: How big is the unit sphere? “1?” Imagine I am asking you these
+ questions where pounce upon you with the next question just as
+ you start to answer the first. To keep you off your balance,
+ I mean. [it[Where]] is the unit sphere? “0?” Which is bigger, the
+ unit cube or the unit sphere? Sweating yet?
+
+ “Officially” speaking, the unit cube has edge length 1, and
+ has all non-negative home coordinates, like ({0, 1}, {0, 1}, {0, 1}).
+ According to those same math referees, the unit sphere has [it[radius]]
+ 1, and its center at (0, 0, 0).
+
+ So the unit cube fits easily within the unit sphere. I don't know
+ about you, but I always imagine the idealized cube and sphere
+ centered on the origin, with the sphere tucked inside the cube,
+ touching its sides at their centers.[footnote[The long-running
+ ThursDz's Beer Society of Math Geniuses decided that what I am
+ actually imagining is not the unit cube but the "L-infinity unit
+ sphere," which I think may be true but sounds like I'm just trying to
+ be an asshole.]]
+
+ ... shrinkwrap ...
+
+ Does the unit sphere fit inside the
 
  Now that I’ve gotten the "dice in sphere" pun out of the way, we can
  move onto the real topic of this paper.
@@ -207,10 +310,11 @@ to know about the Quaternions:
 
 [ul([Most people don’t capitalize Quaternions.] ::
 
-    [Like complex numbers where you have a + bi, here we have a + bi +
-    cj + dk. The parameters are (a, b, c, d) and i,j,k are “even more
-    imaginary” “constants” that have some impossible relations, like
-    i^2 = -1 but also ijk = -1] ::
+    [Like complex numbers where you have a + b[b[i]], here we have a +
+    b[b[i]] + c[b[j]] + d[b[k]]. The parameters are (a, b, c, d) and
+    [b[i]], [b[j]], [b[k]] are “even more imaginary” “constants” that
+    have some impossible relations, like [b[i]][sup[2]] = -1 but also
+    [b[ijk]] = -1] ::
 
     [You can just think of a quaternion as a four-dimensional vector
     (a, b, c, d). If this is a unit-length vector, then represents an
@@ -243,7 +347,7 @@ To generate 4D points inside a 4D hypersphere[footnote
  is that a normal sphere in 3D is called a 2-sphere, since its
  surface is actually two dimensional. It would just seem to add
 confusion here, though.]], you do the same thing,
-but now the hypervolume is π^2/2, and the 4D hypercube has hypervolume
+but now the hypervolume is π[sup[2]]/2, and the 4D hypercube has hypervolume
 16, so you get samples at an efficiency of about 30.8%.
 
 Upsettingly, as we increase dimensions, the hypervolume of the
@@ -297,15 +401,68 @@ variant of BiteOpt[cite vaneev2024biteopt]. Black box optimization
 is good for people like me and Euler who are bad at math.
 
 
+[subsubsection[Epsilon]]
+
+Speaking of epsilon, and
+
 Infinitely many
 What’s the best Rupert?
 
+[subsection[Results]]
+[make-sol-table ()]
 
- [section [Bibliography]]
+[section[Improvements to BoVeX]]
 
- [bibliography()]
+To make my life harder, but also more thrilling, I typeset this
+paper in BoVeX, which is a document preparation system I wrote
+as a joke (?) for SIGBOVIK 2024.[cite murphy2024badness] You can
+tell from the way that the math looks like a child typeset it
+that I didn't yet implement any fancy layout algorithms for that.
 
- ]))
+I did, however, spend precious vacation days in the run-up to SIGBOVIK
+2025 adding features and fixing other, less important deficiencies of
+BoVeX so that I can continue my demented quest to use primarily
+software written by myself as a joke (?) instead of the perfectly
+decent mainstream software that everybody else uses, and whose lives
+are therefore presumably not thrilling in this way. So begins the
+Tom 7 SIGBOVIK tradition of listing [it[BoVeX improvements]]:
+
+[paragraph[Unicode]] BoVeX now supports Unicode fonts. I needed this
+so that I could write π when I was on a digression about sampling
+quaternions. This was so annoying to implement! PDF was defined during
+the era where we were just finally realizing that our approach to
+character sets and font encoding was unsustainably complicated, and so
+they tacked on Unicode as a hack on top of that complicated mess. So
+you get all the benefits of the complexity of Unicode and all of the
+benefits of the complexity of not Unicode. You actually have to manage
+the glyphs yourself, for example, but also tell PDF how big everything
+is (but also how big it [it[might be]], just in case it's inconvenient
+to actually render it) and you also have to tell it how to decode the
+glyphs back into Unicode so that you can search or copy-paste from the
+PDF. Ugh! There are a number of undocumented or barely-documented
+requirements, and the symptoms of mistakes are that Adobe Acrobat will
+tell you “Unable to open [tt[test.pdf]]. Please contact the document
+author.” Um, I contacted myself but nothing happened! But now you can
+just put UTF-8 in your BoVeX source code and it'll work. Check this
+out: Дональд Трамп может поцеловать мою задницу!
+
+[paragraph[FixederSys]] Along those same lines, I extended the
+FixederSys font family[cite fixedersys-site] with a lot more Unicode
+characters, like the many exotic mathematical symbols that nobody has
+ever used. Unicode is even more inspiring to notation fetishists than
+[tt[amssymb]] in this regard. It's too bad that the math in this paper
+is so elementary, or else we could be like [b (fixedersys[A ≽ B ⊯ ⊱∔C
+⊶ ∷D⊰])].
+
+[paragraph["Robustness"]]
+BoVeX no longer crashes programs like Adobe Acrobat that expect
+the PDFs to be "correct." LOL!!
+
+[section [Bibliography]]
+
+[bibliography()]
+
+]))
 
 end
 
@@ -326,13 +483,14 @@ now, most rich ..
 
  illustrate all the hulls
 
- table of best ratios
+ table of best ratios/clearances
 
  small noperts
 
  gpu version
  rational version
  z3 version
+   .. decidable
 
 triangle man hates particle man
 

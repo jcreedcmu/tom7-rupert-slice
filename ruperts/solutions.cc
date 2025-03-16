@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -18,6 +19,32 @@
 #include "util.h"
 
 using frame3 = SolutionDB::frame3;
+
+using Solution = SolutionDB::Solution;
+
+SolutionDB::SolutionDB(const char *dbfile) {
+  std::string f = dbfile;
+  // XXX would be good if we could determine when this
+  // has reached the root?
+  for (int i = 0; i < 5; i++) {
+    if (Util::ExistsFile(f)) {
+      db = Database::Open(f);
+      CHECK(db.get() != nullptr) << f;
+      break;
+    }
+
+    f = StringPrintf("../%s", f.c_str());
+  }
+
+  if (db.get() == nullptr) {
+    // Otherwise create it here.
+    db = Database::Open(dbfile);
+    CHECK(db.get() != nullptr) << dbfile;
+  }
+
+  Init();
+}
+
 
 std::string SolutionDB::FrameString(const frame3 &frame) {
   return StringPrintf(
@@ -161,11 +188,11 @@ void SolutionDB::AddNopert(const Polyhedron &poly, int method) {
 }
 
 // Expects a specific column order; see below.
-static std::vector<SolutionDB::Solution> GetSolutionsForQuery(
+static std::vector<Solution> GetSolutionsForQuery(
     std::unique_ptr<Database::Query> q) {
-  std::vector<SolutionDB::Solution> ret;
+  std::vector<Solution> ret;
   while (std::unique_ptr<Database::Row> r = q->NextRow()) {
-    SolutionDB::Solution sol;
+    Solution sol;
     sol.id = r->GetInt(0);
     sol.polyhedron = r->GetString(1);
     sol.method = r->GetInt(2);
@@ -183,7 +210,7 @@ static std::vector<SolutionDB::Solution> GetSolutionsForQuery(
   return ret;
 }
 
-std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
+std::vector<Solution> SolutionDB::GetAllSolutions() {
   return GetSolutionsForQuery(
     db->ExecuteString(
         "select "
@@ -193,7 +220,7 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllSolutions() {
         "where invalid = 0"));
 }
 
-SolutionDB::Solution SolutionDB::GetBestSolutionFor(std::string_view name,
+Solution SolutionDB::GetBestSolutionFor(std::string_view name,
                                                     bool use_clearance) {
   std::vector<Solution> sols = GetSolutionsForQuery(
     db->ExecuteString(
@@ -212,7 +239,27 @@ SolutionDB::Solution SolutionDB::GetBestSolutionFor(std::string_view name,
   return sols[0];
 }
 
-std::vector<SolutionDB::Solution> SolutionDB::GetAllNopertSolutions() {
+std::pair<std::unordered_map<std::string, Solution>,
+          std::unordered_map<std::string, Solution>> SolutionDB::BestSolutions() {
+  std::unordered_map<std::string, Solution> lowest_ratio;
+  std::unordered_map<std::string, Solution> highest_clearance;
+
+  for (const Solution &sol : GetAllSolutions()) {
+    if (!lowest_ratio.contains(sol.polyhedron) ||
+        lowest_ratio[sol.polyhedron].ratio > sol.ratio) {
+      lowest_ratio[sol.polyhedron] = sol;
+    }
+
+    if (!highest_clearance.contains(sol.polyhedron) ||
+        highest_clearance[sol.polyhedron].clearance < sol.clearance) {
+      highest_clearance[sol.polyhedron] = sol;
+    }
+  }
+
+  return std::make_pair(std::move(lowest_ratio), std::move(highest_clearance));
+}
+
+std::vector<Solution> SolutionDB::GetAllNopertSolutions() {
   return GetSolutionsForQuery(
     db->ExecuteString(
         "select "
@@ -222,7 +269,7 @@ std::vector<SolutionDB::Solution> SolutionDB::GetAllNopertSolutions() {
         "and invalid = 0"));
 }
 
-SolutionDB::Solution SolutionDB::GetSolution(int id) {
+Solution SolutionDB::GetSolution(int id) {
   std::vector<Solution> sols = GetSolutionsForQuery(
     db->ExecuteString(
         std::format(
@@ -235,7 +282,7 @@ SolutionDB::Solution SolutionDB::GetSolution(int id) {
   return sols[0];
 }
 
-std::vector<SolutionDB::Solution> SolutionDB::GetSolutionsFor(
+std::vector<Solution> SolutionDB::GetSolutionsFor(
     std::string_view name) {
   return GetSolutionsForQuery(
     db->ExecuteString(

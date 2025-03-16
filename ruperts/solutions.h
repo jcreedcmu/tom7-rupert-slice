@@ -8,6 +8,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "auto-histo.h"
@@ -21,7 +23,7 @@ struct SolutionDB {
   using vec3 = yocto::vec<double, 3>;
   using frame3 = yocto::frame<double, 3>;
 
-  static constexpr const char *DBFILE = "ruperts.sqlite";
+  // static constexpr const char *DBFILE = "ruperts.sqlite";
 
   static constexpr int METHOD_INVALID = 0;
   static constexpr int METHOD_HULL = 1;
@@ -59,12 +61,9 @@ struct SolutionDB {
   using Query = Database::Query;
   using Row = Database::Row;
 
-  SolutionDB() {
-    db = Database::Open(DBFILE);
-    CHECK(db.get() != nullptr) << DBFILE;
-
-    Init();
-  }
+  // Also looks for the database in parent directories
+  // before creating it.
+  SolutionDB(const char *dbfile = "ruperts.sqlite");
 
   static std::string FrameString(const frame3 &frame);
   static std::optional<frame3> StringFrame(const std::string &s);
@@ -118,6 +117,12 @@ struct SolutionDB {
                               // true = highest clearance
                               bool use_clearance = false);
   std::vector<Solution> GetAllNopertSolutions();
+
+  std::pair<
+    // By lowest ratio
+    std::unordered_map<std::string, Solution>,
+    // By highest clearance
+    std::unordered_map<std::string, Solution>> BestSolutions();
 
   static std::string NopertName(int id) {
     return StringPrintf("nopert_%d", id);
