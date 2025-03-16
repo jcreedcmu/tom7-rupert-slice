@@ -2,16 +2,18 @@
 default : ruperts.pdf table.exe
 
 SQLITE=../../SQLITE
+CC_LIB=../../cc-lib
+
+# requires building bovex.exe
+BOVEX=../../rephrase
 
 CXXFLAGS=$(ASAN) $(OPT) $(GMP_CFLAGS) -march=native -Wall -Wno-psabi -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -I. -I.. -I$(CC_LIB) -I$(SQLITE) --std=c++23
 LFLAGS=$(ASAN) $(GMP_LFLAGS) -flto -lz
 
-CC_LIB=../../cc-lib
-
 CC_LIB_OBJECTS=$(CC_LIB)/util.o $(CC_LIB)/arcfour.o $(CC_LIB)/base/stringprintf.o $(CC_LIB)/base/logging.o $(CC_LIB)/stb_image.o $(CC_LIB)/stb_image_write.o $(CC_LIB)/stb_truetype.o $(CC_LIB)/color-util.o $(CC_LIB)/image.o $(CC_LIB)/ansi.o  $(CC_LIB)/atomic-util.o $(CC_LIB)/status-bar.o $(CC_LIB)/zip.o $(CC_LIB)/miniz.o $(CC_LIB)/ansi-image.o $(CC_LIB)/image-resize.o $(CC_LIB)/opt/opt.o $(CC_LIB)/bounds.o $(CC_LIB)/interval-cover.o $(CC_LIB)/interval-cover-util.o $(CC_LIB)/bignum/big.o $(CC_LIB)/bignum/bigz.o $(CC_LIB)/bignum/bign.o $(CC_LIB)/bignum/bigq.o $(CC_LIB)/bignum/big-numbers.o $(CC_LIB)/bignum/polynomial.o $(CC_LIB)/textsvg.o $(CC_LIB)/hexdump.o
 
 SQLITE_OBJECTS=$(SQLITE)/sqlite3.o $(SQLITE)/database.o
-OBJECTS=$(CC_LIB_OBJECTS) $(SQLITE_OBJECTS) ../solutions.o
+OBJECTS=$(CC_LIB_OBJECTS) $(SQLITE_OBJECTS) ../solutions.o ../mesh.o
 
 $(CC_LIB)/%.o : $(CC_LIB)/%.cc makefile
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -28,8 +30,6 @@ $(SQLITE)/%.o : $(SQLITE)/%.cc makefile
 %.svg : %.stl
 	../makesvg.exe $< $@
 
-# requires building bovex.exe
-BOVEX=../../rephrase
 BOVEX_LIB=$(BOVEX)/stdlib.bovex $(BOVEX)/cite.bovex $(BOVEX)/layout.bovex $(BOVEX)/palatino.bovex $(BOVEX)/paper.bib $(BOVEX)/hyph-en-us.tex
 
 solution-table.bovex : table.exe
@@ -46,6 +46,10 @@ ruperts.pdf : ruperts.bovex solution-table.bovex ruperts.bib $(BOVEX_LIB)
 	$(BOVEX)/bovex.exe -I . -v ruperts.bovex -o $@
 
 table.exe : table.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+makesvg.exe : makesvg.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

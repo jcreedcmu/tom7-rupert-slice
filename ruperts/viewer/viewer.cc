@@ -150,39 +150,22 @@ struct Scene {
   }
 
   void SaveView(std::string_view filename) {
-    std::string contents;
-    // perspective
-    AppendFormat(&contents,
-                 "{:17g} {:17g} {:17g}\n",
-                 FOVY, NEAR_PLANE, FAR_PLANE);
+    MeshView view;
+    view.fov = FOVY;
+    view.near_plane = NEAR_PLANE;
+    view.far_plane = FAR_PLANE;
 
-    // camera pos
-    AppendFormat(&contents,
-                 "{:17g} {:17g} {:17g}\n",
-                 camera_pos.x, camera_pos.y, camera_pos.z);
-    // up vector
-    AppendFormat(&contents,
-                 "{:17g} {:17g} {:17g}\n",
-                 up_vector.x, up_vector.y, up_vector.z);
+    view.camera_pos = camera_pos;
+    view.up_vector = up_vector;
 
-    Util::WriteFile(filename, contents);
+    Util::WriteFile(filename, view.ToString());
   }
 
   void LoadView(std::string_view filename) {
-    std::vector<std::string> contents =
-      Util::NormalizeLines(Util::ReadFileToLines(filename));
-
-    CHECK(contents.size() == 3);
-    // XXX
-    printf("Note: perspective settings are ignored\n");
-
-    camera_pos.x = Util::ParseDouble(Util::chop(contents[1]));
-    camera_pos.y = Util::ParseDouble(Util::chop(contents[1]));
-    camera_pos.z = Util::ParseDouble(Util::chop(contents[1]));
-
-    up_vector.x = Util::ParseDouble(Util::chop(contents[2]));
-    up_vector.y = Util::ParseDouble(Util::chop(contents[2]));
-    up_vector.z = Util::ParseDouble(Util::chop(contents[2]));
+    MeshView view = MeshView::FromString(Util::ReadFile(filename));
+    printf("XXX perspective settings are ignored.\n");
+    camera_pos = view.camera_pos;
+    up_vector = view.up_vector;
   }
 
   void Draw(ImageRGBA *img) {

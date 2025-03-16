@@ -279,37 +279,42 @@ TriangularMesh3D ConcatMeshes(const std::vector<TriangularMesh3D> &meshes) {
   return out;
 }
 
-#if 0
-// Face meshes need to be triangulated.
-void SaveAsSTL(const Mesh3D &mesh, std::string_view filename,
-               std::string_view name) {
-  std::string solid_name = name.empty() ? "mesh" : std::string(name);
-  std::string contents = std::format("solid {}\n", solid_name);
+std::string MeshView::ToString() const {
+  std::string contents;
+  // perspective
+  AppendFormat(&contents,
+               "{:17g} {:17g} {:17g}\n",
+               fov, near_plane, far_plane);
 
-  for (const std::vector<int> &v : mesh.faces) {
-    CHECK(v.size() >= 3);
+  // camera pos
+  AppendFormat(&contents,
+               "{:17g} {:17g} {:17g}\n",
+               camera_pos.x, camera_pos.y, camera_pos.z);
+  // up vector
+  AppendFormat(&contents,
+               "{:17g} {:17g} {:17g}\n",
+               up_vector.x, up_vector.y, up_vector.z);
 
-    // XXX this is not good; the points could be colinear
-    const vec3 &p0 = mesh.vertices[v[0]];
-    const vec3 &p1 = mesh.vertices[v[1]];
-    const vec3 &p2 = mesh.vertices[v[2]];
-
-    vec3 normal = yocto::normalize(yocto::cross(p1 - p0, p2 - p0));
-
-    AppendFormat(&contents, "  facet normal {} {} {}\n",
-                  normal.x, normal.y, normal.z);
-    AppendFormat(&contents, "    outer loop\n");
-    for (int i : v) {
-      const vec3 &p = mesh.vertices[i];
-      AppendFormat(&contents, "      vertex {} {} {}\n", p.x, p.y, p.z);
-    }
-    AppendFormat(&contents, "    endloop\n");
-    AppendFormat(&contents, "  endfacet\n");
-  }
-
-  AppendFormat(&contents, "endsolid {}\n", name);
-  std::string f = (std::string)filename;
-  Util::WriteFile(f, contents);
-  printf("Wrote " AGREEN("%s") "\n", f.c_str());
+  return contents;
 }
-#endif
+
+MeshView MeshView::FromString(std::string_view s) {
+  std::vector<std::string> contents =
+    Util::NormalizeLines(Util::SplitToLines(s));
+  CHECK(contents.size() == 3);
+
+  MeshView v;
+  v.fov = Util::ParseDouble(Util::chop(contents[0]));
+  v.near_plane = Util::ParseDouble(Util::chop(contents[0]));
+  v.far_plane = Util::ParseDouble(Util::chop(contents[0]));
+
+  v.camera_pos.x = Util::ParseDouble(Util::chop(contents[1]));
+  v.camera_pos.y = Util::ParseDouble(Util::chop(contents[1]));
+  v.camera_pos.z = Util::ParseDouble(Util::chop(contents[1]));
+
+  v.up_vector.x = Util::ParseDouble(Util::chop(contents[2]));
+  v.up_vector.y = Util::ParseDouble(Util::chop(contents[2]));
+  v.up_vector.z = Util::ParseDouble(Util::chop(contents[2]));
+
+  return v;
+}

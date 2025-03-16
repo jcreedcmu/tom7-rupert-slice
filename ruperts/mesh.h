@@ -1,6 +1,7 @@
 #ifndef _RUPERTS_MESH_H
 #define _RUPERTS_MESH_H
 
+#include <string>
 #include <string_view>
 #include <vector>
 #include <tuple>
@@ -38,6 +39,23 @@ TriangularMesh3D ConcatMeshes(const std::vector<TriangularMesh3D> &meshes);
 // must be a connected manifold, since this is how we determine what
 // that order should be!
 void OrientMesh(TriangularMesh3D *mesh);
+
+struct MeshView {
+  using vec3 = yocto::vec<double, 3>;
+
+  // perspective transformation.
+  double fov = 1.0;
+  double near_plane = 0.1;
+  double far_plane = 1000.0;
+
+  // looking at origin.
+  vec3 camera_pos = {};
+  vec3 up_vector = {};
+
+  std::string ToString() const;
+
+  static MeshView FromString(std::string_view s);
+};
 
 
 #endif

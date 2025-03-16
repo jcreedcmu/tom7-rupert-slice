@@ -61,7 +61,7 @@ static void SaveSVG(TriangularMesh3D mesh, std::string_view filename) {
   mat4 persp = yocto::perspective_mat(FOVY, ASPECT_RATIO, NEAR_PLANE);
   // , FAR_PLANE);
 
-  printf("Frame:\n%s\n", FrameString(f).c_str());
+  // printf("Frame:\n%s\n", FrameString(f).c_str());
 
   mat4 mtx = persp;
 
