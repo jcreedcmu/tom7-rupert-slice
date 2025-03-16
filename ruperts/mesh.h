@@ -49,8 +49,8 @@ struct MeshView {
   double far_plane = 1000.0;
 
   // looking at origin.
-  vec3 camera_pos = {};
-  vec3 up_vector = {};
+  vec3 camera_pos = {0, 0, 1};
+  vec3 up_vector = {0, 1, 0};
 
   std::string ToString() const;
 

@@ -1311,42 +1311,71 @@ Polyhedron PolyhedronByName(std::string_view name) {
   LOG(FATAL) << "Unknown polyhedron " << name;
 }
 
-std::string PolyhedronShortName(std::string_view name) {
-  if (name == "tetrahedron") return "tetra";
-  if (name == "cube") return "cube";
-  if (name == "dodecahedron") return "dode";
-  if (name == "icosahedron") return "icos";
-  if (name == "octahedron") return "octa";
-  if (name == "truncatedtetrahedron") return "ttetra";
-  if (name == "cuboctahedron") return "cocta";
-  if (name == "truncatedcube") return "tcube";
-  if (name == "truncatedoctahedron") return "tocta";
-  if (name == "rhombicuboctahedron") return "rcocta";
-  if (name == "truncatedcuboctahedron") return "tcocta";
-  if (name == "snubcube") return "scube";
-  if (name == "icosidodecahedron") return "idode";
-  if (name == "truncateddodecahedron") return "tdode";
-  if (name == "truncatedicosahedron") return "ticos";
-  if (name == "rhombicosidodecahedron") return "ridode";
-  if (name == "truncatedicosidodecahedron") return "tidode";
-  if (name == "snubdodecahedron") return "sdode";
-  if (name == "triakistetrahedron") return "ktetra";
-  if (name == "rhombicdodecahedron") return "rdode";
-  if (name == "triakisoctahedron") return "kocta";
-  if (name == "tetrakishexahedron") return "thexa";
-  if (name == "deltoidalicositetrahedron") return "ditet";
-  if (name == "disdyakisdodecahedron") return "ddode";
-  if (name == "deltoidalhexecontahedron") return "dhexe";
-  if (name == "pentagonalicositetrahedron") return "pitet";
-  if (name == "rhombictriacontahedron") return "rtriac";
-  if (name == "triakisicosahedron") return "kicos";
-  if (name == "pentakisdodecahedron") return "pdode";
-  if (name == "disdyakistriacontahedron") return "dtriac";
-  if (name == "pentagonalhexecontahedron") return "phexe";
+namespace {
+struct NameMap {
+  NameMap() : names(
+      std::vector<std::tuple<std::string, std::string, std::string>>{
+        {"tetra", "tetrahedron", "tetrahedron"},
+        {"cube", "cube", "cube"},
+        {"dode", "dodecahedron", "dodecahedron"},
+        {"icos", "icosahedron", "icosahedron"},
+        {"octa", "octahedron", "octahedron"},
+        {"ttetra", "truncatedtetrahedron", "truncated tetrahedron"},
+        {"cocta", "cuboctahedron", "cuboctahedron"},
+        {"tcube", "truncatedcube", "truncated cube"},
+        {"tocta", "truncatedoctahedron", "truncated octahedron"},
+        {"rcocta", "rhombicuboctahedron", "rhombicuboctahedron"},
+        {"tcocta", "truncatedcuboctahedron", "truncated cuboctahedron"},
+        {"scube", "snubcube", "snub cube"},
+        {"idode", "icosidodecahedron", "icosidodecahedron"},
+        {"tdode", "truncateddodecahedron", "truncated dodecahedron"},
+        {"ticos", "truncatedicosahedron", "truncated icosahedron"},
+        {"ridode", "rhombicosidodecahedron", "rhombicosidodecahedron"},
+        {"tidode", "truncatedicosidodecahedron", "truncated icosidodecahedron"},
+        {"sdode", "snubdodecahedron", "snub dodecahedron"},
+        {"ktetra", "triakistetrahedron", "triakis tetrahedron"},
+        {"rdode", "rhombicdodecahedron", "rhombic dodecahedron"},
+        {"kocta", "triakisoctahedron", "triakis octahedron"},
+        {"thexa", "tetrakishexahedron", "tetrakis hexahedron"},
+        {"ditet", "deltoidalicositetrahedron", "deltoidal icositetrahedron"},
+        {"ddode", "disdyakisdodecahedron", "disdyakis dodecahedron"},
+        {"dhexe", "deltoidalhexecontahedron", "deltoidal hexecontahedron"},
+        {"pitet", "pentagonalicositetrahedron", "pentagonal icositetrahedron"},
+        {"rtriac", "rhombictriacontahedron", "rhombic triacontahedron"},
+        {"kicos", "triakisicosahedron", "triakis icosahedron"},
+        {"pdode", "pentakisdodecahedron", "pentakis dodecahedron"},
+        {"dtriac", "disdyakistriacontahedron", "disdyakis triacontahedron"},
+        {"phexe", "pentagonalhexecontahedron", "pentagonal hexecontahedron"}
+      }) {}
+  std::vector<std::tuple<std::string, std::string, std::string>> names;
+};
+}  // namespace
 
-  return std::string(name);
+static const NameMap &GetNameMap() {
+  static const NameMap *m = new NameMap;
+  return *m;
 }
 
+std::string PolyhedronShortName(std::string_view name) {
+  for (const auto &[a, b, c] : GetNameMap().names) {
+    if (b == name) return a;
+  }
+  LOG(FATAL) << "Unknown polyhedron identifier: " << name;
+}
+
+std::string PolyhedronIdFromNickname(std::string_view name) {
+  for (const auto &[a, b, c] : GetNameMap().names) {
+    if (a == name) return b;
+  }
+  LOG(FATAL) << "Unknown polyhedron nickname: " << name;
+}
+
+std::string PolyhedronHumanName(std::string_view name) {
+  for (const auto &[a, b, c] : GetNameMap().names) {
+    if (b == name) return c;
+  }
+  LOG(FATAL) << "Unknown polyhedron identifier: " << name;
+}
 
 Polyhedron Dodecahedron() {
   constexpr bool VERBOSE = false;

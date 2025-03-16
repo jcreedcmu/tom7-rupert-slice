@@ -34,35 +34,6 @@ std::string FullMethodName(const char *color,
   }
 }
 
-static const std::unordered_map<std::string, std::string> &NicerNames() {
-  static auto *s = new std::unordered_map<std::string, std::string>{
-    {"truncatedtetrahedron", "truncated tetrahedron"},
-    {"truncatedcube", "truncated cube"},
-    {"truncatedoctahedron", "truncated octahedron"},
-    {"truncatedcuboctahedron", "truncated cuboctahedron"},
-    {"snubcube", "snub cube"},
-    {"truncateddodecahedron", "truncated dodecahedron"},
-    {"truncatedicosahedron", "truncated icosahedron"},
-    {"truncatedicosidodecahedron", "truncated icosidodecahedron"},
-    {"snubdodecahedron", "snub dodecahedron"},
-    {"triakistetrahedron", "triaki stetrahedron"},
-    {"rhombicdodecahedron", "rhombic dodecahedron"},
-    {"triakisoctahedron", "triakis octahedron"},
-    {"tetrakishexahedron", "tetrakis hexahedron"},
-    {"deltoidalicositetrahedron", "deltoidal icositetrahedron"},
-    {"disdyakisdodecahedron", "disdyakis dodecahedron"},
-    {"deltoidalhexecontahedron", "deltoidal hexecontahedron"},
-    {"pentagonalicositetrahedron", "pentagonal icositetrahedron"},
-    {"rhombictriacontahedron", "rhombic triacontahedron"},
-    {"triakisicosahedron", "triakis icosahedron"},
-    {"pentakisdodecahedron", "pentakis dodecahedron"},
-    {"disdyakistriacontahedron", "disdyakis triacontahedron"},
-    {"pentagonalhexecontahedron", "pentagonal hexecontahedron"},
-  };
-
-  return *s;
-}
-
 static const std::unordered_set<std::string> &Wishlist() {
   static auto *s = new std::unordered_set<std::string>{
     "snubcube",
@@ -101,14 +72,10 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
     if (Util::StartsWith(name, "nopert_"))
       continue;
 
-    std::string nicer_name = name;
-    {
-      const auto &nn = NicerNames();
-      auto it = nn.find(name);
-      if (it != nn.end()) nicer_name = it->second;
-    }
-
     if (filter.empty() || filter.contains(name)) {
+
+      std::string nickname = PolyhedronShortName(name);
+      std::string human_name = PolyhedronHumanName(name);
 
       const std::vector<Solution> &sols = solmap[name];
 
@@ -116,9 +83,8 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
           // Assuming the solutions are not valid if they are
           // for wishlist polyhedra
           Wishlist().contains(name)) {
-        printf("  (\"%s\", \"%s\", NONE) ::\n",
-               name.c_str(),
-               nicer_name.c_str());
+        printf("  (\"%s\", NONE) ::\n",
+               nickname.c_str());
       } else {
 
         // Get the best ratio and best clearance.
@@ -130,9 +96,8 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
           if (s.clearance > best_ratio.clearance) best_clearance = s;
         }
 
-        printf("  (\"%s\", \"%s\", SOME(%s, %s)) ::\n",
-               name.c_str(),
-               nicer_name.c_str(),
+        printf("  (\"%s\", SOME(%s, %s)) ::\n",
+               nickname.c_str(),
                Ftos(best_ratio.ratio).c_str(),
                Ftos(best_clearance.clearance).c_str());
       }

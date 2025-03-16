@@ -8,6 +8,7 @@
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "bounds.h"
+#include "image.h"
 #include "mesh.h"
 #include "polyhedra.h"
 #include "textsvg.h"
@@ -17,6 +18,8 @@
 using vec3 = yocto::vec<double, 3>;
 using frame3 = yocto::frame<double, 3>;
 using mat3 = yocto::mat<double, 3>;
+
+static constexpr bool VERBOSE = false;
 
 void TransformMesh(const frame3 &frame, TriangularMesh3D *mesh) {
   for (vec3 &v : mesh->vertices) v = yocto::transform_point(frame, v);
@@ -77,11 +80,13 @@ static void SaveSVG(std::string_view infile, std::string_view outfile) {
     bounds.Bound(v.x, v.y);
   }
 
-  // bounds.AddMarginFrac(0.05);
+  bounds.AddMarginFrac(0.05);
 
-  printf("Bounds: min (%.11g, %.11g) max (%.11g, %.11g)\n",
-         bounds.MinX(), bounds.MinY(),
-         bounds.MaxX(), bounds.MaxY());
+  if (VERBOSE) {
+    printf("Bounds: min (%.11g, %.11g) max (%.11g, %.11g)\n",
+           bounds.MinX(), bounds.MinY(),
+           bounds.MaxX(), bounds.MaxY());
+  }
 
   // FlipY is buggy when some are negative?
   Bounds::Scaler scaler = bounds.ScaleToFit(WIDTH, HEIGHT); // .FlipY();
@@ -120,6 +125,12 @@ static void SaveSVG(std::string_view infile, std::string_view outfile) {
   // mat3 rotation = yocto::rotation(f);
   // vec3 camera_dir = yocto::normalize(vec3{0, 0, 0} - view.camera_pos);
 
+
+  static constexpr int PX = 2;
+  static constexpr int IMAGE_WIDTH = 1024, IMAGE_HEIGHT = 1024;
+  ImageRGBA img(IMAGE_WIDTH * PX, IMAGE_HEIGHT * PX);
+  img.Clear32(0xFFFFFFFF);
+  Bounds::Scaler iscaler = bounds.ScaleToFit(img.Width(), img.Height());
   for (const auto &[a, b, c] : mesh.triangles) {
     vec3 v0 = mesh.vertices[a];
     vec3 v1 = mesh.vertices[b];
@@ -145,7 +156,29 @@ static void SaveSVG(std::string_view infile, std::string_view outfile) {
         backface ? "fill=\"#ffaaaa\" fill-opacity=\"0.9\"" :
                    "fill=\"#aaaaff\" fill-opacity=\"0.3\""
                  );
+
+    {
+      // And on the image.
+      const auto &[v0x, v0y] = iscaler.Scale(v0.x, v0.y);
+      const auto &[v1x, v1y] = iscaler.Scale(v1.x, v1.y);
+      const auto &[v2x, v2y] = iscaler.Scale(v2.x, v2.y);
+
+      img.BlendTriangle32(v0x, v0y, v1x, v1y, v2x, v2y,
+                          0xFFFFFFBB);
+
+      img.BlendThickLine32(v0x, v0y, v1x, v1y, PX * 3,
+                           0x000000AA);
+      img.BlendThickLine32(v1x, v1y, v2x, v2y, PX * 3,
+                           0x000000AA);
+      img.BlendThickLine32(v2x, v2y, v0x, v0y, PX * 3,
+                           0x000000AA);
+    }
+
   }
+
+  std::string png_file = Util::Replace(outfile, ".svg", ".png");
+  img.ScaleDownBy(PX).Save(png_file);
+  printf("Wrote %s\n", png_file.c_str());
 
   svg += TextSVG::Footer();
 

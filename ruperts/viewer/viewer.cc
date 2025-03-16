@@ -134,9 +134,9 @@ struct Scene {
   vec3 camera_pos = vec3{-1.0, -.03, 4.0};
   vec3 up_vector = vec3{0, 1, 0};
   const vec3 object_pos = vec3{0.0, 0.0, 0.0};
+  // 1 radian is about 60 degrees.
+  double fov = 1.0;
 
-  // Changing fov makes sense, at least.
-  static constexpr double FOVY = 1.0; // 1 radian is about 60 deg
   static constexpr double NEAR_PLANE = 0.1;
   static constexpr double FAR_PLANE = 1000.0;
 
@@ -149,9 +149,15 @@ struct Scene {
     Reset();
   }
 
+  void FlipMeshOrientation() {
+    for (auto &[a, b, c] : original_mesh.triangles) {
+      std::swap(a, b);
+    }
+  }
+
   void SaveView(std::string_view filename) {
     MeshView view;
-    view.fov = FOVY;
+    view.fov = fov;
     view.near_plane = NEAR_PLANE;
     view.far_plane = FAR_PLANE;
 
@@ -194,7 +200,7 @@ struct Scene {
       };
 
     static constexpr double ASPECT_RATIO = 1.0;
-    mat4 persp = yocto::perspective_mat(FOVY, ASPECT_RATIO, NEAR_PLANE,
+    mat4 persp = yocto::perspective_mat(fov, ASPECT_RATIO, NEAR_PLANE,
                                         FAR_PLANE);
 
     // frame3 frame = translation_frame(-camera_pos);
@@ -231,7 +237,7 @@ struct Scene {
       if (clipped) {
         color = 0x88000088;
       } else if (backface) {
-        color = 0xFFFF0088;
+        color = 0x77440022;
       }
 
       DrawLine(v0, v1, color);
@@ -254,12 +260,11 @@ struct UI {
   uint8_t last_jhat = 0;
   std::string view_file;
 
-  vec3 vel = vec3{0, 0, 0};
-
   // Joysticks, which could be mapped differently
   // depending on the motion setting.
   vec2 left_stick = vec2{0, 0};
   vec2 right_stick = vec2{0, 0};
+  double trigger = 0.0;
 
   UI(TriangularMesh3D mesh, const std::string &view_file);
   void Loop();
@@ -374,6 +379,11 @@ UI::EventResult UI::HandleEvents() {
         right_stick.x = MapAxis(j->value);
         break;
 
+      case 2:
+        // these are left and right triggers.
+        // LT makes it go positive, RT negative.
+        trigger = MapAxis(j->value);
+
       default:
         // ?
         break;
@@ -392,6 +402,12 @@ UI::EventResult UI::HandleEvents() {
       case SDLK_ESCAPE:
         printf("ESCAPE.\n");
         return EventResult::EXIT;
+
+      case SDLK_o: {
+        scene.FlipMeshOrientation();
+        ui_dirty = true;
+        break;
+      }
 
       case SDLK_HOME: {
         // TODO: Reset pos
@@ -636,9 +652,7 @@ void UI::Draw() {
   CHECK(drawing != nullptr);
   CHECK(screen != nullptr);
 
-  if (view == View::PERSPECTIVE) {
-    // apply perspective transform
-  }
+  scene.fov = std::clamp(scene.fov += trigger * 0.01, 0.1, 3.10);
 
   if (motion == Motion::FREE) {
     scene.camera_pos.x += left_stick.x * 0.01;
@@ -676,8 +690,11 @@ void UI::Draw() {
                        StringPrintf("Frames: %lld", frames_drawn));
   sdlutil::CopyRGBAToScreen(*drawing, screen);
 
+  /*
   font->draw(30, 30, StringPrintf("%.5f, %.5f, %.5f",
                                   vel.x, vel.y, vel.z));
+  */
+  font->draw(30, 30, StringPrintf("fov: %.5f", scene.fov));
 
   if (mov.get()) {
     // TODO: Enqueue this.

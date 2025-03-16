@@ -417,8 +417,12 @@ std::optional<Polyhedron> PolyhedronFromVertices(
 // Return a newly constructed polyhedron (from below) by its name,
 // or abort.
 Polyhedron PolyhedronByName(std::string_view name);
-// For abbreviated display. Not canonical; may change.
+// Nickname for abbreviated display. Not canonical; may change.
 std::string PolyhedronShortName(std::string_view name);
+// Get the proper name from the nickname.
+std::string PolyhedronIdFromNickname(std::string_view nickname);
+// Get the human name (e.g. with spaces between words).
+std::string PolyhedronHumanName(std::string_view name);
 
 // Generate some polyhedra. Note that each call new-ly allocates a
 // Faces object, which is then owned by the caller. Many of these are

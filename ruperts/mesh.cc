@@ -283,16 +283,16 @@ std::string MeshView::ToString() const {
   std::string contents;
   // perspective
   AppendFormat(&contents,
-               "{:17g} {:17g} {:17g}\n",
+               "{:.17g} {:.17g} {:.17g}\n",
                fov, near_plane, far_plane);
 
   // camera pos
   AppendFormat(&contents,
-               "{:17g} {:17g} {:17g}\n",
+               "{:.17g} {:.17g} {:.17g}\n",
                camera_pos.x, camera_pos.y, camera_pos.z);
   // up vector
   AppendFormat(&contents,
-               "{:17g} {:17g} {:17g}\n",
+               "{:.17g} {:.17g} {:.17g}\n",
                up_vector.x, up_vector.y, up_vector.z);
 
   return contents;

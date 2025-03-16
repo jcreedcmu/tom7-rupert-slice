@@ -6,6 +6,7 @@ let
   import "cite.bovex"
   import "ruperts.bib"
 
+  import "polyhedra.bovex"
   import "solution-table.bovex"
 
   val doc-title = "Some upsetting things about shapes"
@@ -104,11 +105,11 @@ let
       fun make-box lay =
         get-boxes (layout-map-text normalize-whitespace lay)
 
-      fun one-row (_, name, NONE) =
+      fun one-row (name, NONE) =
         (get-boxes (layout name),
          get-boxes [?],
          get-boxes [?])
-        | one-row (_, name, SOME(ratio, clearance)) =
+        | one-row (name, SOME(ratio, clearance)) =
         (get-boxes (layout name),
          get-boxes (render-float ratio),
          get-boxes (render-float clearance))
@@ -121,6 +122,31 @@ let
         rec rest
     in
       rec rows
+    end
+
+  fun get-sol nickname =
+    case list-find (fn (n : string, s : (float * float) option) =>
+                    string-eq (nickname, n))
+         solution-table of
+         NONE => NONE
+       | SOME (_, sol) => sol
+
+  fun make-scorecard (nickname, identifier, human-name) =
+    let
+      val sol = get-sol nickname
+
+      val img =
+        case sol of
+          NONE => [(UNSOLVED)]
+        | SOME _ =>
+            image { img = image-load (identifier ^ "-residue.png"),
+                    width = inch 3.65 } ^^ break()
+
+    in
+      [[subsubsection (layout human-name)]
+       [img]
+       .. stats ...
+       ]
     end
 
 in
@@ -412,8 +438,11 @@ Speaking of epsilon, and
 Infinitely many
 What’s the best Rupert?
 
-[subsection[Results]]
+[section[Results]]
 [make-sol-table ()]
+
+[subsection[Scorecards]]
+[layout-concat (list-map make-scorecard POLYHEDRA)]
 
 [section[Improvements to BoVeX]]
 
