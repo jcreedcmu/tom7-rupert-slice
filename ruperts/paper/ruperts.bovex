@@ -21,13 +21,17 @@ let
                    subject = "Documents do not need a 'subject'"
                    (* leaving out date, so it is the creation time. *) }
 
+  do SECTION-FONT-SIZE := point 15.0
+  do SUBSECTION-FONT-SIZE := point 14.0
+  do SUBSUBSECTION-FONT-SIZE := point 13.0
+
   val tt = fixedersys
 
   fun body-font lay = span
     {(Span)
      font-face = font-family PALATINO,
-     font-size = 12.0,
-     line-spacing = 1.0 } lay
+     font-size = point 12.0,
+     line-spacing = point 1.5 } lay
 
   fun sup lay =
     span {(Span) font-size = 8.0,
@@ -123,7 +127,7 @@ in
 
 (main-text (body-font
 [
- [title (layout doc-title)]
+ [title (layout doc-title)][vspace (point 5.0)]
  [sub-title (layout doc-subtitle)]
 
  [author[Dr. Tom Murphy VII, Ph.D.]][date[March 2025]]
@@ -397,7 +401,7 @@ first of all just for the heck of it, but also so that we can solve
 the unknown cases, which are presumably harder.
 
 I started with black-box optimization, again using my own twisted
-variant of BiteOpt[cite vaneev2024biteopt]. Black box optimization
+variant of BiteOpt.[cite vaneev2024biteopt] Black box optimization
 is good for people like me and Euler who are bad at math.
 
 
@@ -491,6 +495,8 @@ now, most rich ..
  rational version
  z3 version
    .. decidable
+
+ failing as fast as possible
 
 triangle man hates particle man
 
