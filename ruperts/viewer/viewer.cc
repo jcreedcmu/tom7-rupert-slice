@@ -1,20 +1,13 @@
 
 #include <algorithm>
 #include <cmath>
-#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
-#include <deque>
 #include <format>
-#include <functional>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
-#include <thread>
-#include <tuple>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <cstdint>
@@ -36,15 +29,11 @@
 #include "sdl/chars.h"
 
 #include "ansi.h"
-#include "arcfour.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "image.h"
 #include "lines.h"
 #include "periodically.h"
-#include "randutil.h"
-#include "threadutil.h"
-#include "timer.h"
 #include "util.h"
 
 #include "mesh.h"
@@ -116,6 +105,11 @@ enum class View {
   PERSPECTIVE,
 };
 
+enum class Motion {
+  FREE,
+  SPHERICAL,
+};
+
 namespace {
 template<class F>
 struct ScopeExit {
@@ -137,6 +131,7 @@ struct ScopeExit {
 
 struct Scene {
   vec3 camera_pos = vec3{-1.0, -.03, 4.0};
+  vec3 up_vector = vec3{0, 1, 0};
   const vec3 object_pos = vec3{0.0, 0.0, 0.0};
 
   void Reset() {
@@ -182,15 +177,18 @@ struct Scene {
 
     // frame3 frame = translation_frame(-camera_pos);
 
-    frame3 frame = inverse(lookat_frame(camera_pos, object_pos,
-                                        vec3{0.0, 1.0, 0.0}));
+    frame3 frame = inverse(lookat_frame(camera_pos, object_pos, up_vector));
 
     TriangularMesh3D mesh = TransformMesh(persp,
                                           TransformMesh(frame, original_mesh));
 
+    [[maybe_unused]]
     vec3 xpos = ProjectPt(persp, transform_point(frame, vec3{1, 0, 0}));
+    [[maybe_unused]]
     vec3 ypos = ProjectPt(persp, transform_point(frame, vec3{0, 1, 0}));
+    [[maybe_unused]]
     vec3 zpos = ProjectPt(persp, transform_point(frame, vec3{0, 0, 1}));
+    [[maybe_unused]]
     vec3 origin = ProjectPt(persp, transform_point(frame, vec3{0, 0, 0}));
 
     for (const auto &[a, b, c] : mesh.triangles) {
@@ -228,10 +226,17 @@ struct UI {
   Scene scene;
   Speed speed = Speed::PLAY;
   View view = View::ORTHOGRAPHIC;
+  Motion motion = Motion::SPHERICAL;
   uint8_t current_gamepad = 0;
   int64_t frames_drawn = 0;
   uint8_t last_jhat = 0;
+
   vec3 vel = vec3{0, 0, 0};
+
+  // Joysticks, which could be mapped differently
+  // depending on the motion setting.
+  vec2 left_stick = vec2{0, 0};
+  vec2 right_stick = vec2{0, 0};
 
   UI(TriangularMesh3D mesh);
   void Loop();
@@ -322,19 +327,26 @@ UI::EventResult UI::HandleEvents() {
         };
 
       SDL_JoyAxisEvent *j = (SDL_JoyAxisEvent *)&event;
+
       switch (j->axis) {
       case 0:
         // left and right
-        vel.x = MapAxis(j->value);
+        left_stick.x = MapAxis(j->value);
         break;
       case 1:
         // forward and back
-        vel.z = MapAxis(j->value);
+        left_stick.y = MapAxis(j->value);
         break;
 
       case 3:
+        right_stick.y = MapAxis(j->value);
+        break;
       case 4:
-        // TODO: Look
+        right_stick.x = MapAxis(j->value);
+        break;
+
+      default:
+        // ?
         break;
       }
 
@@ -587,7 +599,36 @@ void UI::Draw() {
     // apply perspective transform
   }
 
-  scene.camera_pos += vel * 0.01;
+  if (motion == Motion::FREE) {
+    scene.camera_pos.x += left_stick.x * 0.01;
+    // in/out
+    scene.camera_pos.z += left_stick.y * 0.01;
+    // XXX make it possible to move up/down, and freelook
+  } else {
+    CHECK(motion == Motion::SPHERICAL);
+
+    // in/out.
+    double r = length(scene.camera_pos);
+    r += left_stick.y * 0.01;
+    scene.camera_pos = r * normalize(scene.camera_pos);
+
+    // left/right, which is a rotation around the y axis
+    frame3 r1 = rotation_frame(vec3{0, 1, 0},
+                                left_stick.x * 0.01);
+    scene.camera_pos = transform_point(r1, scene.camera_pos);
+    scene.up_vector = transform_point(r1, scene.up_vector);
+
+    frame3 r2 = rotation_frame(vec3{1, 0, 0},
+                               right_stick.y * 0.01);
+    scene.camera_pos = transform_point(r2, scene.camera_pos);
+    scene.up_vector = transform_point(r2, scene.up_vector);
+
+    frame3 r3 = rotation_frame(vec3{0, 0, 1},
+                               right_stick.x * 0.01);
+    scene.camera_pos = transform_point(r3, scene.camera_pos);
+    scene.up_vector = transform_point(r3, scene.up_vector);
+  }
+
   scene.Draw(drawing.get());
 
   drawing->BlendText32(5, 5, 0xFFFF00AA,
