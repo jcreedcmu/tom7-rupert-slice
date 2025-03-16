@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include <cstdint>
@@ -134,6 +135,11 @@ struct Scene {
   vec3 up_vector = vec3{0, 1, 0};
   const vec3 object_pos = vec3{0.0, 0.0, 0.0};
 
+  // Changing fov makes sense, at least.
+  static constexpr double FOVY = 1.0; // 1 radian is about 60 deg
+  static constexpr double NEAR_PLANE = 0.1;
+  static constexpr double FAR_PLANE = 1000.0;
+
   void Reset() {
     camera_pos = vec3{-1.0, -.03, 4.0};
   }
@@ -141,6 +147,42 @@ struct Scene {
   explicit Scene(TriangularMesh3D mesh) : original_mesh(std::move(mesh)) {
     OrientMesh(&original_mesh);
     Reset();
+  }
+
+  void SaveView(std::string_view filename) {
+    std::string contents;
+    // perspective
+    AppendFormat(&contents,
+                 "{:17g} {:17g} {:17g}\n",
+                 FOVY, NEAR_PLANE, FAR_PLANE);
+
+    // camera pos
+    AppendFormat(&contents,
+                 "{:17g} {:17g} {:17g}\n",
+                 camera_pos.x, camera_pos.y, camera_pos.z);
+    // up vector
+    AppendFormat(&contents,
+                 "{:17g} {:17g} {:17g}\n",
+                 up_vector.x, up_vector.y, up_vector.z);
+
+    Util::WriteFile(filename, contents);
+  }
+
+  void LoadView(std::string_view filename) {
+    std::vector<std::string> contents =
+      Util::NormalizeLines(Util::ReadFileToLines(filename));
+
+    CHECK(contents.size() == 3);
+    // XXX
+    printf("Note: perspective settings are ignored\n");
+
+    camera_pos.x = Util::ParseDouble(Util::chop(contents[1]));
+    camera_pos.y = Util::ParseDouble(Util::chop(contents[1]));
+    camera_pos.z = Util::ParseDouble(Util::chop(contents[1]));
+
+    up_vector.x = Util::ParseDouble(Util::chop(contents[2]));
+    up_vector.y = Util::ParseDouble(Util::chop(contents[2]));
+    up_vector.z = Util::ParseDouble(Util::chop(contents[2]));
   }
 
   void Draw(ImageRGBA *img) {
@@ -168,10 +210,7 @@ struct Scene {
         }
       };
 
-    constexpr double FOVY = 1.0; // 1 radian is about 60 deg
-    constexpr double ASPECT_RATIO = 1.0;
-    constexpr double NEAR_PLANE = 0.1;
-    constexpr double FAR_PLANE = 1000.0;
+    static constexpr double ASPECT_RATIO = 1.0;
     mat4 persp = yocto::perspective_mat(FOVY, ASPECT_RATIO, NEAR_PLANE,
                                         FAR_PLANE);
 
@@ -200,7 +239,7 @@ struct Scene {
         (v0.z < 0 || v1.z < 0 || v2.z < 0) ||
         (v0.z > 1 || v1.z > 1 || v2.z > 1);
 
-      vec3 ctr = (v0 + v1 + v2) / 3.0;
+      [[maybe_unused]] vec3 ctr = (v0 + v1 + v2) / 3.0;
       vec3 normal = normalize(cross(v1 - v0, v2 - v0)) * 0.25;
       bool backface = normal.z > 0;
 
@@ -230,6 +269,7 @@ struct UI {
   uint8_t current_gamepad = 0;
   int64_t frames_drawn = 0;
   uint8_t last_jhat = 0;
+  std::string view_file;
 
   vec3 vel = vec3{0, 0, 0};
 
@@ -238,7 +278,7 @@ struct UI {
   vec2 left_stick = vec2{0, 0};
   vec2 right_stick = vec2{0, 0};
 
-  UI(TriangularMesh3D mesh);
+  UI(TriangularMesh3D mesh, const std::string &view_file);
   void Loop();
   void Draw();
   void DrawGrid();
@@ -260,10 +300,16 @@ struct UI {
   std::unique_ptr<MovRecorder> mov;
 };
 
-UI::UI(TriangularMesh3D mesh) : scene(std::move(mesh)), fps_per(1.0 / 60.0) {
+UI::UI(TriangularMesh3D mesh,
+       const std::string &view_file) : scene(std::move(mesh)),
+                                       view_file(view_file),
+                                       fps_per(1.0 / 60.0) {
   drawing.reset(new ImageRGBA(SCREENW, SCREENH));
   CHECK(drawing != nullptr);
   drawing->Clear32(0x000000FF);
+
+  if (Util::ExistsFile(view_file))
+    scene.LoadView(view_file);
 }
 
 void UI::PlayPause() {
@@ -406,6 +452,18 @@ UI::EventResult UI::HandleEvents() {
         if (event.key.keysym.mod & KMOD_CTRL) {
 
         }
+        ui_dirty = true;
+        break;
+      }
+
+      case SDLK_s: {
+        scene.SaveView(view_file);
+        printf("Saved.\n");
+        break;
+      }
+
+      case SDLK_l: {
+        scene.LoadView(view_file);
         ui_dirty = true;
         break;
       }
@@ -709,17 +767,22 @@ static void InitializeSDL() {
 }
 
 int main(int argc, char **argv) {
-  if (TRACE) fprintf(stderr, "In main...\n");
   ANSI::Init();
 
-  if (TRACE) fprintf(stderr, "Try initialize SDL...\n");
+  std::string stlfile = "../platonic-dodecahedron.stl";
+  if (argc > 1) {
+    stlfile = argv[1];
+  }
+  TriangularMesh3D mesh = LoadSTL(stlfile);
+
   InitializeSDL();
 
   printf("Begin UI loop.\n");
 
-  TriangularMesh3D mesh = LoadSTL("../platonic-dodecahedron.stl");
 
-  UI ui(mesh);
+  std::string view_file = Util::Replace(stlfile, ".stl", ".view");
+
+  UI ui(mesh, view_file);
   ui.Loop();
 
   printf("Quit!\n");
