@@ -372,6 +372,21 @@ static void TestText() {
   img.Save("image-test-text.png");
 }
 
+static void TestTriangle() {
+  ImageRGBA img(128, 128);
+  img.Clear32(0x000000FF);
+
+  // top right diagonal
+  img.BlendTriangle32(-2, -2, 130, -5, 129, 130,
+                      0xFFFFFFFF);
+
+  CHECK(img.GetPixel32(3, 0) == 0xFFFFFFFF);
+  CHECK(img.GetPixel32(0, 3) == 0x000000FF);
+
+  CHECK(img.GetPixel32(127, 125) == 0xFFFFFFFF);
+  CHECK(img.GetPixel32(125, 127) == 0x000000FF);
+}
+
 int main(int argc, char **argv) {
   TestCreateAndDestroy();
   TestCopies();
@@ -382,6 +397,7 @@ int main(int argc, char **argv) {
   TestLineEndpoints();
   TestFilledCircle();
   TestCopyImage();
+  TestTriangle();
 
   TestText();
   TestVerticalText();

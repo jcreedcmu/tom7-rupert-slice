@@ -1034,6 +1034,59 @@ void ImageRGBA::BlendThickCircle32(float x, float y, float circle_radius,
   }
 }
 
+void ImageRGBA::BlendTriangle32(int x0, int y0,
+                                int x1, int y1,
+                                int x2, int y2,
+                                uint32_t color) {
+  // We'll rasterize the entire bounding box.
+  // Obviously there are lots of faster ways to do this!
+  int minx = std::min({x0, x1, x2});
+  int maxx = std::max({x0, x1, x2});
+  int miny = std::min({y0, y1, y2});
+  int maxy = std::max({y0, y1, y2});
+
+  // Completely off-screen.
+  if (minx > width - 1 ||
+      maxx < 0 ||
+      miny > height - 1 ||
+      maxy < 0) return;
+
+  // Clip to image.
+  minx = std::max(minx, 0);
+  maxx = std::min(maxx, width - 1);
+  miny = std::max(miny, 0);
+  maxy = std::min(maxy, height - 1);
+
+  const int a = x1 - x0;
+  const int b = y1 - y0;
+  const int c = x2 - x0;
+  const int d = y2 - y0;
+  const int det = a * d - b * c;
+
+  // Degenerate triangle; nothing to draw.
+  if (det == 0) return;
+
+  float inv_det = 1.0f / det;
+
+  // Iterate over pixels in bounding box.
+  for (int y = miny; y <= maxy; y++) {
+    for (int x = minx; x <= maxx; x++) {
+      // Check if point is inside triangle using barycentric
+      // coordinates.
+      int px = x - x0;
+      int py = y - y0;
+
+      const float u = (px * d - py * c) * inv_det;
+      if (u >= 0.0f) {
+        const float v = (py * a - px * b) * inv_det;
+        if (v >= 0.0f && u + v <= 1.0f) {
+          BlendPixel32(x, y, color);
+        }
+      }
+    }
+  }
+}
+
 
 // TODO: Does not handle overlap correctly when self-blending.
 void ImageRGBA::BlendImageRect(int dstx, int dsty, const ImageRGBA &other,

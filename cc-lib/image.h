@@ -170,6 +170,10 @@ struct ImageRGBA {
   void BlendThickCircle32(float x, float y, float circle_radius,
                           float line_radius, uint32 color);
 
+  // Blend a filled triangle. Either winding order.
+  void BlendTriangle32(int x0, int y0, int x1, int y1, int x2, int y2,
+                       uint32_t color);
+
   // Clipped, alpha blending.
   void BlendImage(int x, int y, const ImageRGBA &other);
   void BlendImageRect(int destx, int desty, const ImageRGBA &other,

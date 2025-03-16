@@ -1389,16 +1389,17 @@ vector<string> Util::SplitWith(std::string_view str,
 }
 
 
-string Util::Replace(string src,
-                     const string &findme,
-                     const string &rep) {
-  auto idx = src.length() - 1;
-
-  if (findme.length() < 1) return src;
+string Util::Replace(std::string_view src_view,
+                     std::string_view findme,
+                     std::string_view rep) {
+  if (findme.length() < 1) return std::string(src_view);
 
   // PERF: Do this in one pass (copying) instead of repeatedly calling replace,
   // which does n^2 work.
 
+  std::string src = std::string(src_view);
+
+  auto idx = src_view.length() - 1;
   /* idx represents the position in src which, for all chars greater
      than it, there begins no match of findme */
   for (;;) {

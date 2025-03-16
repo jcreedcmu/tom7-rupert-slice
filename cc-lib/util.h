@@ -306,8 +306,8 @@ struct Util {
   static FILE *fopenp(const string &f, const string &mode);
 
   /* replace all occurrences of 'findme' with 'replacewith' in 'src' */
-  static string Replace(string src, const string &findme,
-                        const string &replacewith);
+  static string Replace(std::string_view src, std::string_view findme,
+                        std::string_view replacewith);
 
   /* called minimum, maximum because some includes
      define these with macros, ugh */
