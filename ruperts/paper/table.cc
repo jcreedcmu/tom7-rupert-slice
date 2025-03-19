@@ -72,19 +72,33 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
     if (Util::StartsWith(name, "nopert_"))
       continue;
 
+    Polyhedron poly = PolyhedronByName(name);
+
     if (filter.empty() || filter.contains(name)) {
 
       std::string nickname = PolyhedronShortName(name);
       std::string human_name = PolyhedronHumanName(name);
 
+      int vertices = (int)poly.vertices.size();
+      int faces = (int)poly.faces->v.size();
+      int edges = 0;
+      for (const std::vector<int> &face : poly.faces->v) {
+        edges += (int)face.size();
+      }
+      // Each edge is on exactly two faces.
+      CHECK(edges % 2 == 0);
+      edges >>= 1;
+
       const std::vector<Solution> &sols = solmap[name];
+
+      printf("  (\"%s\", %d, %d, %d, ",
+             nickname.c_str(), vertices, edges, faces);
 
       if (sols.empty() ||
           // Assuming the solutions are not valid if they are
           // for wishlist polyhedra
           Wishlist().contains(name)) {
-        printf("  (\"%s\", NONE) ::\n",
-               nickname.c_str());
+        printf("NONE");
       } else {
 
         // Get the best ratio and best clearance.
@@ -96,12 +110,15 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
           if (s.clearance > best_ratio.clearance) best_clearance = s;
         }
 
-        printf("  (\"%s\", SOME(%s, %s)) ::\n",
-               nickname.c_str(),
+        printf("SOME(%s, %s)",
                Ftos(best_ratio.ratio).c_str(),
                Ftos(best_clearance.clearance).c_str());
       }
+
+      printf(") ::\n");
     }
+
+    delete poly.faces;
   }
 
   printf("  nil\n");
