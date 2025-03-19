@@ -179,5 +179,13 @@ mergedatabase.exe : mergedatabase.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
+epsilonbench.exe : epsilonbench.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+mesh_test.exe : mesh_test.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
 clean :
 	rm -f *.o *.exe $(OBJECTS)

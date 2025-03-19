@@ -37,8 +37,15 @@ TriangularMesh3D ConcatMeshes(const std::vector<TriangularMesh3D> &meshes);
 
 // Orients triangles to have a consistent winding order. The input
 // must be a connected manifold, since this is how we determine what
-// that order should be!
+// that order should be! You may want to check for negative volume
+// and flip the normals afterwards.
 void OrientMesh(TriangularMesh3D *mesh);
+
+// Gets the signed volume of the mesh.
+double MeshVolume(const TriangularMesh3D &mesh);
+
+// Flip all of the normals.
+void FlipNormals(TriangularMesh3D *mesh);
 
 struct MeshView {
   using vec3 = yocto::vec<double, 3>;

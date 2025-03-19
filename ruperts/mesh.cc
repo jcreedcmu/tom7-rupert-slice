@@ -234,6 +234,29 @@ void OrientMesh(TriangularMesh3D *mesh) {
   mesh->triangles = std::move(out);
 }
 
+// The signed volume of the tetrahedron.
+static inline double SignedVolume(const vec3 &a, const vec3 &b,
+                                  const vec3 &c, const vec3 &d) {
+  return dot(cross(a - d, b - d), c - d) / 6.0;
+}
+
+// We compute the total signed volume of tetrahedra using an arbitrary
+// point (the origin). It's okay if some of these are degenerate;
+// those will have 0 volume.
+double MeshVolume(const TriangularMesh3D &mesh) {
+  double vol = 0.0;
+  for (const auto &[a, b, c] : mesh.triangles) {
+    vol += SignedVolume(mesh.vertices[a], mesh.vertices[b], mesh.vertices[c], vec3{0, 0, 0});
+  }
+  return vol;
+}
+
+void FlipNormals(TriangularMesh3D *mesh) {
+  for (auto &[a, b, c] : mesh->triangles) {
+    std::swap(a, b);
+  }
+}
+
 void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
                std::string_view name, bool quiet) {
   std::string solid_name = name.empty() ? "mesh" : std::string(name);
