@@ -131,11 +131,14 @@ struct ScopeExit {
 #define INPUT_A (1   )
 
 struct Scene {
+  TriangularMesh3D original_mesh;
+
   vec3 camera_pos = vec3{-1.0, -.03, 4.0};
   vec3 up_vector = vec3{0, 1, 0};
   const vec3 object_pos = vec3{0.0, 0.0, 0.0};
   // 1 radian is about 60 degrees.
   double fov = 1.0;
+  MeshEdgeInfo edge_info;
 
   static constexpr double NEAR_PLANE = 0.1;
   static constexpr double FAR_PLANE = 1000.0;
@@ -144,15 +147,31 @@ struct Scene {
     camera_pos = vec3{-1.0, -.03, 4.0};
   }
 
-  explicit Scene(TriangularMesh3D mesh) : original_mesh(std::move(mesh)) {
+  explicit Scene(TriangularMesh3D mesh) : original_mesh(std::move(mesh)),
+                                          edge_info(original_mesh) {
     OrientMesh(&original_mesh);
+
+    // Now make sure it has positive volume.
+    {
+      double vol = MeshVolume(original_mesh);
+      printf("Volume: %.11g\n", vol);
+      if (MeshVolume(original_mesh) < 0.0) {
+        printf("Flipping normals.\n");
+        FlipNormals(&original_mesh);
+      }
+    }
+
+    CHECK(MeshVolume(original_mesh) > 0.0);
+
+    // XXX this code actually wants the reverse winding order,
+    // so we flip
+    FlipNormals(&original_mesh);
+
     Reset();
   }
 
   void FlipMeshOrientation() {
-    for (auto &[a, b, c] : original_mesh.triangles) {
-      std::swap(a, b);
-    }
+    FlipNormals(&original_mesh);
   }
 
   void SaveView(std::string_view filename) {
@@ -224,6 +243,10 @@ struct Scene {
       vec3 v1 = mesh.vertices[b];
       vec3 v2 = mesh.vertices[c];
 
+      bool planar01 = edge_info.EdgeAngle(a, b) < 1e-5;
+      bool planar12 = edge_info.EdgeAngle(b, c) < 1e-5;
+      bool planar20 = edge_info.EdgeAngle(c, a) < 1e-5;
+
       bool clipped =
         (v0.z < 0 || v1.z < 0 || v2.z < 0) ||
         (v0.z > 1 || v1.z > 1 || v2.z > 1);
@@ -240,14 +263,11 @@ struct Scene {
         color = 0x77440022;
       }
 
-      DrawLine(v0, v1, color);
-      DrawLine(v1, v2, color);
-      DrawLine(v2, v0, color);
+      if (!planar01) DrawLine(v0, v1, color);
+      if (!planar12) DrawLine(v1, v2, color);
+      if (!planar20) DrawLine(v2, v0, color);
     }
   }
-
-  TriangularMesh3D original_mesh;
-
 };
 
 struct UI {
@@ -289,7 +309,7 @@ struct UI {
 };
 
 UI::UI(TriangularMesh3D mesh,
-       const std::string &view_file) : scene(std::move(mesh)),
+       const std::string &view_file) : scene(mesh),
                                        view_file(view_file),
                                        fps_per(1.0 / 60.0) {
   drawing.reset(new ImageRGBA(SCREENW, SCREENH));
