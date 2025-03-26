@@ -110,6 +110,9 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
           if (s.clearance > best_ratio.clearance) best_clearance = s;
         }
 
+        // XXX Need to normalize the clearance somehow; it depends
+        // on the scale. We could normalize by the circumsphere's
+        // radius, for example.
         printf("SOME(%s, %s)",
                Ftos(best_ratio.ratio).c_str(),
                Ftos(best_clearance.clearance).c_str());

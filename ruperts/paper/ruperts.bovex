@@ -9,6 +9,8 @@ let
   import "polyhedra.bovex"
   import "solution-table.bovex"
 
+  do solution-table : (string * int * int * int * (float * float) option) list
+
   val doc-title = "Some upsetting things about shapes"
   val doc-subtitle = "There’s no subtitle either"
 
@@ -26,6 +28,14 @@ let
   do SUBSECTION-FONT-SIZE := point 14.0
   do SUBSUBSECTION-FONT-SIZE := point 13.0
 
+  fun monospace-block lay =
+    monospace-block-ext { left-indent = 0.0,
+                          width = inch 3.4,
+                          line-spacing = point 0.05,
+                          font-size = point 10.0,
+                          attrs = {(Object) } } lay
+
+
   val tt = fixedersys
 
   fun body-font lay = span
@@ -39,7 +49,7 @@ let
           (* Don't rephrase the text in these. *)
           no-rephrase = true } lay
 
-  fun footnote s = [([b[footnote]]: [s])]
+  fun footnote s = color 0x999999FF [([b[footnote]]: [s])]
 
   val next-figure-id = ref 1
   fun figure-id () =
@@ -51,9 +61,11 @@ let
 
   val ROLL-PITCH-YAW = figure-id()
 
-  fun make-sol-table () =
-    let
+  val questionmark-png = image-load "questionmark.png"
 
+
+  fun render-float f =
+    let
       (* for positive f, return g * 10^e such that 1.0 <= g < 10.0. *)
       fun exp-notation f =
         if f >=. 10.0
@@ -95,21 +107,25 @@ let
                  else [×10[sup (layout (int-to-string exp))]])
               end
           end
+    in
+      if float-is-nan f then [NaN]
+      else if f ==. float-inf then [∞]
+           else if f ==. float-inf then [-∞]
+                else render-finite-float f
+    end
 
-      fun render-float f =
-        if float-is-nan f then ["NaN"]
-        else if f ==. float-inf then [∞]
-             else if f ==. float-inf then [-∞]
-                  else render-finite-float f
+
+  fun make-sol-table () =
+    let
 
       fun make-box lay =
         get-boxes (layout-map-text normalize-whitespace lay)
 
-      fun one-row (name, NONE) =
+      fun one-row (name, v, e, f, NONE) =
         (get-boxes (layout name),
          get-boxes [?],
          get-boxes [?])
-        | one-row (name, SOME(ratio, clearance)) =
+        | one-row (name, v, e, f, SOME(ratio, clearance)) =
         (get-boxes (layout name),
          get-boxes (render-float ratio),
          get-boxes (render-float clearance))
@@ -124,30 +140,327 @@ let
       rec rows
     end
 
-  fun get-sol nickname =
-    case list-find (fn (n : string, s : (float * float) option) =>
+  fun get-table-entry nickname =
+    case list-find (fn (n : string, v, f, e, s : (float * float) option) =>
                     string-eq (nickname, n))
          solution-table of
-         NONE => NONE
-       | SOME (_, sol) => sol
+         NONE => fail ("Missing entry for " ^ nickname)
+       | SOME (_, v, e, f, sol) => (v, e, f, sol)
 
-  fun make-scorecard (nickname, identifier, human-name) =
+  (* As constants since maybe these become stylized in the future *)
+  val TIER-F = [F]
+  val TIER-D = [D]
+  val TIER-C = [C]
+  val TIER-B = [B]
+  val TIER-A = [A]
+  val TIER-S = [S]
+  val TIER-SS = [SS]
+
+  object Scorecard of
+    { about : layout,
+      shape-tier : layout,
+      shape-tier-notes: layout,
+      rupert-tier : layout,
+      rupert-tier-notes: layout,
+      factoid : layout }
+
+  fun make-scorecard scorecards (nickname : string,
+                                 identifier : string,
+                                 human-name : string,
+                                 pclass) : layout =
     let
-      val sol = get-sol nickname
+      val (vertices, edges, faces, sol) = get-table-entry nickname
 
-      val img =
+      val card : obj =
+        case map-find (scorecards, nickname) of
+          NONE => {(Scorecard) about = [Missing scorecard info!]}
+        | SOME c => c
+
+      val class-prefix =
+        case pclass of
+          PLATONIC => "platonic"
+        | ARCHIMEDEAN => "archimedean"
+        | CATALAN => "catalan"
+
+      val IMG-DIM = inch 1.4
+
+      val shape-img =
+        image-inline { img = image-load (class-prefix ^ "-" ^ identifier ^ ".png"),
+                       height = IMG-DIM, dy = 0.0 }
+
+      val residue-handle =
         case sol of
-          NONE => [(UNSOLVED)]
-        | SOME _ =>
-            image { img = image-load (identifier ^ "-residue.png"),
-                    width = inch 3.65 } ^^ break()
+          NONE => questionmark-png
+        | SOME _ => image-load (identifier ^ "-residue.png")
+
+      val residue-img =
+        image-inline { img = residue-handle,
+                       height = IMG-DIM, dy = 0.0 }
+
+      val nl = hfill () ^^ break ()
+
+      val soltext =
+        case sol of
+          NONE => b[Unsolved!] ^^ [nl]
+        | SOME (ratio : float, clearance : float) =>
+            [[b[Ratio]]: [render-float ratio][nl]] ^^
+            [[b[Clearance]]: [render-float clearance][nl]]
+
+      (* Could add optional explanations. *)
+      val shape-tier =
+        case card of
+          {(Scorecard) shape-tier, shape-tier-notes} =>
+            [[b[Tier (shape)]]: [shape-tier] [it [“[shape-tier-notes]”]][nl]]
+        | {(Scorecard) shape-tier} => [[b[Tier (shape)]]: [shape-tier][nl]]
+        | _ => []
+
+      (* Could add optional explanations. *)
+      val rupert-tier =
+        case card of
+          {(Scorecard) rupert-tier, rupert-tier-notes} =>
+            [[b[Tier (Rupert)]]: [rupert-tier] [it [“[rupert-tier-notes]”]][nl]]
+        | {(Scorecard) rupert-tier} => [[b[Tier (Rupert)]]: [rupert-tier][nl]]
+        | _ => []
+
+      val about =
+        case card of
+          {(Scorecard) about} => about
+        | _ => [Not much is known about the [b (layout human-name)].]
+
+
+      val factoid =
+        case card of
+          {(Scorecard) factoid} => [[b[Fun fact]]: [factoid][nl]]
+        | _ => []
+
+      fun capitalize "" = ""
+        | capitalize s =
+        let
+          val a = string-sub ("a", 0)
+          val z = string-sub ("z", 0)
+          val c = string-sub (s, 0)
+          val cap =
+            if c >= a andalso c <= z
+            then c - 32
+            else c
+        in
+          codepoint-to-string cap ^ substr-rest (s, 1)
+        end
 
     in
-      [[subsubsection (layout human-name)]
-       [img]
-       .. stats ...
+      [[shape-img][residue-img][nl]
+       [size (point 15.0) (b (layout (capitalize human-name)))][nl]
+       [b[Class]]: [case pclass of
+          PLATONIC => [Platonic]
+        | ARCHIMEDEAN => [Archimedean]
+        | CATALAN => [Catalan]][nl]
+       [about][nl]
+       [b[Vertices]]: [layout (int-to-string vertices)][nl]
+       [b[Edges]]: [layout (int-to-string edges)][nl]
+       [b[Faces]]: [layout (int-to-string faces)][nl]
+       [shape-tier]
+       [soltext]
+       [rupert-tier]
+       [factoid]
        ]
     end
+
+  val scorecards =
+    map-from-list string-compare
+    (("tetra",
+      {(Scorecard)
+       shape-tier = TIER-B,
+       shape-tier-notes = [Too sharp.],
+       rupert-tier = TIER-A,
+       rupert-tier-notes = [You thought the shape itself was sharp?
+                            This looks designed to puncture tires.],
+       factoid = [For any reasonable way of counting, this is
+                  the smallest possible polyhedron!]
+       }) ::
+
+     ("cube", {(Scorecard)
+       about = [],
+       shape-tier = TIER-A,
+       shape-tier-notes = [Ya basic.],
+       factoid = [The most famous cube, “ice cube,” is actually
+                  an oxymoron since ice water crystals are
+                  hexagonal.],
+               }) ::
+
+     ("dode", {(Scorecard)
+       about = [The regular [b[dodecahedron]] is five regular pentagons
+                glued together in the only way it can be done. Its
+                dual is the icosahedron.],
+       shape-tier = TIER-SS,
+       factoid = [In more than one of Bertrand Russell’s
+                  nightmares,[cite russell1954nightmares][cite russell1961theologian]
+                  the universe is shaped like a dodecahedron.]
+               }) ::
+
+     ("icos", {(Scorecard)
+       about = [The [b[icosahedron]] is more commonly known as the D20.
+                Somehow they managed to fit [it[twenty]] equilateral triangles on this!],
+       shape-tier = TIER-SS,
+               }) ::
+
+     ("octa", {(Scorecard)
+       about = [The [b[octahedron]] is neither here nor there, but it does
+                deserve XXX],
+       shape-tier = TIER-C,
+       factoid = [The Egyptian “Pyramids” are actually octahedra, with their
+                  bottom halves buried beneath the sand for stability.]
+               }) ::
+
+     ("ttetra", {(Scorecard)
+       shape-tier = TIER-A,
+       shape-tier-notes = [Improved safety wrt tetrahedron.],
+                 }) ::
+
+     ("cocta", {(Scorecard)
+       shape-tier = TIER-A,
+                }) ::
+
+     ("tcube", {(Scorecard)
+       shape-tier = TIER-F,
+       shape-tier-notes = [Terrible. A worse version of the cube.],
+                }) ::
+
+     ("tocta", {(Scorecard)
+       about = [The [b[truncated octahedron]] improves upon the octahedron
+                by replacing its corners with squares.],
+       shape-tier = TIER-B,
+       factoid = [This one can tile space!],
+       }) ::
+
+     ("rcocta", {(Scorecard)
+                 (* about = [], XXX HERE *)
+
+       }) ::
+
+     ("tcocta", {(Scorecard)
+
+       about = [Kepler named the [b[truncated cuboctahedron]], but
+                it’s not a proper truncation (Kepler was notoriously
+                imprecise). After truncating the
+                cuboctahedron you would need to fiddle with the
+                resulting rectangles to turn them into squares.],
+       shape-tier = TIER-C,
+       factoid = [],
+        }) ::
+
+     ("scube", {(Scorecard)
+       about = [The [b[snub cube]] is an inspired specimen formed
+                from twisting the faces of an exploded cube just
+                right so that everything can be fixed up with equilateral
+                triangles. The choice of twist direction yields
+                two chiral “enantiomorphs”. Calling this operation
+                a “snub” does not seem fair to it, although everyone
+                agrees that it makes the polyhedron cuter.],
+       shape-tier = TIER-S,
+       factoid = [Smallest known (to me) polyhedron that may be
+                  a counterexample to the Rupert conjecture.],
+        }) ::
+
+     ("idode", {(Scorecard)
+       about = [The [b[icosidodecahedron]] is kind of an icosahedron
+                and a dodecahedron at the same time. It has 12 pentagons,
+                like the dodecahedron, and 20 triangles, like the
+                icosahedron.],
+       shape-tier = TIER-A,
+       shape-tier-notes = [Solid. This one definitely seems like it
+                           should exist.]
+        }) ::
+
+     ("tdode", {(Scorecard)
+       about = [You can make the [b[truncated dodecahedron]] by
+                a shaving down a nice dodecahedron's corners into
+                triangles, wrecking it.],
+       shape-tier = TIER-D,
+       shape-tier-notes = [A worse version of the dodecahedron.],
+       factoid = [The edge lengths are all the same here, but since the
+                  decagons are massively larger than the triangles,
+                  there's a pretty convincing optical illusion where
+                  the triangle's edges look shorter.],
+        }) ::
+
+     ("ticos", {(Scorecard)
+       about = [The [b[truncated icosahedron]] is an idealized soccer
+                ball, which you can get by slicing off the points of
+                an icosahedron or straight from the official FIFA store.
+                It’s made of hexagons and smaller pentagons.],
+       shape-tier = TIER-B,
+       factoid = [Albrecht Dürer tried to write down all the Archimedean
+                  solids but he forgot this one![cite durer1525underweysung]]
+        }) ::
+
+
+     ("ridode", {(Scorecard) }) ::
+     ("tidode", {(Scorecard) }) ::
+     ("sdode", {(Scorecard) }) ::
+     ("ktetra", {(Scorecard) }) ::
+     ("rdode", {(Scorecard) }) ::
+     ("kocta", {(Scorecard) }) ::
+     ("thexa", {(Scorecard) }) ::
+     ("ditet", {(Scorecard) }) ::
+     ("ddode", {(Scorecard) }) ::
+     ("dhexe", {(Scorecard) }) ::
+
+     ("pitet", {(Scorecard)
+       about = [The [b[pentagonal icositetrahedron]] is
+                XXX
+                Chiral, like its dual, the snub cube.],
+       shape-tier = TIER-B,
+       shape-tier-notes = [The faces look a little bit like someone
+                           was trying to draw a pentagon but started
+                           drawing a hexagon by accident. It is
+                           admirable how they all fit together, but
+                           the whole affair is a little bit
+                           unsettling.],
+       factoid = [This one is Rupert and it is quite easy to find a
+                  witness to this. This makes it very puzzling that
+                  its dual, the snub cube, does [it[not]] seem to
+                  be solvable.],
+                }) ::
+
+     ("rtriac", {(Scorecard)
+       about = [The [b[rhombic triacontahedron]] ought to be better
+                known as the D30, a completely satisfying 30-sided die.
+                It even has faces whose aspect ratio accommodates
+                two-digit numbers.],
+       shape-tier = TIER-A,
+       }) ::
+
+     ("kicos", {(Scorecard)
+
+       shape-tier-notes = [Holy Christmas tree topper, Batman!],
+     }) ::
+
+     ("pdode", {(Scorecard)
+       about = [The [b[pentakis dodecahedron]] is the dual of a soccer
+                ball.],
+       shape-tier = TIER-C,
+       shape-tier-notes = [Looks great at first, but then you realize
+                           that those triangles are not equilateral.],
+     }) ::
+
+     ("dtriac", {(Scorecard)
+       about = [The [b[disdyakis triacontahedron]] is also known
+                as the D120. Only extremely advanced Dungeons and
+                Dragons players need to roll with such precision.],
+       (* Looks like someone tried too hard to make a
+          geodesic dome. *)
+       shape-tier = TIER-C,
+       factoid = [This one wins the contest for having the most
+                  faces of any Platonic, Archimedean, or Catalan
+                  solid!]
+     }) ::
+
+     ("phexe", {(Scorecard)
+       factoid = [This is one of the rare polyhedra that is chiral.
+                  We can just pick one of the forms for the Rupert
+                  problem, as a solution to one yields a solution
+                  for the other by just mirroring.]}) ::
+     nil)
 
 in
 
@@ -156,7 +469,8 @@ in
  [title (layout doc-title)][vspace (point 5.0)]
  [sub-title (layout doc-subtitle)]
 
- [author[Dr. Tom Murphy VII, Ph.D.]][date[March 2025]]
+ [author[Dr. Tom Murphy VII, Ph.D.]]
+ [date[March 2025]]
 
  How big is the unit cube? “1?” Seems obvious, right?
  Let me ask you another way: [it[Where]] is the unit cube? “0?”
@@ -177,15 +491,15 @@ in
  centered on the origin, with the sphere tucked inside the cube,
  touching its sides at their centers.[footnote[The long-running
  ThursDz's Beer Society of Math Geniuses decided that what I am
- actually imagining is not the unit cube but the "L-infinity unit
- sphere," which I think may be true but sounds like I'm just trying to
+ actually imagining is not the unit cube but the “L-infinity unit
+ sphere,” which I think may be true but sounds like I'm just trying to
  be an asshole.]]
 
  ... shrinkwrap ...
 
  Does the unit sphere fit inside the
 
- Now that I’ve gotten the "dice in sphere" pun out of the way, we can
+ Now that I’ve gotten the “dice in sphere” pun out of the way, we can
  move onto the real topic of this paper.
 
  Late some night I was admiring the Wikipedia article on the
@@ -206,7 +520,7 @@ in
  even gotten to sleep, had I stopped reading at that moment. But then I
  read “of the 13 Archimedean solids, it is known that at least ten have
  the Rupert property,” and this made my brain surprised and angry. How
- could it be the case that we think this is true for *all* convex
+ could it be the case that we think this is true for [it[all]] convex
  polyhedra (infinitely many, and mostly gigantic weird ugly ones) but
  we don’t know for some 3 simple beautiful ones? Did nobody check? It
  seemed to me it would be pretty easy to write a search procedure that
@@ -300,6 +614,9 @@ rigid frames that satisfy the above (and we know that one of the
 translations can be (0, 0, 0) and the other (x, y, 0)). How do we find
 such frames?
 
+[box {(Box) width = inch 3.0, height = inch 1.0 } [box one]]
+[box {(Box) width = inch 3.0, height = inch 1.0 } [box two]]
+
 If you have a fast enough test, sampling will suffice for easy objects
 like the cube. Here you just generate random frames and test whether
 the condition holds. You can try all orientations and reasonable
@@ -309,18 +626,19 @@ through it)!
 
 [subsection[Generating random orientations]]
 
-Generating random numbers is easy using floating point roundoff error[cite murphy2023grad]. How do you generate a random rotation (orientation)?
-There are a few different ways to specify a rotation. You can use
-Euler angles, which are three parameters that give the rotation around
-the x, y, and z axes (“pitch,” “roll,” and “yaw”; see Figure [ROLL-PITCH-YAW]). This
-approach actually sucks (famously, Euler was not that good at math).
-You can get all orientations this way, but you will get some
-orientations more often than others.[footnote[Euler rotation is
-accomplished by rotating along each axis in turn. Imagine gimbal lock:
-Rotate the Earth such that ... The density of parameters that are
-close to this gimbal lock position is much higher.]] Maybe that is
-okay for you (or Eu-ler) but I want all orientations to be equally
-likely.
+Generating random numbers is easy using floating point roundoff
+error.[cite murphy2023grad] How do you generate a random rotation
+(orientation)? There are a few different ways to specify a rotation.
+You can use Euler angles, which are three parameters that give the
+rotation around the x, y, and z axes (“pitch,” “roll,” and “yaw”; see
+Figure [ROLL-PITCH-YAW]). This approach actually sucks (famously,
+Euler was not that good at math). You can get all orientations this
+way, but you will get some orientations more often than
+others.[footnote[Euler rotation is accomplished by rotating along each
+axis in turn. Imagine gimbal lock: Rotate the Earth such that ... The
+density of parameters that are close to this gimbal lock position is
+much higher.]] Maybe that is okay for you (or Eu-ler) but I want all
+orientations to be equally likely.
 
 [image { img = image-load "roll_pitch_yaw_mnemonic.png",
          width = inch 3.65 }]
@@ -344,7 +662,7 @@ to know about the Quaternions:
     b[b[i]] + c[b[j]] + d[b[k]]. The parameters are (a, b, c, d) and
     [b[i]], [b[j]], [b[k]] are “even more imaginary” “constants” that
     have some impossible relations, like [b[i]][sup[2]] = -1 but also
-    [b[ijk]] = -1] ::
+    [b[ijk]] = -1.] ::
 
     [You can just think of a quaternion as a four-dimensional vector
     (a, b, c, d). If this is a unit-length vector, then represents an
@@ -393,9 +711,28 @@ and I only need two.
 
 The two samples give the orientations of the outer and inner polyhedra,
 and we also pick random positions. We then project to 2D, compute
-the convex hulls, and
+the convex hulls, and see if the inner hull is inside the outer hull.
 
 [subsection[The convex hulls]]
+
+The 3D shapes are convex, and so their 2D shadows are
+convex.[footnote[It is not completely obvious that this must be true.
+One of the ways to believe it follows from a definition of convexity:
+For every pair of points in the set, the entire line segment between
+them is in the set. To show that the 2D shadow is convex, take any two
+points in it. These points correspond to some two points in the 3D
+shape, which means (by that definition convexity) that the line
+segment between them is in the 3D set. The projection from the 3D
+shape to the 2D shadow also transforms that line segment to a line
+segment (the projection is [it[linear]]) and it connects the 2D
+points. So this satisfies the definition of convexity for the 2D
+shadow. In fact, [it[all]] linear transformations preserve convexity
+by the same argument.]] Rather than just working with the set of
+points, their boundary polygon is a much more convenient
+representation of the shadow. Here is a shadow of the icosahedron. The
+darker boundary polygon is its 2D convex hull:
+
+[image { img = image-load "icos-shadow.png", width = inch 3.65 }]
 
 Computing the convex hull is also “standard,” meaning that you can
 find lots slightly buggy implementations of various algorithms on the
@@ -405,7 +742,7 @@ algorithms are conceptualized in the mathematical world where when you
 look at a point that's really close to a line segment, the point stays
 on the same side of the line when you look at it from different
 directions. This is unfortunately not the case for naive
-implementations using floating point. It usually “doesn't matter that
+implementations using floating point. It usually “doesn’t matter that
 much,” or “just add a magic constant you named epsilon,[cite
 murphy2014epsilon]” but unfortunately when you are working with
 extremely regular shapes like Platonic solids, you will frequently get
@@ -413,10 +750,14 @@ points that are colinear or coplanar and exercise the too-optimistic
 beliefs of the code you found. So this is another good way to make
 your afternoon project take several months.
 
-You only need to compute the outer hull, but I found it was faster
-to compute a convex hull for the inner polyhedron as well. That way
-you only need to do the point-in-polygon test for the points on
-the inner hull. [* XXX incircle? *]
+You only need to compute the outer hull; you can then just check that
+all of the inner shadow's [it[vertices]] are inside it. But I found it
+was faster to compute a convex hull for the inner polyhedron as well.
+That way you only need to do the point-in-polygon test for the points
+[it[on]] the inner hull. [* XXX incircle? *]
+The point-in-polygon test is standard; we just have to make sure we
+are testing that the points are [it[strictly]] inside, and not on
+the hull itself.
 
 [subsection[Optimizing]]
 
@@ -428,21 +769,154 @@ the unknown cases, which are presumably harder.
 
 I started with black-box optimization, again using my own twisted
 variant of BiteOpt.[cite vaneev2024biteopt] Black box optimization
-is good for people like me and Euler who are bad at math.
+is good for people like me and Euler who are bad at math. The interface
+to such an optimizer is a function like
+
+[monospace-block[double F(double a1, double a2, ..., double an)]]
+
+For some fixed n. The optimizer doesn't know what the parameters
+mean; its job is just to find the arguments ([tt[a1]], ..., [tt[an]])
+such that [tt[F(a1, ..., an)]] has the smallest value. This is
+of course impossible in general,[footnote[Not just hard because
+the function could be complicated. It's literally impossible due to
+diagonalization. Take for example the recursive function
+[tt[double F(double x) { return -abs(x - Optimize(F)); }]]. This computes
+its own minimum, and then returns the negated distance from the argument
+to that supposed minimum. This makes the purported minimum actually the
+maximum (0) with a nice convex triangle all around it. In reality
+this function will just loop forever, since Optimize works by
+calling the function many times. [* Also, in reality, does this function
+have a “minimum” at infinities or nan? *]
+]]
+but for many well-behaved functions these optimizers are nonetheless
+able to do a good job.
+
+Here the arguments will be the orientations of the two polyhedra and
+the position of the inner one. We can represent the orientations
+with quaternions (four parameters each) and the position as the (x, y)
+offset, totaling ten parameters.
+
+The optimizer does need some kind of surface to optimize over; it does
+not work well if there is just a single point where the function
+returns -1 and it is a flat 0 everywhere else. I tried several
+approaches here. The one that worked best for me was to take all the
+vertices on the inner hull that are [it[not inside]] the outer hull,
+and sum their distance to the outer hull. This prefers the vertices to
+be inside where we want them, and increases the penalty as they get
+further outside. It is essential to add a nonzero error when the
+point is not strictly inside; if the point is exactly on the hull or
+the distance rounds to zero, we still need to add a small positive
+value. Otherwise the optimizer will quickly find degenerate
+“solutions” such as setting both orientations the same.
+
+The other rub is that the optimizer wants to try any value (within
+specified bounds) for the arguments, but we need each orientation to
+be a proper unit quaternion. Simply normalizing the four inputs would
+work, but as we observed before, random samples in this
+parameterization are not uniformly random orientations. My approach
+here is to first choose actually random quaternions for the outer and
+inner shape before beginning optimization. I then optimize within
+fairly narrow bounds (like [layout "-.15, +.15"]) for the quaternion
+parameters, and add that as a “tweak” to the random initial
+quaternion, normalizing to get a proper orientation. This is still not
+uniform, but it is locally closer to uniform. Since we will try
+optimization millions or billions of times from uniformly random
+starting orientations, we will get good coverage of all orientations.
+Other parameterizations of the orientation are possible. It is
+definitely desirable to have fewer arguments (as the complexity
+naively grows [it[exponentially]] in the number of optimization
+parameters), but simply using the three-parameter Euler angles runs
+into the aforementioned problems.
+
+[subsection[It works!]]
+
+Anyway, that works! This was like, the first weekend of the project.
+It's able to find solutions to the cube in milliseconds, and so I
+added more polyhedra to the collection, and solved those in
+milliseconds as well.
+
+One of the most tedious parts of this was getting
+
+[subsection[Alternate solvers]]
+
 
 
 [subsubsection[Epsilon]]
 
-Speaking of epsilon, and
+Speaking of epsilon, and my obsession with minutia related to it,
+it itself a kind of minutia: Most numerical code (including this
+Rupert solver) has a line like this in it:
+
+[monospace-block[return std::abs(x) < 1.0e-6;]]
+
+Here [tt[1.0e-6]] is one one-millionth, a typical value for epsilon.
+It's actually a pretty nasty choice since it is not even representable
+as a float. With clang 19, this assembles to code like
+
+[monospace-block[.LCPI0_0:
+        .quad   0x7fffffffffffffff
+        .quad   0x7fffffffffffffff
+.LCPI0_1:
+        .quad   0x3eb0c6f7a0b5ed8d
+Threshold(double):
+        andpd   xmm0, xmmword ptr [layout "[rip + .LCPI0_0]"]
+        movsd   xmm1, qword ptr [layout "[rip + .LCPI0_1]"]
+        ucomisd xmm1, xmm0
+        seta    al
+        ret]]
+
+which makes sense ([tt[ucomisd]] is unsigned comparison of
+floating-point registers) other than the two copies of [tt[0x7fff...]]
+(?). But another thing I tried was to optimize this epsilon test,
+instead writing the clear and portable
+
+[monospace-block[static constexpr uint32_t target_exp =
+  (std::bit_cast<uint64_t>(0x1.0p-20) >> 52) & 0x7FF;
+
+uint32_t exp =
+  (std::bit_cast<uint64_t>(d) >> 52) & 0x7FF;
+return exp < target_exp;]]
+
+This checks against a different epsilon (the power of two close
+to one one-millionth) by just checking the exponent bits directly.
+This compiles to the much more pleasant
+
+[monospace-block[        movq    rax, xmm0
+        shr     rax, 52
+        and     eax, 2047
+        cmp     eax, 1003
+        setb    al
+        ret]]
+
+It is not clear that this code is actually faster; it probably saves a
+few cycles of latency but vectorizes worse. It was a total wash in
+benchmarks. However, I spent some time arguing with AI about it, and
+eventually won. Like a coward, it weasled out of a formal apology:
+
+[image { img = image-load "i-win-again.png", width = inch 3.65 }]
+
+[* In general, I spent a lot of time optimizing... *]
+
+[section[Miscellaneous TODO]]
 
 Infinitely many
 What’s the best Rupert?
 
+
+[section[Other approaches]]
+
+
 [section[Results]]
-[make-sol-table ()]
+[* make-sol-table () *]
 
 [subsection[Scorecards]]
-[layout-concat (list-map make-scorecard POLYHEDRA)]
+
+[layout-concat (list-map (make-scorecard scorecards) POLYHEDRA)]
+
+[*
+[layout-concat (list-map (make-scorecard scorecards)
+                (  ("cube", "cube", "cube", PLATONIC) :: nil))]
+*]
 
 [section[Improvements to BoVeX]]
 
@@ -487,9 +961,43 @@ ever used. Unicode is even more inspiring to notation fetishists than
 is so elementary, or else we could be like [b (fixedersys[A ≽ B ⊯ ⊱∔C
 ⊶ ∷D⊰])].
 
-[paragraph["Robustness"]]
+[paragraph[“Robustness”]]
 BoVeX no longer crashes programs like Adobe Acrobat that expect
-the PDFs to be "correct." LOL!!
+the PDFs to be “correct.” LOL!!
+
+[section[List of open problems]]
+
+Can we disprove the universal Rupert conjecture, by proving that
+one of these nice symmetric polyhedra does not have the property?
+
+Harder: If the conjecture is false, can we show that the snub cube is
+the polyhedron with the fewest vertices (24) that fails it?
+
+Easier: Can we prove that for some polyhedra (e.g. the regular tetrahedron),
+any Rupert configuration involves a translation (i.e. the projected
+origins do not coincide)?
+
+[section[Conclusion]]
+
+This paper essentially does not advance the state of human knowledge
+in any way.
+
+[paragraph[Acknowledgements]] I like to think that the upsetting facts
+that (a) I am well sick of this project at this point and (b) I didn't
+solve it are due to an unusual (for me) approach I took with it. That
+is: I talked about it openly with my friends, and even collaborated.
+David Renshaw created some excellent animations that appear in the
+accompanying video, and his own soothing music video. He also found
+several bugs in my code, most importantly that my computed vertices
+for the disdyakis triacontahedron were incorrect! Jason Reed made a
+“boring, hard video game” version of the problem [* XXX link here if not
+above *] you can do in your website. Tom Lokovic, who shares my
+self-defeating Gen-X distate for modernity, drew upon his 1990s
+computer graphics wizardry to work through a few puzzles with me. All
+of the Brain Geniuses at ThursDz's and Henge Heads Lunch [it[at a
+minimum]] tolerated me repeatedly talking about polyhedra, and many
+had suggestions as well. However, all of these suggestions were
+ultimately fruitless.
 
 [section [Bibliography]]
 
@@ -497,20 +1005,14 @@ the PDFs to be "correct." LOL!!
 
 ]))
 
+
 end
 
 (*
 
-how big is the unit cube?
-let me ask you this way. WHERE is the unit cube?
-how big is the unit sphere?
-(dice in sphere)
-
 now, most rich ..
 
  It is just notes for now.
-
- dice in sphere
 
  point set version
 
@@ -592,5 +1094,13 @@ triangle man hates particle man
  man-made horrors like,
    - typos in unicode
    - conventions about the size of a unit sphere and cube
+   - VRML
+
+ TODO:
+  - vector/raster image wrapper, so that both are happening in tandem
+  - rendering bugs look dope
+  - reencode PNGs before embedding, perhaps in pdf.cc
+  - some objects have inside-out normals?
+  - emit floaters (footnotes)
 
  *)

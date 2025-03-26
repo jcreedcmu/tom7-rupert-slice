@@ -1,14 +1,13 @@
 
+// Generate 2D slices of the 10D (or 8D?) parameterization.
+
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
-#include <deque>
 #include <format>
-#include <functional>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -43,22 +42,22 @@
 #include "arcfour.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
+#include "color-util.h"
 #include "dyson.h"
 #include "image.h"
 #include "lines.h"
+#include "mesh.h"
+#include "mov-recorder.h"
+#include "mov.h"
 #include "periodically.h"
+#include "polyhedra.h"
 #include "randutil.h"
 #include "re2/re2.h"
 #include "smallest-sphere.h"
 #include "threadutil.h"
 #include "timer.h"
 #include "util.h"
-
-#include "mesh.h"
 #include "yocto_matht.h"
-
-#include "mov.h"
-#include "mov-recorder.h"
 
 using namespace std;
 
@@ -74,8 +73,13 @@ static SDL_Cursor *cursor_arrow = nullptr, *cursor_bucket = nullptr;
 static SDL_Cursor *cursor_hand = nullptr, *cursor_hand_closed = nullptr;
 static SDL_Cursor *cursor_eraser = nullptr;
 
-#define SCREENW 1024
-#define SCREENH 1024
+#define SCREENW 1920
+#define SCREENH 1080
+static constexpr int IMAGE_HEIGHT = SCREENH;
+static constexpr int IMAGE_WIDTH = SCREENW;
+static constexpr int IMAGE_SQUARE = std::min(SCREENW, SCREENH);
+static constexpr int IMAGE_TOP = SCREENH == IMAGE_SQUARE ? 0 : (IMAGE_SQUARE - IMAGE_HEIGHT) >> 1;
+static constexpr int IMAGE_LEFT = SCREENW == IMAGE_SQUARE ? 0 : (IMAGE_SQUARE - IMAGE_WIDTH) >> 1  ;
 
 static SDL_Joystick *joystick = nullptr;
 static SDL_Surface *screen = nullptr;
@@ -87,51 +91,6 @@ using frame3 = yocto::frame<double, 3>;
 using mat3 = yocto::mat<double, 3>;
 using mat4 = yocto::mat<double, 4>;
 
-TriangularMesh3D TransformMesh(const frame3 &frame,
-                               const TriangularMesh3D &mesh) {
-  TriangularMesh3D out = mesh;
-  for (vec3 &v : out.vertices) v = yocto::transform_point(frame, v);
-  return out;
-}
-
-TriangularMesh3D TransformMesh(const mat4 &mtx,
-                               const TriangularMesh3D &mesh) {
-  TriangularMesh3D out = mesh;
-  for (vec3 &v : out.vertices) v = yocto::transform_point(mtx, v);
-  return out;
-}
-
-inline vec3 ProjectPt(const mat4 &proj, const vec3 &point) {
-  vec4 pp = proj * vec4{.x = point.x, .y = point.y, .z = point.z, .w = 1.0};
-  return vec3{.x = pp.x / pp.w, .y = pp.y / pp.w, .z = pp.z / pp.w};
-}
-
-TriangularMesh3D ProjectMesh(const mat4 &proj,
-                             const TriangularMesh3D &mesh) {
-  TriangularMesh3D out = mesh;
-  for (vec3 &v : out.vertices) v = ProjectPt(proj, v);
-  return out;
-}
-
-enum class Speed {
-  PLAY,
-  PAUSE,
-};
-
-enum class View {
-  ORTHOGRAPHIC,
-  PERSPECTIVE,
-};
-
-namespace {
-template<class F>
-struct ScopeExit {
-  ScopeExit(F &&f) : f(std::forward<F>(f)) {}
-  ~ScopeExit() { f(); }
-  F f;
-};
-}
-
 // Gamepad values, from NES!
 #define INPUT_R (1<<7)
 #define INPUT_L (1<<6)
@@ -142,186 +101,113 @@ struct ScopeExit {
 #define INPUT_B (1<<1)
 #define INPUT_A (1   )
 
+static constexpr int D = 3 + 3 + 2;
+
+// Red for negative, black for 0, green for positive.
+// nominal range [-1, 1].
+static constexpr ColorUtil::Gradient DISTANCE{
+  /*
+  GradRGB(-4.0f, 0xFFFF88),
+  GradRGB(-2.0f, 0xFFFF00),
+  GradRGB(-1.0f, 0xFF0000),
+  GradRGB( 0.0f, 0x440044),
+  GradRGB( 1.0f, 0x00FF00),
+  GradRGB(+2.0f, 0x00FFFF),
+  GradRGB(+4.0f, 0x88FFFF),
+  */
+  GradRGB(-10.0f, 0xFFFFFF),
+  GradRGB(-4.0f, 0x008800),
+  GradRGB( 0.0f, 0xFFFF00),
+  GradRGB(+1.0f, 0x0000AA),
+  GradRGB(+2.0f, 0x220044),
+};
+
+
 struct Scene {
-  vec3 camera_pos = vec3{-1.0, -.03, 4.0};
-  const vec3 object_pos = vec3{0.0, 0.0, 0.0};
-  ArcFour rc = ArcFour(std::format("shrink.{}", time(nullptr)));
+  ArcFour rc = ArcFour(std::format("mri.{}", time(nullptr)));
+  std::unique_ptr<Polyhedron> poly;
 
-  double best_radius = std::numeric_limits<double>::infinity();
-
-  std::vector<frame3> cubes;
-
-  void Reset() {
-    camera_pos = vec3{-1.0, -.03, 4.0};
+  std::array<double, D> current_args;
+  void SetArgs(const std::array<double, D> &args) {
+    current_args = args;
   }
 
-  void Reload() {
-    std::vector<std::string> lines =
-      Util::NormalizeLines(Util::ReadFileToLines("manual.txt"));
+  void Reload() {}
 
-    cubes.clear();
-    for (const std::string &line : lines) {
-      constexpr vec3 center(0.5, 0.5, 0.5);
-      double ax, ay, az;
-      double deg;
-      double x, y, z;
-      if (RE2::FullMatch(line,
-                         " *"
-                         // axis (from origin)
-                         "([-0-9.]+) +([-0-9.]+) +([-0-9.]+)"
-                         // angle (degrees)
-                         " +([-0-9.]+)"
-                         // translation
-                         " +([-0-9.]+) +([-0-9.]+) +([-0-9.]+)"
-                         " *",
-                         &ax, &ay, &az,
-                         &deg,
-                         &x, &y, &z)) {
-        frame3 cube = translation_frame(-center);
-        cube = rotation_frame(vec3{ax, ay, az},
-                              deg * (std::numbers::pi / 180.0)) * cube;
-        cube = translation_frame(vec3{x, y, z}) * cube;
-        cube = translation_frame(center) * cube;
-        cubes.push_back(cube);
-      }
-    }
+  static constexpr int X_AXIS = D - 2;
+  static constexpr int Y_AXIS = D - 1;
+  // Plot is nominally from [-XSCALE, +XSCALE].
+  static constexpr double XSCALE = 0.5;
+  static constexpr double YSCALE = 0.5;
+  inline double Eval(const std::array<double, D> &args) {
+    // PERF: A lot of this will be constant, depending on x/y axes.
+    frame3 outer_frame =
+      rotation_frame(vec3{1, 0, 0}, args[0]) *
+      rotation_frame(vec3{0, 1, 0}, args[1]) *
+      rotation_frame(vec3{0, 0, 1}, args[2]);
 
-    std::vector<vec3> all_points =
-      Dyson::CubesToPoints(cubes);
+    frame3 inner_frame =
+      rotation_frame(vec3{1, 0, 0}, args[3]) *
+      rotation_frame(vec3{0, 1, 0}, args[4]) *
+      rotation_frame(vec3{0, 0, 1}, args[5]);
 
-    const auto &[center, radius] =
-      SmallestSphere::Smallest(&rc, all_points);
+    inner_frame.o.x = args[6];
+    inner_frame.o.y = args[7];
 
-    best_radius = std::min(radius, best_radius);
-    printf("Radius: %.11g. Best: %.11g\n",
-           radius, best_radius);
+    return LossFunction(*poly, outer_frame, inner_frame);
   }
 
   Scene() {
-    Reload();
-    Reset();
+    poly.reset(new Polyhedron(Cube()));
+    for (double &d : current_args) d = 0.0;
+  }
+
+  ~Scene() {
+    delete poly->faces;
+    poly.reset();
+  }
+
+  void Update(const vec3 &velo, const vec3 &veli) {
+    // XXX mod into range
+    for (int i = 0; i < 3; i++) current_args[0 + i] += velo[i];
+    for (int i = 0; i < 3; i++) current_args[3 + i] += veli[i];
   }
 
   void Draw(ImageRGBA *img) {
+    // XXX not necessary; we will set every pixel
     img->Clear32(0x000000FF);
 
-    constexpr double SCALE = 300.0;
+    std::array<double, D> args = current_args;
 
-    // Ideally this should happen from the transform itself
-    auto ToScreen = [img](vec3 v) {
-        // 0,0 in center.
-        int x = std::round((img->Width() >> 1) + v.x * SCALE);
-        int y = std::round((img->Height() >> 1) - v.y * SCALE);
-        return std::make_pair(x, y);
-      };
+    ParallelComp(
+        IMAGE_HEIGHT,
+        [&](int sy) {
+          // for (int sy = 0; sy < IMAGE_HEIGHT; sy++) {
+          double y = (((sy + IMAGE_TOP) / (double)IMAGE_SQUARE) * 2.0 - 1.0) * YSCALE;
+          args[Y_AXIS] = y;
+          for (int sx = 0; sx < IMAGE_WIDTH; sx++) {
+            double x = (((sx + IMAGE_LEFT) / (double)IMAGE_SQUARE) * 2.0 - 1.0) * XSCALE;
+            args[X_AXIS] = x;
 
-    auto DrawLine = [&](const vec3 &a, const vec3 &b,
-                        uint32_t color) {
-        const auto &[x0, y0] = ToScreen(a);
-        const auto &[x1, y1] = ToScreen(b);
-        auto clip = ClipLineToRectangle<float>(x0, y0, x1, y1,
-                                               0, 0, SCREENW, SCREENH);
-        if (clip.has_value()) {
-          const auto &[cx0, cy0, cx1, cy1] = clip.value();
-          img->BlendLine32(cx0, cy0, cx1, cy1, color);
-        }
-      };
-
-    constexpr double FOVY = 1.0; // 1 radian is about 60 deg
-    constexpr double ASPECT_RATIO = 1.0;
-    constexpr double NEAR_PLANE = 0.1;
-    constexpr double FAR_PLANE = 1000.0;
-    mat4 persp = yocto::perspective_mat(FOVY, ASPECT_RATIO, NEAR_PLANE,
-                                        FAR_PLANE);
-
-    frame3 frame = translation_frame(-camera_pos);
-    /*
-    frame3 frame = inverse(lookat_frame(camera_pos, object_pos,
-                                        vec3{0.0, 1.0, 0.0}));
-    */
-
-    [[maybe_unused]]
-    vec3 xpos = ProjectPt(persp, transform_point(frame, vec3{1, 0, 0}));
-    [[maybe_unused]]
-    vec3 ypos = ProjectPt(persp, transform_point(frame, vec3{0, 1, 0}));
-    [[maybe_unused]]
-    vec3 zpos = ProjectPt(persp, transform_point(frame, vec3{0, 0, 1}));
-    [[maybe_unused]]
-    vec3 origin = ProjectPt(persp, transform_point(frame, vec3{0, 0, 0}));
-
-    DrawLine(origin, xpos, 0xFF0000FF);
-    DrawLine(origin, ypos, 0x00FF00FF);
-    DrawLine(origin, zpos, 0x0000FFFF);
-
-    for (const frame3 &cube : cubes) {
-      auto Vertex = [&](double x, double y, double z) {
-          vec3 model_vertex =
-            transform_point(cube, vec3{.x = x, .y = y, .z = z});
-          return ProjectPt(persp, transform_point(frame, model_vertex));
-        };
-      std::array<vec3, 8> cv;
-
-      constexpr int a = 0, b = 1, c = 2, d = 3;
-      constexpr int e = 4, f = 5, g = 6, h = 7;
-
-      cv[a] = Vertex(0.0, 1.0, 1.0);
-      cv[b] = Vertex(1.0, 1.0, 1.0);
-      cv[c] = Vertex(1.0, 1.0, 0.0);
-      cv[d] = Vertex(0.0, 1.0, 0.0);
-
-      cv[e] = Vertex(0.0, 0.0, 1.0);
-      cv[f] = Vertex(1.0, 0.0, 1.0);
-      cv[g] = Vertex(1.0, 0.0, 0.0);
-      cv[h] = Vertex(0.0, 0.0, 0.0);
-
-      std::initializer_list<std::pair<int, int>> edges = {
-        {a, b},
-        {a, d},
-        {a, e},
-        {c, d},
-        {c, b},
-        {c, g},
-        {h, d},
-        {h, e},
-        {h, g},
-        {f, b},
-        {f, e},
-        {f, g},
-      };
-
-      for (const auto &[m, n] : edges) {
-        const vec3 &v0 = cv[m];
-        const vec3 &v1 = cv[n];
-        bool clipped =
-          (v0.z < 0 || v1.z < 0) ||
-          (v0.z > 1 || v1.z > 1);
-
-        uint32_t color = 0xFFFFFFAA;
-
-        if (clipped) {
-          color = 0x88000088;
-        }
-
-        DrawLine(v0, v1, color);
-      }
-    }
+            double val = Eval(args);
+            img->BlendPixel32(sx, sy, ColorUtil::LinearGradient32(DISTANCE, val));
+          }
+        }, 12);
   }
 };
 
 struct UI {
   Scene scene;
-  Speed speed = Speed::PLAY;
-  View view = View::ORTHOGRAPHIC;
   uint8_t current_gamepad = 0;
   int64_t frames_drawn = 0;
   uint8_t last_jhat = 0;
-  vec3 vel = vec3{0, 0, 0};
+  // yaw, pitch, roll
+  vec3 velo = vec3{0, 0, 0};
+  vec3 veli = vec3{0, 0, 0};
 
   UI();
   void Loop();
   void Draw();
-
-  void PlayPause();
 
   Periodically fps_per;
 
@@ -332,9 +218,6 @@ struct UI {
   int mousex = 0, mousey = 0;
   bool dragging = false;
 
-  std::pair<int, int> drag_source = {-1, -1};
-  int drag_handlex = 0, drag_handley = 0;
-
   std::unique_ptr<MovRecorder> mov;
 };
 
@@ -342,14 +225,6 @@ UI::UI() : fps_per(1.0 / 60.0) {
   drawing.reset(new ImageRGBA(SCREENW, SCREENH));
   CHECK(drawing != nullptr);
   drawing->Clear32(0x000000FF);
-}
-
-void UI::PlayPause() {
-  if (speed == Speed::PAUSE) {
-    speed = Speed::PLAY;
-  } else {
-    speed = Speed::PAUSE;
-  }
 }
 
 UI::EventResult UI::HandleEvents() {
@@ -395,21 +270,24 @@ UI::EventResult UI::HandleEvents() {
 
       SDL_JoyAxisEvent *j = (SDL_JoyAxisEvent *)&event;
       switch (j->axis) {
-      case 0:
-        // left and right
-        vel.x = MapAxis(j->value);
-        break;
       case 1:
-        // forward and back
-        vel.z = MapAxis(j->value);
+        // left and right
+        velo.x = MapAxis(j->value);
         break;
-
-      case 3:
-        vel.y = MapAxis(j->value);
+      case 0:
+        // forward and back
+        velo.y = MapAxis(j->value);
         break;
 
       case 4:
+        veli.x = MapAxis(j->value);
         break;
+
+      case 3:
+        veli.y = MapAxis(j->value);
+        break;
+
+        // TODO: Support roll
       }
 
       if (TRACE) {
@@ -434,7 +312,6 @@ UI::EventResult UI::HandleEvents() {
       case SDLK_HOME: {
         // TODO: Reset pos
 
-        speed = Speed::PAUSE;
         ui_dirty = true;
         break;
       }
@@ -477,12 +354,6 @@ UI::EventResult UI::HandleEvents() {
         break;
       }
 
-      case SDLK_SPACE: {
-        PlayPause();
-        ui_dirty = true;
-        break;
-      }
-
       case SDLK_KP_PLUS:
       case SDLK_EQUALS:
       case SDLK_PLUS:
@@ -493,16 +364,6 @@ UI::EventResult UI::HandleEvents() {
       case SDLK_KP_MINUS:
       case SDLK_MINUS:
         // TODO: Speed down
-        ui_dirty = true;
-        break;
-
-      case SDLK_RETURN:
-      case SDLK_KP_ENTER:
-        switch (view) {
-        case View::ORTHOGRAPHIC: view = View::PERSPECTIVE; break;
-        case View::PERSPECTIVE: view = View::ORTHOGRAPHIC; break;
-        default: break;
-        }
         ui_dirty = true;
         break;
 
@@ -524,27 +385,6 @@ UI::EventResult UI::HandleEvents() {
 
       default:;
       }
-      break;
-    }
-
-    case SDL_MOUSEBUTTONDOWN: {
-      // LMB/RMB, drag, etc.
-      SDL_MouseButtonEvent *e = (SDL_MouseButtonEvent*)&event;
-      mousex = e->x;
-      mousey = e->y;
-
-      dragging = true;
-
-      break;
-    }
-
-    case SDL_MOUSEBUTTONUP: {
-      // LMB/RMB, drag, etc.
-      dragging = false;
-
-      ui_dirty = true;
-      drag_source = {-1, -1};
-      // SDL_SetCursor(cursor_hand);
       break;
     }
 
@@ -645,6 +485,8 @@ void UI::Loop() {
     case EventResult::DIRTY: ui_dirty = true; break;
     }
 
+    scene.Update(velo * 0.01, veli * 0.01);
+
     if (true || ui_dirty) {
       Draw();
       // printf("Flip.\n");
@@ -662,11 +504,6 @@ void UI::Draw() {
   CHECK(drawing != nullptr);
   CHECK(screen != nullptr);
 
-  if (view == View::PERSPECTIVE) {
-    // apply perspective transform
-  }
-
-  scene.camera_pos += vel * 0.01;
   scene.Draw(drawing.get());
 
   drawing->BlendText32(5, 5, 0xFFFF00AA,
@@ -674,7 +511,9 @@ void UI::Draw() {
   sdlutil::CopyRGBAToScreen(*drawing, screen);
 
   font->draw(30, 30, StringPrintf("%.5f, %.5f, %.5f",
-                                  vel.x, vel.y, vel.z));
+                                  velo.x, velo.y, velo.z));
+  font->draw(30, 50, StringPrintf("%.5f, %.5f, %.5f",
+                                  veli.x, veli.y, veli.z));
 
   if (mov.get()) {
     // TODO: Enqueue this.

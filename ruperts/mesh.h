@@ -3,10 +3,13 @@
 
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 #include <tuple>
 
 #include "yocto_matht.h"
+#include "hashing.h"
 
 // A 3D triangle mesh; not necessarily convex. Some code expects that
 // faces be consistently oriented, that it be a proper manifold, or
@@ -29,6 +32,8 @@ TriangularMesh3D LoadSTL(std::string_view filename);
 
 void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
                std::string_view name = "", bool quiet = false);
+
+// TODO: Facetize TriangularMesh3D into Mesh3D?
 
 // Creates a mesh that is simply the concatenation of the argument meshes.
 // The geometry is not merged (not even duplicate vertices). This can
@@ -63,6 +68,35 @@ struct MeshView {
 
   static MeshView FromString(std::string_view s);
 };
+
+struct MeshEdgeInfo {
+  // Must be manifold.
+  explicit MeshEdgeInfo(const TriangularMesh3D &mesh);
+
+  // Ordered a < b.
+  using Edge = std::pair<int, int>;
+  static inline Edge MakeEdge(int a, int b);
+
+  // The edge a-b or b-a must exist, or this aborts!
+  // It produces a nonnegative value in [0, π/2].
+  double EdgeAngle(int a, int b) const;
+
+ private:
+  // Always non-negative.
+  std::unordered_map<Edge, double, Hashing<Edge>> dihedral_angle;
+  // The other points of the two triangles that touch this edge.
+  std::unordered_map<Edge, std::pair<int, int>, Hashing<Edge>> other_points;
+};
+
+
+// Inline implementations follow.
+
+inline MeshEdgeInfo::Edge MeshEdgeInfo::MakeEdge(int a, int b) {
+  if (a > b) std::swap(a, b);
+  return std::make_pair(a, b);
+}
+
+
 
 
 #endif

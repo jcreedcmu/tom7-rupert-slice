@@ -289,7 +289,6 @@ struct UI {
   UI(TriangularMesh3D mesh, const std::string &view_file);
   void Loop();
   void Draw();
-  void DrawGrid();
 
   void PlayPause();
 

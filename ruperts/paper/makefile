@@ -32,8 +32,7 @@ $(SQLITE)/%.o : $(SQLITE)/%.cc makefile
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
 	@echo -n "."
 
-# %.view
-%.svg : %.stl  makesvg.exe
+%.svg : %.stl %.view  makesvg.exe
 	@./makesvg.exe $< $@
 	@echo -n "⊿"
 
@@ -43,6 +42,10 @@ solution-table.bovex : table.exe
 	@./table.exe > $@
 	@echo -n "⊞"
 
+icos-shadow.svg : platonic-icosahedron.svg platonic-icosahedron.view makeshadow.exe
+	@./makeshadow.exe platonic-icosahedron.stl $@
+	@echo -n "⋄"
+
 PLATONIC_SOLID_SVG=platonic-cube.svg platonic-icosahedron.svg platonic-tetrahedron.svg platonic-dodecahedron.svg platonic-octahedron.svg
 
 ARCHIMEDEAN_SOLID_SVG=archimedean-truncatedtetrahedron.svg archimedean-cuboctahedron.svg archimedean-truncatedcube.svg archimedean-truncatedoctahedron.svg archimedean-rhombicuboctahedron.svg archimedean-truncatedcuboctahedron.svg archimedean-snubcube.svg archimedean-icosidodecahedron.svg archimedean-truncateddodecahedron.svg archimedean-truncatedicosahedron.svg archimedean-rhombicosidodecahedron.svg archimedean-truncatedicosidodecahedron.svg archimedean-snubdodecahedron.svg
@@ -51,9 +54,11 @@ CATALAN_SOLID_SVG=catalan-deltoidalhexecontahedron.svg catalan-deltoidalicositet
 
 RESIDUE_SVG=cube-residue.svg cuboctahedron-residue.svg deltoidalicositetrahedron-residue.svg disdyakisdodecahedron-residue.svg disdyakistriacontahedron-residue.svg dodecahedron-residue.svg icosahedron-residue.svg icosidodecahedron-residue.svg octahedron-residue.svg pentagonalicositetrahedron-residue.svg pentakisdodecahedron-residue.svg rhombicdodecahedron-residue.svg rhombictriacontahedron-residue.svg rhombicuboctahedron-residue.svg tetrahedron-residue.svg tetrakishexahedron-residue.svg triakisicosahedron-residue.svg triakisoctahedron-residue.svg triakistetrahedron-residue.svg truncatedcube-residue.svg truncatedcuboctahedron-residue.svg truncateddodecahedron-residue.svg truncatedicosahedron-residue.svg truncatedicosidodecahedron-residue.svg truncatedoctahedron-residue.svg truncatedtetrahedron-residue.svg
 
-default : $(RESIDUE_SVG) $(PLATONIC_SOLID_SVG) $(ARCHIMEDEAN_SOLID_SVG) $(CATALAN_SOLID_SVG)
+AUX_SVG=questionmark.svg
 
-ruperts.pdf : ruperts.bovex solution-table.bovex polyhedra.bovex ruperts.bib $(BOVEX_LIB) $(RESIDUE_SVG) $(ARCHIMEDEAN_SOLID_SVG) $(CATALAN_SOLID_SVG)
+default : $(RESIDUE_SVG) $(PLATONIC_SOLID_SVG) $(ARCHIMEDEAN_SOLID_SVG) $(CATALAN_SOLID_SVG) $(AUX_SVG)
+
+ruperts.pdf : ruperts.bovex solution-table.bovex polyhedra.bovex ruperts.bib $(BOVEX_LIB) $(RESIDUE_SVG) $(ARCHIMEDEAN_SOLID_SVG) $(CATALAN_SOLID_SVG) $(AUX_SVG) icos-shadow.svg
 	$(BOVEX)/bovex.exe -I . -v ruperts.bovex -o $@
 
 table.exe : table.o $(OBJECTS)
@@ -61,6 +66,10 @@ table.exe : table.o $(OBJECTS)
 	@echo -n "!"
 
 makesvg.exe : makesvg.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+makeshadow.exe : makeshadow.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

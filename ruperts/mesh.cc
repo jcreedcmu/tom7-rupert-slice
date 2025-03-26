@@ -1,8 +1,11 @@
 
 #include "mesh.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <format>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -341,3 +344,69 @@ MeshView MeshView::FromString(std::string_view s) {
 
   return v;
 }
+
+  // The edge a-b or b-a must exist!
+double MeshEdgeInfo::EdgeAngle(int a, int b) const {
+  Edge e = MakeEdge(a, b);
+  auto it = dihedral_angle.find(e);
+  CHECK(it != dihedral_angle.end());
+  return it->second;
+}
+
+MeshEdgeInfo::MeshEdgeInfo(const TriangularMesh3D &mesh) {
+  for (const auto &[a, b, c] : mesh.triangles) {
+    auto AddEdge = [this](int a, int b, int c) {
+        Edge e = MakeEdge(a, b);
+        auto &[p1, p2] = other_points[e];
+
+        // It's not possible for the other points to both be
+        // zero, so we know it must have been default-constructed.
+        if (p1 == 0 && p2 == 0) {
+          // No value yet.
+          p1 = -1;
+          p2 = -1;
+        }
+
+        if (p1 == -1) {
+          p1 = c;
+        } else if (p2 == -1) {
+          p2 = c;
+        } else {
+          LOG(FATAL) << "Non-manifold: More than two "
+            "triangles share an edge. " <<
+            StringPrintf("Triangle: %d,%d,%d. Already have "
+                         "p1 = %d, p2 = %d",
+                         a, b, c, p1, p2);
+        }
+      };
+
+    AddEdge(a, b, c);
+    AddEdge(b, c, a);
+    AddEdge(c, a, b);
+  }
+
+  for (const auto &[e, p] : other_points) {
+    const auto &[a, b] = e;
+    const auto &[c, d] = p;
+    CHECK(c != -1 && d != -1) << "Non-manifold: An edge "
+                                 "that does not connect two triangles.";
+
+    const vec3 &va = mesh.vertices[a];
+    const vec3 &vb = mesh.vertices[b];
+    const vec3 &vc = mesh.vertices[c];
+    const vec3 &vd = mesh.vertices[d];
+
+    vec3 nabc = normalize(cross(vb - va, vc - va));
+    vec3 nabd = normalize(cross(vb - va, vd - va));
+
+    // Angle between face normals.
+    double angle = std::acos(std::clamp(dot(nabc, nabd), -1.0, 1.0));
+
+    angle = std::min(angle, std::numbers::pi - angle);
+
+    CHECK(angle >= 0.0);
+    // printf("Angle %d-%d: %.11g\n", a, b, angle);
+    dihedral_angle[e] = angle;
+  }
+}
+

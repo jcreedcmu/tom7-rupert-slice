@@ -1,0 +1,38 @@
+
+datatype polyhedron-class =
+  PLATONIC | ARCHIMEDEAN | CATALAN
+
+(* nickname, identifier, human name *)
+val POLYHEDRA =
+  ("tetra", "tetrahedron", "tetrahedron", PLATONIC) ::
+  ("cube", "cube", "cube", PLATONIC) ::
+  ("dode", "dodecahedron", "dodecahedron", PLATONIC) ::
+  ("icos", "icosahedron", "icosahedron", PLATONIC) ::
+  ("octa", "octahedron", "octahedron", PLATONIC) ::
+  ("ttetra", "truncatedtetrahedron", "truncated tetrahedron", ARCHIMEDEAN) ::
+  ("cocta", "cuboctahedron", "cuboctahedron", ARCHIMEDEAN) ::
+  ("tcube", "truncatedcube", "truncated cube", ARCHIMEDEAN) ::
+  ("tocta", "truncatedoctahedron", "truncated octahedron", ARCHIMEDEAN) ::
+  ("rcocta", "rhombicuboctahedron", "rhombicuboctahedron", ARCHIMEDEAN) ::
+  ("tcocta", "truncatedcuboctahedron", "truncated cuboctahedron", ARCHIMEDEAN) ::
+  ("scube", "snubcube", "snub cube", ARCHIMEDEAN) ::
+  ("idode", "icosidodecahedron", "icosidodecahedron", ARCHIMEDEAN) ::
+  ("tdode", "truncateddodecahedron", "truncated dodecahedron", ARCHIMEDEAN) ::
+  ("ticos", "truncatedicosahedron", "truncated icosahedron", ARCHIMEDEAN) ::
+  ("ridode", "rhombicosidodecahedron", "rhombicosidodecahedron", ARCHIMEDEAN) ::
+  ("tidode", "truncatedicosidodecahedron", "truncated icosidodecahedron", ARCHIMEDEAN) ::
+  ("sdode", "snubdodecahedron", "snub dodecahedron", ARCHIMEDEAN) ::
+  ("ktetra", "triakistetrahedron", "triakis tetrahedron", CATALAN) ::
+  ("rdode", "rhombicdodecahedron", "rhombic dodecahedron", CATALAN) ::
+  ("kocta", "triakisoctahedron", "triakis octahedron", CATALAN) ::
+  ("thexa", "tetrakishexahedron", "tetrakis hexahedron", CATALAN) ::
+  ("ditet", "deltoidalicositetrahedron", "deltoidal icositetrahedron", CATALAN) ::
+  ("ddode", "disdyakisdodecahedron", "disdyakis dodecahedron", CATALAN) ::
+  ("dhexe", "deltoidalhexecontahedron", "deltoidal hexecontahedron", CATALAN) ::
+  ("pitet", "pentagonalicositetrahedron", "pentagonal icositetrahedron", CATALAN) ::
+  ("rtriac", "rhombictriacontahedron", "rhombic triacontahedron", CATALAN) ::
+  ("kicos", "triakisicosahedron", "triakis icosahedron", CATALAN) ::
+  ("pdode", "pentakisdodecahedron", "pentakis dodecahedron", CATALAN) ::
+  ("dtriac", "disdyakistriacontahedron", "disdyakis triacontahedron", CATALAN) ::
+  ("phexe", "pentagonalhexecontahedron", "pentagonal hexecontahedron", CATALAN) ::
+  nil

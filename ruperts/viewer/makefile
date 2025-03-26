@@ -71,6 +71,10 @@ shrinkplacer.exe : shrinkplacer.o $(OBJECTS) $(SDLOBJECTS) $(SQLITE_OBJECTS) $(C
 	$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
+mri.exe : mri.o $(OBJECTS) $(SDLOBJECTS) $(SQLITE_OBJECTS) $(CODEC_OBJECTS)
+	$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
 clean :
 	rm -f *.o $(OBJECTS) *.exe
 

@@ -8,6 +8,7 @@
 #include <vector>
 
 // Note: Buggy?? See hull_test.cc.
+// You can use hull3d.h.
 struct QuickHull3D {
   using vec3 = yocto::vec<double, 3>;
 

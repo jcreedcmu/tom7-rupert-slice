@@ -43,6 +43,7 @@ static Polyhedron GetPolyhedron(std::string_view name) {
 
 static void Save(std::string_view name, std::string_view file) {
   Polyhedron polyhedron = GetPolyhedron(name);
+  // XXX orient the mesh here
   SaveAsSTL(polyhedron, file);
 }
 

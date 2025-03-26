@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <deque>
 #include <format>
 #include <functional>
 #include <memory>
@@ -24,7 +25,6 @@
 #include "atomic-util.h"
 #include "auto-histo.h"
 #include "base/stringprintf.h"
-#include "hull.h"
 #include "hull3d.h"
 #include "interval-cover-util.h"
 #include "interval-cover.h"
@@ -42,13 +42,16 @@
 #include "timer.h"
 #include "util.h"
 #include "yocto_matht.h"
+#include "smallest-sphere.h"
 
 // Try to find counterexamples.
 
+// TODO: Random planar faces that aren't just triangles (regular polygons, etc.)
+
 #define ABLOOD(s) AFGCOLOR(148, 0, 0, s)
 
-DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped, hard, successes,
-                 infeasible);
+DECLARE_COUNTERS(polyhedra, attempts, degenerate, skipped,
+                 hard, successes, infeasible, random_retries);
 
 static constexpr int VERBOSE = 0;
 static constexpr bool SAVE_EVERY_IMAGE = false;
@@ -65,6 +68,7 @@ using mat4 = yocto::mat<double, 4>;
 using quat4 = yocto::quat<double, 4>;
 using frame3 = yocto::frame<double, 3>;
 
+// Each of x,y,z in [-1, 1].
 static vec3 RandomVec(ArcFour *rc) {
   return vec3(2.0 * RandDouble(rc) - 1.0,
               2.0 * RandDouble(rc) - 1.0,
@@ -79,113 +83,165 @@ static vec3 RandomVec(ArcFour *rc) {
 static constexpr int NOPERT_ITERS = 200000;
 static constexpr int MIN_VERBOSE_ITERS = 5000;
 static constexpr bool SAVE_HARD = false;
-static std::optional<int> TrySolve(int thread_idx,
-                                   ArcFour *rc, const Polyhedron &poly,
-                                   frame3 *outer_frame_out,
-                                   frame3 *inner_frame_out) {
-  CHECK(!poly.faces->v.empty());
+struct TrySolver {
+  TrySolver(int cache_size = 0) : max_cache_size(cache_size) {}
+  const int max_cache_size = 0;
 
-  for (int iter = 0; iter < NOPERT_ITERS; iter++) {
+  struct CacheEntry {
+    int rounds = 0;
+    frame3 outer_frame;
+    frame3 inner_frame;
+  };
 
-    if (iter > 0 && (iter % 5000) == 0) {
-      status->Printf("[" APURPLE("%d") "] %d-point polyhedron "
-                     AFGCOLOR(190, 220, 190, "not solved")
-                     " after " AWHITE("%d") " iters...\n",
-                     thread_idx,
-                     (int)poly.vertices.size(), iter);
+  std::mutex mu;
+  std::deque<CacheEntry> cache;
+  int64_t cache_hits = 0;
 
-      if (iter == 20000) {
-        hard++;
-        if (SAVE_HARD) {
-          std::string filename = StringPrintf("hard.%lld.%d.stl",
-                                              time(nullptr), thread_idx);
-          SaveAsSTL(poly, filename);
-          status->Printf("[" APURPLE("%d") "] Hard %d-point polyhedron saved "
-                         "to " AGREEN("%s") "\n",
-                         thread_idx, (int)poly.vertices.size(),
-                         filename.c_str());
+  std::optional<int> Solve(int thread_idx,
+                           ArcFour *rc, const Polyhedron &poly,
+                           frame3 *outer_frame_out,
+                           frame3 *inner_frame_out) {
+    if (max_cache_size > 0) {
+      MutexLock ml(&mu);
+      for (const CacheEntry &entry : cache) {
+        attempts++;
+        double d = LossFunction(poly, entry.outer_frame, entry.inner_frame);
+        if (d <= 0.0) {
+          if (outer_frame_out != nullptr) {
+            *outer_frame_out = entry.outer_frame;
+          }
+          if (inner_frame_out != nullptr) {
+            *inner_frame_out = entry.inner_frame;
+          }
+          cache_hits++;
+          return {entry.rounds};
         }
       }
     }
 
-    // four params for outer rotation, four params for inner
-    // rotation, two for 2d translation of inner.
-    static constexpr int D = 10;
-
-    const quat4 initial_outer_rot = RandomQuaternion(rc);
-    const quat4 initial_inner_rot = RandomQuaternion(rc);
-
-    // Get the frames from the appropriate positions in the
-    // argument.
-
-    auto OuterFrame = [&initial_outer_rot](
-        const std::array<double, D> &args) {
-        const auto &[o0, o1, o2, o3,
-                     i0_, i1_, i2_, i3_, dx_, dy_] = args;
-        quat4 tweaked_rot = normalize(quat4{
-            .x = initial_outer_rot.x + o0,
-            .y = initial_outer_rot.y + o1,
-            .z = initial_outer_rot.z + o2,
-            .w = initial_outer_rot.w + o3,
-          });
-        return yocto::rotation_frame(tweaked_rot);
-      };
-
-    auto InnerFrame = [&initial_inner_rot](
-        const std::array<double, D> &args) {
-        const auto &[o0_, o1_, o2_, o3_,
-                     i0, i1, i2, i3, dx, dy] = args;
-        quat4 tweaked_rot = normalize(quat4{
-            .x = initial_inner_rot.x + i0,
-            .y = initial_inner_rot.y + i1,
-            .z = initial_inner_rot.z + i2,
-            .w = initial_inner_rot.w + i3,
-          });
-        frame3 rotate = yocto::rotation_frame(tweaked_rot);
-        frame3 translate = yocto::translation_frame(
-            vec3{.x = dx, .y = dy, .z = 0.0});
-        return rotate * translate;
-      };
-
-    std::function<double(const std::array<double, D> &)> Loss =
-      [&poly, &OuterFrame, &InnerFrame](
-          const std::array<double, D> &args) {
-        attempts++;
-        return LossFunction(poly, OuterFrame(args), InnerFrame(args));
-      };
-
-    constexpr double Q = 0.15;
-
-    const std::array<double, D> lb =
-      {-Q, -Q, -Q, -Q,
-       -Q, -Q, -Q, -Q, -1.0, -1.0};
-    const std::array<double, D> ub =
-      {+Q, +Q, +Q, +Q,
-       +Q, +Q, +Q, +Q, +1.0, +1.0};
-
-    const int seed = RandTo(rc, 0x7FFFFFFE);
-    const auto &[args, error] =
-      Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 1, seed);
-
-    if (error == 0.0) {
-      if (outer_frame_out != nullptr) {
-        *outer_frame_out = OuterFrame(args);
+    CacheEntry entry;
+    std::optional<int> orounds = DoSolve(thread_idx, rc, poly,
+                                         &entry.outer_frame,
+                                         &entry.inner_frame);
+    if (max_cache_size > 0 && orounds.has_value()) {
+      MutexLock ml(&mu);
+      entry.rounds = orounds.value();
+      cache.emplace_back(entry);
+      if (cache.size() >= max_cache_size) {
+        cache.pop_front();
       }
-      if (inner_frame_out != nullptr) {
-        *inner_frame_out = InnerFrame(args);
-      }
-
-      if (iter > MIN_VERBOSE_ITERS) {
-        status->Printf("%d-point polyhedron " AYELLOW("solved") " after "
-                       AWHITE("%d") " iters.\n",
-                       (int)poly.vertices.size(), iter);
-      }
-      return {iter};
     }
+    return orounds;
   }
 
-  return std::nullopt;
-}
+  static std::optional<int> DoSolve(int thread_idx,
+                                    ArcFour *rc, const Polyhedron &poly,
+                                    frame3 *outer_frame_out,
+                                    frame3 *inner_frame_out) {
+    CHECK(!poly.faces->v.empty());
+
+    for (int iter = 0; iter < NOPERT_ITERS; iter++) {
+
+      if (iter > 0 && (iter % 5000) == 0) {
+        status->Printf("[" APURPLE("%d") "] %d-point polyhedron "
+                       AFGCOLOR(190, 220, 190, "not solved")
+                       " after " AWHITE("%d") " iters...\n",
+                       thread_idx,
+                       (int)poly.vertices.size(), iter);
+
+        if (iter == 20000) {
+          hard++;
+          if (SAVE_HARD) {
+            std::string filename = StringPrintf("hard.%lld.%d.stl",
+                                                time(nullptr), thread_idx);
+            SaveAsSTL(poly, filename);
+            status->Printf("[" APURPLE("%d") "] Hard %d-point polyhedron saved "
+                           "to " AGREEN("%s") "\n",
+                           thread_idx, (int)poly.vertices.size(),
+                           filename.c_str());
+          }
+        }
+      }
+
+      // four params for outer rotation, four params for inner
+      // rotation, two for 2d translation of inner.
+      static constexpr int D = 10;
+
+      const quat4 initial_outer_rot = RandomQuaternion(rc);
+      const quat4 initial_inner_rot = RandomQuaternion(rc);
+
+      // Get the frames from the appropriate positions in the
+      // argument.
+
+      auto OuterFrame = [&initial_outer_rot](
+          const std::array<double, D> &args) {
+          const auto &[o0, o1, o2, o3,
+                       i0_, i1_, i2_, i3_, dx_, dy_] = args;
+          quat4 tweaked_rot = normalize(quat4{
+              .x = initial_outer_rot.x + o0,
+              .y = initial_outer_rot.y + o1,
+              .z = initial_outer_rot.z + o2,
+              .w = initial_outer_rot.w + o3,
+            });
+          return yocto::rotation_frame(tweaked_rot);
+        };
+
+      auto InnerFrame = [&initial_inner_rot](
+          const std::array<double, D> &args) {
+          const auto &[o0_, o1_, o2_, o3_,
+                       i0, i1, i2, i3, dx, dy] = args;
+          quat4 tweaked_rot = normalize(quat4{
+              .x = initial_inner_rot.x + i0,
+              .y = initial_inner_rot.y + i1,
+              .z = initial_inner_rot.z + i2,
+              .w = initial_inner_rot.w + i3,
+            });
+          frame3 rotate = yocto::rotation_frame(tweaked_rot);
+          frame3 translate = yocto::translation_frame(
+              vec3{.x = dx, .y = dy, .z = 0.0});
+          return rotate * translate;
+        };
+
+      std::function<double(const std::array<double, D> &)> Loss =
+        [&poly, &OuterFrame, &InnerFrame](
+            const std::array<double, D> &args) {
+          attempts++;
+          return LossFunction(poly, OuterFrame(args), InnerFrame(args));
+        };
+
+      constexpr double Q = 0.15;
+
+      const std::array<double, D> lb =
+        {-Q, -Q, -Q, -Q,
+         -Q, -Q, -Q, -Q, -1.0, -1.0};
+      const std::array<double, D> ub =
+        {+Q, +Q, +Q, +Q,
+         +Q, +Q, +Q, +Q, +1.0, +1.0};
+
+      const int seed = RandTo(rc, 0x7FFFFFFE);
+      const auto &[args, error] =
+        Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 1, seed);
+
+      if (error == 0.0) {
+        if (outer_frame_out != nullptr) {
+          *outer_frame_out = OuterFrame(args);
+        }
+        if (inner_frame_out != nullptr) {
+          *inner_frame_out = InnerFrame(args);
+        }
+
+        if (iter > MIN_VERBOSE_ITERS) {
+          status->Printf("%d-point polyhedron " AYELLOW("solved") " after "
+                         AWHITE("%d") " iters.\n",
+                         (int)poly.vertices.size(), iter);
+        }
+        return {iter};
+      }
+    }
+
+    return std::nullopt;
+  }
+};
 
 [[maybe_unused]]
 static Polyhedron RandomTetrahedron(ArcFour *rc) {
@@ -218,40 +274,82 @@ static Polyhedron RandomTetrahedron(ArcFour *rc) {
   }
 }
 
-Polyhedron RandomPolyhedron(ArcFour *rc, int num_points) {
+std::vector<vec3> RandomHullOfSize(ArcFour *rc, int num_points) {
+  std::vector<vec3> pts;
+  pts.reserve(num_points);
   for (;;) {
-    std::vector<vec3> pts;
-    pts.reserve(num_points);
-    for (int i = 0; i < num_points; i++) {
+    while (pts.size() < num_points * 3) {
       pts.push_back(RandomVec(rc));
     }
 
-    // Just the set of points.
+    // The set of points on the hull.
     std::unordered_set<int> hull_pts;
-    for (const auto &[a, b, c] : QuickHull3D::Hull(pts)) {
+    for (int a : Hull3D::HullPoints(pts)) {
       hull_pts.insert(a);
-      hull_pts.insert(b);
-      hull_pts.insert(c);
     }
 
-    vec3 centroid(0.0, 0.0, 0.0);
-    std::vector<vec3> pts2;
-    pts2.reserve(hull_pts.size());
-    for (int i : hull_pts) {
-      centroid += pts[i];
-      pts2.push_back(pts[i]);
+    std::vector<vec3> orig = pts;
+
+    {
+      std::vector<vec3> new_pts;
+      new_pts.reserve(hull_pts.size());
+      for (int a : hull_pts) {
+        new_pts.push_back(pts[a]);
+      }
+      pts = std::move(new_pts);
+      Shuffle(rc, &pts);
     }
-    centroid /= hull_pts.size();
-    for (vec3 &pt : pts2) {
-      pt -= centroid;
+
+    if (pts.size() > num_points) {
+      pts.resize(num_points);
+    }
+
+    if (pts.size() == num_points) {
+
+      constexpr bool SELF_CHECK = false;
+      if (SELF_CHECK) {
+        std::vector<int> hv = Hull3D::HullPoints(pts);
+        std::unordered_set<int> hull_pts(hv.begin(), hv.end());
+
+        if (hull_pts.size() != pts.size()) {
+          DebugPointCloudAsSTL(orig, "hull_not_preserved-orig.stl");
+          DebugPointCloudAsSTL(pts, "hull_not_preserved-hull.stl");
+
+          CHECK(hull_pts.size() == pts.size()) <<
+            hull_pts.size() << " of " << pts.size();
+        }
+        for (int i = 0; i < pts.size(); i++) {
+          CHECK(hull_pts.contains(i));
+        }
+      }
+
+
+      return pts;
+    }
+
+    random_retries++;
+  }
+}
+
+Polyhedron RandomPolyhedron(ArcFour *rc, int num_points) {
+  for (;;) {
+    std::vector<vec3> pts = RandomHullOfSize(rc, num_points);
+    CHECK(pts.size() == num_points);
+
+    // Center at 0,0.
+    const auto &[center, r] = SmallestSphere::Smallest(rc, pts);
+    for (vec3 &v : pts) {
+      v -= center;
     }
 
     std::optional<Polyhedron> poly =
-      PolyhedronFromConvexVertices(std::move(pts2), "random");
+      PolyhedronFromConvexVertices(pts, "random");
     if (poly.has_value()) {
       return std::move(poly.value());
     } else {
+      DebugPointCloudAsSTL(pts, "random-degenerate.stl");
       degenerate++;
+      LOG(FATAL) << "hi";
     }
   }
 }
@@ -509,7 +607,7 @@ static Polyhedron RandomRhombicPolyhedron(ArcFour *rc, int num_points) {
   for (;;) {
     // Rather than taking an arbitrary point set and inducing symmetry
     // for it, this generates points in special positions (on the
-    // axes of symmetry.
+    // axes of symmetry).
 
     // All points that have ever been added.
     PointSet3 point_set;
@@ -876,6 +974,7 @@ static bool Nopert(CandidateMaker *candidates) {
       [&](int thread_idx) {
         ArcFour rc(StringPrintf("noperts.%d.%lld\n",
                                 thread_idx, time(nullptr)));
+        TrySolver try_solver(0);
 
         for (;;) {
           {
@@ -913,8 +1012,8 @@ static bool Nopert(CandidateMaker *candidates) {
           }
 
           Timer solve_timer;
-          std::optional<int> iters = TrySolve(thread_idx, &rc, poly,
-                                              nullptr, nullptr);
+          std::optional<int> iters = try_solver.Solve(thread_idx, &rc, poly,
+                                                      nullptr, nullptr);
           const double solve_sec = solve_timer.Seconds();
 
           {
@@ -977,10 +1076,12 @@ static bool Nopert(CandidateMaker *candidates) {
               StringPrintf(
                   ACYAN("%s") " %s%s" AGREY("|") " "
                   ARED("%s") ABLOOD("×") " "
+                  ABLUE("%s") APURPLE("∲") " "
                   ABLUE("%s") AWHITE("∎"),
                   name.c_str(),
                   info.c_str(), info.empty() ? "" : " ",
                   FormatNum(degenerate.Read()).c_str(),
+                  FormatNum(random_retries.Read()).c_str(),
                   FormatNum(polys).c_str());
 
             std::string bar =
@@ -1020,6 +1121,9 @@ static void UnOpt(int64_t num_points) {
         ArcFour rc(std::format("adv.{}.{}.{}", thread_idx,
                                num_points, time(nullptr)));
 
+        // Cache.
+        TrySolver try_solver(4);
+
         // Here we have nested optimization. The outer optimizer is trying to
         // set vertices such that the inner optimizer takes many iterations to
         // find solutions.
@@ -1052,7 +1156,7 @@ static void UnOpt(int64_t num_points) {
             return points;
           };
 
-        auto OuterLoss = [num_points, &ToPoints, &rc, &m, &iter_histo](
+        auto OuterLoss = [num_points, &try_solver, &ToPoints, &rc, &m, &iter_histo](
             const std::vector<double> &args) -> LargeOpt::return_type {
             std::vector<vec3> points = ToPoints(args);
             CHECK(points.size() == num_points);
@@ -1109,8 +1213,8 @@ static void UnOpt(int64_t num_points) {
 
             const Polyhedron &poly = opoly.value();
             polyhedra++;
-            std::optional<int> oiters = TrySolve(0, &rc, poly,
-                                                 nullptr, nullptr);
+            std::optional<int> oiters = try_solver.Solve(0, &rc, poly,
+                                                         nullptr, nullptr);
             delete poly.faces;
 
             if (!oiters.has_value()) {
@@ -1196,13 +1300,15 @@ static void UnOpt(int64_t num_points) {
                       ARED("%s") ABLOOD("×") " "
                       ABLUE("%s") AWHITE("∎") " "
                       AGREEN("%s") AWHITE("♚") " "
-                      APURPLE("%s") AWHITE("∳"),
+                      APURPLE("%s") AWHITE("∳") " "
+                      AGREEN("%s") AWHITE("✓"),
                       num_points,
                       FormatNum(infeasible.Read()).c_str(),
                       FormatNum(degenerate.Read()).c_str(),
                       FormatNum(polyhedra.Read()).c_str(),
                       FormatNum(successes.Read()).c_str(),
-                      FormatNum(run_calls).c_str());
+                      FormatNum(run_calls).c_str(),
+                      FormatNum(try_solver.cache_hits).c_str());
 
                 ANSI::ProgressBarOptions options;
                 options.include_frac = false;
@@ -1351,12 +1457,13 @@ static void DoAdversary(int64_t num_points) {
                                num_points, time(nullptr)));
         for (;;) {
           Polyhedron poly = RandomCyclicPolyhedron(&rc, num_points);
+          TrySolver try_solver(0);
 
           for (int turn = 0; turn < MAX_TURNS; turn++) {
             frame3 outer_frame, inner_frame;
             polyhedra++;
-            std::optional<int> iters = TrySolve(thread_idx,
-                                                &rc, poly, &outer_frame, &inner_frame);
+            std::optional<int> iters = try_solver.Solve(thread_idx,
+                                                        &rc, poly, &outer_frame, &inner_frame);
             if (!iters.has_value()) {
               MutexLock ml(&m);
               SolutionDB db;
@@ -1491,6 +1598,7 @@ static void Run(uint64_t parameter) {
 
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_REDUCE_SC;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_CYCLIC;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_ADVERSARY;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RHOMBIC;
