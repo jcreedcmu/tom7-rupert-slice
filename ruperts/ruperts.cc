@@ -640,7 +640,7 @@ static quat4 AlignFaces(const std::vector<vec3> &vertices,
 
 // Third approach: Joint optimization, but place the inner in some
 // orientation where two faces are parallel to the z axis and one is
-// also aligned with they the y axis. The outer polyhedron is
+// also aligned with the y axis. The outer polyhedron is
 // unconstrained.
 struct ParallelSolver : public Solver<SolutionDB::METHOD_PARALLEL> {
   using Solver::Solver;

@@ -838,7 +838,76 @@ milliseconds as well.
 One of the most tedious parts of this was getting all of the polyhedra
 represented in computer form
 
+... xxx solves them all, but not the unknown ones ...
+
 [subsection[Alternate solvers]]
+
+Of course we should check uniformly random configurations, but
+I tried some other approaches as well:
+
+[paragraph[Max]] This first optimizes the outer shadow so that
+it maximizes its area. We then perform optimization only on the
+inner shadow. Intuitively, you want the outer shadow to be "bigger"
+and the inner shadow "smaller," so this makes sense as a heuristic
+and reduces the number of parameters. Largest area does not
+mean it is best at fitting a given inner shape, though.
+XXX This strategy can solve...
+
+[paragraph[Parallel]] Thinking about making the inner shadow
+as [it[small]] as possible, we see that we often (always?) reach
+a numeric minimum when at least one face is parallel to the
+projection axis; this face then becomes zero area in the shadow.
+This strategy chooses two non-parallel faces of the inner polyhedron
+at random, and then orients the polyhedron such that these are both
+parallel to the z axis. It also rotates the polyhedron around the z
+axis such that one of these faces is aligned with the y axis (this
+doesn't really change anything except to make the numbers rounder
+and the hulls easier to interpret, e.g. the cube will always be an
+axis-aligned square). Then we just optimize the outer orientation
+and position to fit around this hull.
+
+XXX this strategy can solve...
+XXX image may be helpful here
+
+[paragraph[Origin]] Optimize both rotations, but leave both polyhedra
+centered on the origin. This reduces the number of parameters,
+although the translation parameters are the best behaved of the bunch
+(optimizing the translation parameters alone is actually a convex
+problem). The main reason to do this is to see whether there are
+always solutions that have this form. It does not appear to be the
+case: The tetrahedron-like shapes seem to [it[require]] translation. I
+did not prove this, but given how narrow the clearance is for the
+triakis tetrahedron (or how simple the tetrahedron is), it may not be
+hard to do so. [* XXX Z3? *]
+XXX this strategy can solve...
+
+[paragraph[Special]] Combines parallel and origin, leaving only the
+other rotation to optimize.
+XXX this strategy can solve...
+
+
+[subsection[GPU solver]]
+
+At this point, I was easily solving the polyhedra with known
+solutions, like each in a few hundred milliseconds, and not at all
+solving the other ones. I figured one possibility was that these were
+just harder, and so I needed to be able to optimize the solver to try
+a lot more times. One way to try a lot more times is to do it on a
+Geometric Polyhedron Unit. Part of the way I justify to myself buying
+the world's physically largest[footnote[It's comically large. I
+literally broke my computer trying to install it, and had
+to buy an entirely new computer with a bigger case just to fit
+it in there.]] and hottest GPU (at the time), the NVidia RTX 4090,
+is that I can use it for important tasks like this and not just
+sniping people in glorious 4k HDR at 144fps. So I rewrote the
+solver in OpenCL.
+
+In some ways this problem is well suited to the GPU; it excels
+at parallel numerical tasks on floating-point numbers. The
+polyhedra here are too small to benefit from parallel
+computation on their vertices. But we can easily get massive
+data parallelism by trying multiple optimization instances
+in parallel.
 
 
 
