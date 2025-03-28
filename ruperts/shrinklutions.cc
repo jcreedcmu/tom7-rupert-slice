@@ -120,7 +120,8 @@ std::vector<ShrinklutionDB::Solution> ShrinklutionDB::GetAllSolutions() {
         "where invalid = 0"));
 }
 
-ShrinklutionDB::Solution ShrinklutionDB::GetBestSolutionFor(int num) {
+std::optional<ShrinklutionDB::Solution>
+ShrinklutionDB::GetBestSolutionFor(int num) {
   std::vector<Solution> sols = GetSolutionsForQuery(
     db->ExecuteString(
         std::format(
@@ -133,8 +134,8 @@ ShrinklutionDB::Solution ShrinklutionDB::GetBestSolutionFor(int num) {
             "limit 1",
             num)));
 
-  CHECK(!sols.empty()) << "No solution for " << num;
-  return sols[0];
+  if (sols.empty()) return std::nullopt;
+  return {sols[0]};
 }
 
 bool ShrinklutionDB::HasSolutionWithRadius(int num, double radius) {

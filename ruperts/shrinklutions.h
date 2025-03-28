@@ -70,8 +70,7 @@ struct ShrinklutionDB {
   Solution GetSolution(int id);
 
   std::vector<Solution> GetSolutionsFor(int num);
-  // Or abort.
-  Solution GetBestSolutionFor(int num);
+  std::optional<Solution> GetBestSolutionFor(int num);
 
   // To avoid reinserting a manual solution, for example.
   // Tolerance is 1e-10.

@@ -435,10 +435,12 @@ static std::string Indent(int depth) {
 }
 
 static std::pair<vec3, double> SmallestSphereRec(
+    ArcFour *rc,
     int depth,
     const std::vector<vec3> &pts,
-    // Points remaining
-    std::span<const int> p,
+    // Points remaining in arbitrary order.
+    // We modify what this span points to, but only by reordering.
+    std::span<int> p,
     // Points on the boundary
     const SmallSimplex &simplex) {
 
@@ -454,22 +456,22 @@ static std::pair<vec3, double> SmallestSphereRec(
     printf(")\n");
   }
 
-  #if 0
-  // PERF: we can do this again now!
-  // It is possible to stop early if we have four points
-  // and they are not coplanar.
-  if (r.size() == 4) {
+  // It is possible to stop early if we have a proper
+  // simplex with four points.
+  if (simplex.size() == 4) {
     if (VERBOSE) {
-      printf("%sHave four points: %d %d %d %d\n",
-             Indent(depth).c_str(),
-             r[0], r[1], r[2], r[3]);
+      printf("%sHave four points:\n",
+             Indent(depth).c_str());
+      for (int i = 0; i < simplex.size(); i++) {
+        const vec3 &v = simplex[i];
+        printf("%s(%.3f,%.3f,%.3f)", Indent(depth).c_str(), v.x, v.y, v.z);
+      }
     }
 
     // If four points are required to be on the sphere, then
     // we are done.
-    return Circumsphere(pts, r);
+    return Circumsphere(simplex);
   }
-  #endif
 
   if (p.empty()) {
     #if 0
@@ -487,9 +489,16 @@ static std::pair<vec3, double> SmallestSphereRec(
     return Circumsphere(simplex);
   }
 
+  // Pick a point uniformly at random and put it first.
+  {
+    CHECK(!p.empty());
+    int pidx = RandTo(rc, p.size());
+    std::swap(p[0], p[pidx]);
+  }
+
   int pt = p[0];
   p = p.subspan(1);
-  const auto &[o, radius] = SmallestSphereRec(depth + 1, pts, p, simplex);
+  const auto &[o, radius] = SmallestSphereRec(rc, depth + 1, pts, p, simplex);
   const vec3 &v = pts[pt];
   if (distance(v, o) > radius) {
     if (VERBOSE) {
@@ -503,7 +512,7 @@ static std::pair<vec3, double> SmallestSphereRec(
     // to r (unless it is "very close" to a point already).
     SmallSimplex ssimplex = simplex;
     ssimplex.Push(v);
-    return SmallestSphereRec(depth + 1, pts, p, ssimplex);
+    return SmallestSphereRec(rc, depth + 1, pts, p, ssimplex);
   } else {
     return std::make_pair(o, radius);
   }
@@ -516,7 +525,14 @@ std::pair<vec3, double> SmallestSphere::Smallest(
   std::vector<int> p;
   p.reserve(pts.size());
   for (int i = 0; i < pts.size(); i++) p.push_back(i);
-  Shuffle(rc, &p);
+  // PERF: Shuffling at the beginning instead of repeatedly
+  // choosing a random index will generate fewer random numbers,
+  // but I saw unlucky cases that took a very long time (especially
+  // with a bunch of cubes; see TestSlow). Stopping early when
+  // the simplex has size 4 might have addressed this, so I
+  // might be able to switch back here.
+  // Shuffle(rc, &p);
+
   if (VERBOSE) {
     printf("----------------\n");
     for (int i = 0; i < pts.size(); i++) {
@@ -526,7 +542,7 @@ std::pair<vec3, double> SmallestSphere::Smallest(
   }
 
   SmallSimplex simplex;
-  auto sphere = SmallestSphereRec(0, pts, p, simplex);
+  auto sphere = SmallestSphereRec(rc, 0, pts, p, simplex);
   const auto &[o, radius] = sphere;
   if (VERBOSE) {
     printf(AYELLOW("final") ": sphere((%.11g, %.11g, %.11g), %.11g)\n",

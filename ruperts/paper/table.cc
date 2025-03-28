@@ -14,6 +14,7 @@
 #include "ansi.h"
 #include "base/stringprintf.h"
 #include "polyhedra.h"
+#include "smallest-sphere.h"
 #include "solutions.h"
 #include "util.h"
 
@@ -110,12 +111,15 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
           if (s.clearance > best_ratio.clearance) best_clearance = s;
         }
 
-        // XXX Need to normalize the clearance somehow; it depends
-        // on the scale. We could normalize by the circumsphere's
-        // radius, for example.
+        // Normalize the clearance so that it doesn't depend on the
+        // polyhedron's scale.
+        ArcFour rc("table");
+        const auto &[center, radius] =
+          SmallestSphere::Smallest(&rc, poly.vertices);
+        double norm_clearance = best_clearance.clearance / radius;
         printf("SOME(%s, %s)",
                Ftos(best_ratio.ratio).c_str(),
-               Ftos(best_clearance.clearance).c_str());
+               Ftos(norm_clearance).c_str());
       }
 
       printf(") ::\n");

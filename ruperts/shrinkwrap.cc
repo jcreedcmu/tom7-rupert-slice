@@ -41,6 +41,8 @@
 
 DECLARE_COUNTERS(iters, attempts, invalid);
 
+static constexpr bool VERBOSE = false;
+
 using namespace yocto;
 
 using vec3 = vec<double, 3>;
@@ -49,7 +51,10 @@ using quat4 = quat<double, 4>;
 
 // We just represent the unit cube (0,0,0)-(1,1,1) as its
 // rigid transformation.
-static constexpr int NUM_CUBES = 8;
+static constexpr int NUM_CUBES = 20;
+
+static constexpr int NUM_THREADS = 6;
+static StatusBar status = StatusBar(NUM_THREADS + 2);
 
 [[maybe_unused]]
 static std::vector<std::array<frame3, 3>> Manual3() {
@@ -228,6 +233,10 @@ static auto Manual() {
   } else if constexpr (NUM_CUBES == 8) {
     return Manual8();
   } else {
+
+    // TODO: In the general case, we can compute the factors
+    // and generate the smallest packed lattices.
+
     return std::vector<std::array<frame3, NUM_CUBES>>();
   }
 }
@@ -405,7 +414,16 @@ static Eval Evaluate(ArcFour *rc,
     }
   }
 
+  Timer smallest_timer;
   eval.sphere = SmallestSphere::Smallest(rc, all_points);
+  double t = smallest_timer.Seconds();
+  if (t > 1) {
+    status.Printf("Slow sphere call (%s):\n", ANSI::Time(t).c_str());
+    for (const vec3 &pt : all_points) {
+      status.Printf("{%.17g, %.17g, %.17g},\n",
+                    pt.x, pt.y, pt.z);
+    }
+  }
   return eval;
 }
 
@@ -497,10 +515,8 @@ struct OptimizeTuner {
 struct Shrinkwrap {
   static constexpr int ARGS_PER_CUBE = 7;
   static constexpr int NUM_ARGS = ARGS_PER_CUBE * NUM_CUBES;
-  static constexpr int NUM_THREADS = 6;
   std::vector<std::thread> threads;
 
-  StatusBar status = StatusBar(NUM_THREADS + 2);
   std::mutex mu;
   ShrinklutionDB db;
   static constexpr int METHOD = ShrinklutionDB::METHOD_RANDOM;
@@ -600,6 +616,7 @@ struct Shrinkwrap {
     }
   }
 
+  // Holding lock.
   static void InitializeFromGood(const Good &good,
                                  std::vector<quat4> *initial_rot,
                                  std::array<double, NUM_ARGS> *initial_args) {
@@ -655,11 +672,15 @@ struct Shrinkwrap {
     OptimizeTuner plain_tuner(10);
     OptimizeTuner sa_tuner(10);
 
-    for (;;) {
+    for (int num_this_thread = 0; true; num_this_thread++) {
+
+      if (VERBOSE)
+        status.LineStatusf(thread_idx, "init");
 
       // Pick a method randomly.
       // static constexpr bool USE_LARGE_OPTIMIZER = true;
-      const bool USE_LARGE_OPTIMIZER = false; // (thread_idx % 3) != 0;
+      const bool USE_LARGE_OPTIMIZER = NUM_CUBES > 8;
+      // false; // (thread_idx % 3) != 0;
       const int method = [&]() {
           switch (rc.Byte() & 7) {
           default:
@@ -683,6 +704,9 @@ struct Shrinkwrap {
       double error = 0.0;
 
       if (method == ShrinklutionDB::METHOD_RANDOM) {
+
+        if (VERBOSE)
+          status.LineStatusf(thread_idx, "random %d", num_this_thread);
 
         const bool can_reuse = [&]{
             MutexLock ml(&mu);
@@ -899,10 +923,19 @@ struct Shrinkwrap {
 
           Timer opt_timer;
           auto params = plain_tuner.GetParams();
+
+          if (VERBOSE)
+            status.LineStatusf(thread_idx, "opt #%d with: i %d d %d a %d",
+                               num_this_thread,
+                               params.iters,
+                               params.depth,
+                               params.attempts);
+
           std::tie(args, error) =
             Opt::Minimize<NUM_ARGS>(
                 Loss, lb, ub,
                 params.iters, params.depth, params.attempts);
+
           double opt_sec = opt_timer.Seconds();
           plain_tuner.Tune(opt_sec);
 
@@ -920,6 +953,9 @@ struct Shrinkwrap {
         }
 
       } else if (method == ShrinklutionDB::METHOD_SAME_ANGLE) {
+
+        if (VERBOSE)
+          status.LineStatusf(thread_idx, "same angle");
 
         // Optimize all positions (but one), and only one angle
         // shared by all.
@@ -1028,6 +1064,8 @@ struct Shrinkwrap {
 
       }
 
+      if (VERBOSE)
+        status.LineStatusf(thread_idx, "observe");
       ObserveSolution(initial_rot, args, error, method);
     }
   }
@@ -1036,6 +1074,7 @@ struct Shrinkwrap {
                        const std::array<double, NUM_ARGS> &args,
                        double error,
                        int method) {
+
     MutexLock ml(&mu);
     if (error < best_error) {
       ArcFour rc("sol");

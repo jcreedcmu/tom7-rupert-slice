@@ -835,7 +835,8 @@ It's able to find solutions to the cube in milliseconds, and so I
 added more polyhedra to the collection, and solved those in
 milliseconds as well.
 
-One of the most tedious parts of this was getting
+One of the most tedious parts of this was getting all of the polyhedra
+represented in computer form
 
 [subsection[Alternate solvers]]
 
@@ -910,6 +911,21 @@ What’s the best Rupert?
 [* make-sol-table () *]
 
 [subsection[Scorecards]]
+
+This section lists the results for each of the Platonic, Archimedean,
+and Catalan polyhedra. If the polyhedra has a known solution, the
+residue with the highest [it[clearance]] is shown. [it[Clearance]] is
+defined as follows: Take the minimum Euclidean distance [it[c]]
+between the 2D inner and outer hulls, and the radius [it[r]] of the
+smallest sphere that contains all points in the polyhedron. Clearance
+is then [it[c]]/[it[r]]; the radius is just a normalization term so
+that this does not depend on the scale of the polyhedron. The
+[it[ratio]] is another quality metric, which is the area of the inner
+shadow divided by the area of the outer shadow. Lower ratio is clearly
+better, but some low-ratio solutions look bad because they have very
+thin walls. A third obvious choice would be to maximize volume of the
+residue solid, but this is computationally expensive and might anyway
+have the same thin-wall problem as ratio does.
 
 [layout-concat (list-map (make-scorecard scorecards) POLYHEDRA)]
 
@@ -991,13 +1007,13 @@ accompanying video, and his own soothing music video. He also found
 several bugs in my code, most importantly that my computed vertices
 for the disdyakis triacontahedron were incorrect! Jason Reed made a
 “boring, hard video game” version of the problem [* XXX link here if not
-above *] you can do in your website. Tom Lokovic, who shares my
+above *] you can do in your browser. Tom Lokovic, who shares my
 self-defeating Gen-X distate for modernity, drew upon his 1990s
 computer graphics wizardry to work through a few puzzles with me. All
 of the Brain Geniuses at ThursDz's and Henge Heads Lunch [it[at a
 minimum]] tolerated me repeatedly talking about polyhedra, and many
 had suggestions as well. However, all of these suggestions were
-ultimately fruitless.
+ultimately fruitless or perhaps even harmful.
 
 [section [Bibliography]]
 
