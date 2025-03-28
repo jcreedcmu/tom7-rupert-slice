@@ -63,6 +63,10 @@ let
 
   val questionmark-png = image-load "questionmark.png"
 
+  fun string-pad-left (s, n, c) =
+    if string-size s >= n
+    then s
+    else string-pad-left (c ^ s, n, c)
 
   fun render-float f =
     let
@@ -92,19 +96,34 @@ let
             else
               let
                 val (g, exp) = exp-notation f
-
                 (* now render g as a fixed number of decimal
                    points. *)
                 val n = round (g *. 1000000.0)
                 val s = int-to-string n
                 do string-size s != 7
-                   andthen fail ("huh? " ^ s)
+                  andthen fail ("huh? " ^ s)
+
               in
-                layout (string-prefix (s, 1)) ^^ [.] ^^
-                layout (substr-rest (s, 1)) ^^
-                (if exp == 0
-                 then []
-                 else [×10[sup (layout (int-to-string exp))]])
+                if exp <= 5 andalso exp >= 0
+                then
+                  (* For small exponents, just show the full number. *)
+                  layout (string-prefix (s, exp + 1)) ^^ [.] ^^
+                  layout (substr-rest (s, exp + 1))
+                else if exp >= -5 andalso exp < 0
+                     then
+                       let
+                         val exp = 0 - exp
+                         val z = string-pad-left ("", exp, "0")
+                         val s = z ^ s
+                       in
+                         layout (string-prefix (s, 1)) ^^ [.] ^^
+                         layout (substr-rest (s, 1))
+                       end
+                     else
+                       layout (string-prefix (s, 1)) ^^ [.] ^^
+                       layout (substr-rest (s, 1)) ^^
+                       [×10[sup (layout (int-to-string exp))]]
+
               end
           end
     in
@@ -113,7 +132,6 @@ let
            else if f ==. float-inf then [-∞]
                 else render-finite-float f
     end
-
 
   fun make-sol-table () =
     let
@@ -201,7 +219,7 @@ let
 
       val soltext =
         case sol of
-          NONE => b[Unsolved!] ^^ [nl]
+          NONE => b[Unsolved!] ^^ nl
         | SOME (ratio : float, clearance : float) =>
             [[b[Ratio]]: [render-float ratio][nl]] ^^
             [[b[Clearance]]: [render-float clearance][nl]]
@@ -314,6 +332,7 @@ let
      ("ttetra", {(Scorecard)
        shape-tier = TIER-A,
        shape-tier-notes = [Improved safety wrt tetrahedron.],
+
                  }) ::
 
      ("cocta", {(Scorecard)
@@ -321,8 +340,13 @@ let
                 }) ::
 
      ("tcube", {(Scorecard)
+       about = [The [b[truncated cube]] just cuts the corners off
+                the cube, such that all the edges are the same length.],
        shape-tier = TIER-F,
        shape-tier-notes = [Terrible. A worse version of the cube.],
+       rupert-tier = TIER-B,
+       rupert-tier-notes = [Notably chunky residue, although it's basically
+                            the same as the cube's.]
                 }) ::
 
      ("tocta", {(Scorecard)
@@ -333,19 +357,21 @@ let
        }) ::
 
      ("rcocta", {(Scorecard)
-                 (* about = [], XXX HERE *)
-
+       about = [The [b[rhombicuboctahedron]] can be made by exploding
+                a cube and connecting the faces, or exploding an octahedron
+                and connecting the faces.],
+       shape-tier = TIER-B,
+       shape-tier-notes = [A pleasant meeting of squares and triangles,
+                           but not particularly inspired.],
        }) ::
 
      ("tcocta", {(Scorecard)
-
        about = [Kepler named the [b[truncated cuboctahedron]], but
                 it’s not a proper truncation (Kepler was notoriously
                 imprecise). After truncating the
                 cuboctahedron you would need to fiddle with the
                 resulting rectangles to turn them into squares.],
        shape-tier = TIER-C,
-       factoid = [],
         }) ::
 
      ("scube", {(Scorecard)
@@ -397,7 +423,14 @@ let
      ("ridode", {(Scorecard) }) ::
      ("tidode", {(Scorecard) }) ::
      ("sdode", {(Scorecard) }) ::
-     ("ktetra", {(Scorecard) }) ::
+     ("ktetra", {(Scorecard)
+       about = [The [b[triakis tetrahedron]] is a tetrahedron where each
+                face is augmented by a shallow tetrahedron, such that
+                all the resulting triangles are the same.],
+       rupert-tier = TIER-S,
+       rupert-tier-notes = [Incredible how close this comes to not
+                            making it!],
+     }) ::
      ("rdode", {(Scorecard) }) ::
      ("kocta", {(Scorecard) }) ::
      ("thexa", {(Scorecard) }) ::
@@ -471,6 +504,17 @@ in
 
  [author[Dr. Tom Murphy VII, Ph.D.]]
  [date[March 2025]]
+
+ 1.333333333333 is [render-float 1.33333333333]
+
+ 0.000123456789 is [render-float 0.000123456789]
+
+ 123456789 is [render-float 123456789.0]
+
+ 1234567890000 is [render-float 1234567890000.0]
+
+ 0.00000000123456 is [render-float 0.00000000123456]
+
 
  How big is the unit cube? “1?” Seems obvious, right?
  Let me ask you another way: [it[Where]] is the unit cube? “0?”
@@ -836,9 +880,20 @@ added more polyhedra to the collection, and solved those in
 milliseconds as well.
 
 One of the most tedious parts of this was getting all of the polyhedra
-represented in computer form
+represented in computer form. I was somewhat surprised that the
+formulas for these things often involve wacky irrational coordinates
+like the “tribonacci” constant, which is like the Fibonacci (Fi- means
+two, like in the number Five) but where we take the sum of the previous
+three numbers instead of two. The ratio of terms converges to:
+
+(1 + ∛(19 + 3√33)) + ∛(19 - 3√33)) / 3
+
+Like, I would expect √2 stuff. But I guess I should not have been
+surprised by that, because that's just math. Anyway, since these
+are all convex polyhedra, at least you don't need the
 
 ... xxx solves them all, but not the unknown ones ...
+
 
 [subsection[Alternate solvers]]
 
@@ -847,8 +902,8 @@ I tried some other approaches as well:
 
 [paragraph[Max]] This first optimizes the outer shadow so that
 it maximizes its area. We then perform optimization only on the
-inner shadow. Intuitively, you want the outer shadow to be "bigger"
-and the inner shadow "smaller," so this makes sense as a heuristic
+inner shadow. Intuitively, you want the outer shadow to be “bigger”
+and the inner shadow “smaller,” so this makes sense as a heuristic
 and reduces the number of parameters. Largest area does not
 mean it is best at fitting a given inner shape, though.
 XXX This strategy can solve...
@@ -886,6 +941,7 @@ other rotation to optimize.
 XXX this strategy can solve...
 
 
+
 [subsection[GPU solver]]
 
 At this point, I was easily solving the polyhedra with known
@@ -909,6 +965,9 @@ computation on their vertices. But we can easily get massive
 data parallelism by trying multiple optimization instances
 in parallel.
 
+
+
+... rational ...
 
 
 [subsubsection[Epsilon]]
@@ -967,14 +1026,18 @@ eventually won. Like a coward, it weasled out of a formal apology:
 
 [* In general, I spent a lot of time optimizing... *]
 
+[section[Other approaches]]
+
+* Z3
+* It's decidable??
+
+
 [section[Miscellaneous TODO]]
 
 Infinitely many
 What’s the best Rupert?
 
-
-[section[Other approaches]]
-
+Cube Octahedron Dodecahedron: Black Ops 6
 
 [section[Results]]
 [* make-sol-table () *]
@@ -1187,5 +1250,6 @@ triangle man hates particle man
   - reencode PNGs before embedding, perhaps in pdf.cc
   - some objects have inside-out normals?
   - emit floaters (footnotes)
+  - math rendering!
 
  *)
