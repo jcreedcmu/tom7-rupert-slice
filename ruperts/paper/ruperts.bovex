@@ -597,6 +597,9 @@ Here were my Naive Heuristics:
 
 So I set aside two and a half months to work on it.
 
+[* XXX somewhere up here, need to introduce platonic, archimedean,
+catalan, and the "wishlist" *]
+
 This problem is pretty easy to specify precisely. The shape in
 question is a convex polyhedron, which is just defined by its set of
 vertices. For general polyhedra you also need to specify how those
@@ -937,7 +940,8 @@ hard to do so. [* XXX Z3? *]
 XXX this strategy can solve...
 
 [paragraph[Special]] Combines parallel and origin, leaving only the
-other rotation to optimize.
+other rotation to optimize. Like the origin approach, the main reason
+is to see whether solutions of this form exist.
 XXX this strategy can solve...
 
 
@@ -958,22 +962,135 @@ is that I can use it for important tasks like this and not just
 sniping people in glorious 4k HDR at 144fps. So I rewrote the
 solver in OpenCL.
 
-In some ways this problem is well suited to the GPU; it excels
-at parallel numerical tasks on floating-point numbers. The
-polyhedra here are too small to benefit from parallel
-computation on their vertices. But we can easily get massive
-data parallelism by trying multiple optimization instances
-in parallel.
+In some ways this problem is well suited to the GPU; it excels at
+parallel numerical tasks on floating-point numbers. The polyhedra here
+are too small to benefit from parallel computation on their vertices.
+But we can easily get massive data parallelism by trying multiple
+optimization instances in parallel. On the other hand, the convex hull
+calculation and black box optimizers are not natural for the GPU
+(OpenCL does not really support recursion!).
 
+To test whether the inner shadow is within the outer shadow, I
+replaced the convex hull-based test with one that is worse but more
+easily parallelized. For each polyhedra I generate its triangulation,
+where each face is made with triangles (this is trivial to do with
+triangle fans because they are convex polygons). Now observe that when
+I project these triangular faces to the 2D shadow, any point that is
+contained in the shadow will be contained in at least one of these
+projected triangles. I can check all of the triangles in parallel. I
+can also compute the error for a point as its shortest distance to any
+triangle (like we previously used the shortest distance to the hull).
+The point-in-triangle tests must be [it[strict]] as before, to
+prevent points exactly on the outer boundary from counting. Alas,
+this test is not quite correct here: It is possible for an interior
+point to land [it[exactly]] and [it[only]] on interior edges of
+the triangulation. Take an axis-aligned cube, for example; the
+point at the exact center of its square shadow will lie on edges
+of the triangulation, no matter which one you use. This is not
+ideal, but it only gives us false negatives (failing to find a solution
+if one exists), which is not a serious problem.
 
+[* XXX good place for diagram *]
 
-... rational ...
+Because I did not want to port the black-box optimizer, and because we
+can do better anyway since we understand the problem being optimized,
+I implemented a proper gradient descent optimizer for the GPU. This
+subject is well documented so I will not belabor it here, but I
+performed "approximate numerical differentiation" to compute the
+derivate with respect to each parameter independently. This involves
+evaluating the function one additional time for each parameter (with a
+small tweak), assuming that the slope is locally linear. It's not too
+bad to implement, but since this problem has 10 optimization
+parameters, it is a significant amount of additional evaluation. I
+don't think this problem lends itself well to analytical derivatives
+(even though most of the space is very smooth, the regions of interest
+are near the boundaries, either as a point moves into its own shape's
+shadow, or across the other's hull), but maybe you or someone else
+who's smarter than me could figure it out. Lazy people would use
+automatic differentiation and might be happy with that.
 
+Anyway, this all works too! It is indeed faster than the CPU version
+(about XXX times faster), although it is harder to play around with
+algorithmic tweaks and it scales worse to polyhedra with larger
+triangulations. I mainly found solutions using the CPU methods, and
+mainly because running things on the GPU means I can't simultaneously
+use my computer for other important activies like over-the-top violent
+first-person shooter games.
+
+[subsection[Solved!]]
+
+And then I found a solution for one of the wishlist polyhedra!
+Actually XXX of them. I didn't get too excited, though; there had
+been many false positives so far (due to bugs), and the reported
+numbers were like this
+
+[monospace-block[XXXX 0.9999999999999999766]]
+
+Recall that two equal frames produce identical shadows, and
+that these are invalid Rupert configurations (the "hole" eats
+the entire shape). So too when the orientations are the same
+up to symmetry (e.g. one rotates the cube 1º and the other
+91º). So I knew it was possible that we could get something
+really close to identical shadows, but that they might look
+like they satisfy the condition within the precision of
+double-precision floating point numbers. Also, given my
+fetish for IEEE-754, I'm certainly asking for it! Visually
+inspecting these solutions, this is exactly what they looked
+like.
+
+[b[ON THE OTHER HAND]], some solutions can have a lot of
+nines in them! For example, the best known solution for the
+triakis tetrahedron comes within [it[one one-millionth]] of the
+radius of the polyhedron, requiring a monumental amount
+of zooming-in to even perceive this thread as having volume.
+This would be a good reason that nobody found these solutions
+before: Perhaps they used single-precision floating point,
+or coarse values of "epsilon," or rejected them with visual
+inspection?
+
+So I invested further effort.
+
+[subsection[Rational solvers]]
+
+The right way to ideal with floating point inaccuracy is to not use
+them. Lots of geometry will work great with other number systems, so
+with a little finesse we can work on this problem using rational
+numbers and sidestep the numerical problems. There are just
+a few problems:
+
+[paragraph[Shapes are not rational]] Most of the polyhedra considered
+do not have vertices with rational coordinates! The cube is easy, but
+even something as canonical as the dodecahedron has some points on
+integer coordinates and others on φ coordinates, and there's no way to
+scale the shape so that everything is rational. To solve this, I
+implemented rational approximations for each of the shapes, where you
+can decide ahead of time on an arbitrarily small epsilon
+(alternatively, a number of digits of precision) for the coordinates.
+For these shapes you just need a routine that can compute square and
+cube roots to arbitrary precision. (I also did π, which is fun, before
+realizing I don't even need it.) Since the resulting shapes are not
+exact, any solution we find might only work for the slightly
+inaccurate shape, but once we have a solution we can verify it by
+other means. It's also possible we would fail to find a solution
+(because the required precision is still too low), but then we can
+try again with higher precision.
+
+[paragraph[Search procedure needs roots]] The search procedure we
+have been using so far involves a few operations that are not
+available for the rationals. For example, our error function involves
+the distance between a point and the hull, which needs a square
+root (square roots of rationals are not necessarily rational).
+This is easily handled by just using the squared distance as the
+loss function (this is common even with floats and sometimes
+works better!) XXX quats
+
+XXX noperts
+XXX symmetry
 
 [subsubsection[Epsilon]]
 
-Speaking of epsilon, and my obsession with minutia related to it,
-it itself a kind of minutia: Most numerical code (including this
+Speaking of epsilon, and my obsession with minutiae related to it,
+it itself a kind of minutiae: Most numerical code (including this
 Rupert solver) has a line like this in it:
 
 [monospace-block[return std::abs(x) < 1.0e-6;]]
