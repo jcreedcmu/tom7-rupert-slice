@@ -26,6 +26,7 @@
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "dyson.h"
+#include "factorization.h"
 #include "mesh.h"
 #include "opt/large-optimizer.h"
 #include "opt/opt.h"
@@ -51,9 +52,9 @@ using quat4 = quat<double, 4>;
 
 // We just represent the unit cube (0,0,0)-(1,1,1) as its
 // rigid transformation.
-static constexpr int NUM_CUBES = 20;
+static constexpr int NUM_CUBES = 10;
 
-static constexpr int NUM_THREADS = 6;
+static constexpr int NUM_THREADS = 8;
 static StatusBar status = StatusBar(NUM_THREADS + 2);
 
 [[maybe_unused]]
@@ -220,7 +221,9 @@ static std::vector<std::array<frame3, 8>> Manual8() {
 
 
 static auto Manual() {
-  if constexpr (NUM_CUBES == 3) {
+  if constexpr (NUM_CUBES == 1) {
+    return {translation_frame(vec3{0, 0, 0})};
+  } else if constexpr (NUM_CUBES == 3) {
     return Manual3();
   } else if constexpr (NUM_CUBES == 4) {
     return Manual4();
@@ -233,11 +236,40 @@ static auto Manual() {
   } else if constexpr (NUM_CUBES == 8) {
     return Manual8();
   } else {
+    CHECK(NUM_CUBES > 1);
 
-    // TODO: In the general case, we can compute the factors
-    // and generate the smallest packed lattices.
+    std::vector<std::pair<uint64_t, int>> factors =
+      Factorization::Factorize(NUM_CUBES);
 
-    return std::vector<std::array<frame3, NUM_CUBES>>();
+    // We will create a JxKxL cube of cubes; find J, K, L.
+    int j = 1, k = 1, l = 1;
+    for (int idx = factors.size() - 1; idx >= 0; idx--) {
+      while (factors[idx].second > 0) {
+        if (j <= k && j <= l) {
+          j *= factors[idx].first;
+        } else if (k <= j && k <= l) {
+          k *= factors[idx].first;
+        } else {
+          l *= factors[idx].first;
+        }
+
+        factors[idx].second--;
+      }
+    }
+
+    status.Printf("Manual cube: %dx%dx%d\n", j, k, l);
+
+    std::array<frame3, NUM_CUBES> arr;
+    int idx = 0;
+    for (int jj = 0; jj < j; jj++) {
+      for (int kk = 0; kk < k; kk++) {
+        for (int ll = 0; ll < l; ll++) {
+          arr[idx++] = translation_frame(vec3(jj, kk, ll));
+        }
+      }
+    }
+
+    return std::vector<std::array<frame3, NUM_CUBES>>{arr};
   }
 }
 
@@ -674,9 +706,6 @@ struct Shrinkwrap {
 
     for (int num_this_thread = 0; true; num_this_thread++) {
 
-      if (VERBOSE)
-        status.LineStatusf(thread_idx, "init");
-
       // Pick a method randomly.
       // static constexpr bool USE_LARGE_OPTIMIZER = true;
       const bool USE_LARGE_OPTIMIZER = NUM_CUBES > 8;
@@ -769,6 +798,9 @@ struct Shrinkwrap {
 
         if (USE_LARGE_OPTIMIZER) {
           using LOpt = LargeOptimizer<false>;
+
+          status.LineStatusf(thread_idx, "Thread %d lopt [#%d]",
+                             thread_idx, num_this_thread);
 
           LargeOptimizer lopt([&](const std::vector<double> &vargs) {
               std::array<double, NUM_ARGS> aargs;

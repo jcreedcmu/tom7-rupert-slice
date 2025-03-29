@@ -1319,7 +1319,7 @@ int main(int argc, char **argv) {
   }
 
   // Grind every unsolved cell.
-  if (true) {
+  if (false) {
     std::unordered_set<std::string> poly_filter;
     for (int i = 1; i < argc; i++) {
       poly_filter.insert(argv[i]);
@@ -1329,7 +1329,7 @@ int main(int argc, char **argv) {
   }
 
   // Grind unsolved polyhedra for an hour at a time.
-  if (true) {
+  if (false) {
     for (;;) {
       constexpr auto sec = std::chrono::seconds(1);
       ReproduceEasySolutions(SolutionDB::METHOD_PARALLEL, true, 3600.0);
@@ -1345,7 +1345,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (true) {
+  if (false) {
     // ReproduceEasySolutions(SolutionDB::METHOD_SPECIAL, 3600.0);
     ReproduceEasySolutions(SolutionDB::METHOD_SIMUL, false, 60.0);
     printf("OK\n");
@@ -1353,7 +1353,7 @@ int main(int argc, char **argv) {
   }
 
 
-  // Polyhedron target = SnubCube();
+  Polyhedron target = SnubCube();
   // Polyhedron target = Rhombicosidodecahedron();
   // Polyhedron target = TruncatedCuboctahedron();
   // Polyhedron target = TruncatedDodecahedron();
@@ -1370,7 +1370,7 @@ int main(int argc, char **argv) {
   // Polyhedron target = DeltoidalIcositetrahedron();
   // Polyhedron target = PentakisDodecahedron();
   // Polyhedron target = PentagonalHexecontahedron();
-  Polyhedron target = DeltoidalHexecontahedron();
+  // Polyhedron target = DeltoidalHexecontahedron();
 
   // Call one of the solution procedures:
 

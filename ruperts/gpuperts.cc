@@ -594,10 +594,16 @@ struct RupertGPU {
 };
 
 static void Run() {
-  Polyhedron target = Rhombicosidodecahedron();
+  // Polyhedron target = Rhombicosidodecahedron();
+  Polyhedron target = SnubCube();
+
+  // Solves these easily.
+  // Polyhedron target = Cube();
+  // Polyhedron target = RhombicTriacontahedron();
   // Polyhedron target = Dodecahedron();
   RupertGPU gpupert(target, 10000);
 
+  printf("Running on the " APURPLE("%s") "\n", target.name);
   gpupert.Run();
   printf("Run done\n");
 

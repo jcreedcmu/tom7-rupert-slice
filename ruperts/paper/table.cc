@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ansi.h"
+#include "arcfour.h"
 #include "base/stringprintf.h"
 #include "polyhedra.h"
 #include "smallest-sphere.h"
@@ -56,8 +57,32 @@ static std::string Ftos(double d) {
 static void PrintTable(const std::unordered_set<std::string> &filter) {
   std::map<std::string, std::vector<Solution>> solmap;
   std::set<std::string> names;
+  std::map<std::string, std::set<int>> soltypes;
+
+  printf("datatype method = ");
+  for (int i = SolutionDB::FIRST_METHOD;
+       i <= SolutionDB::LAST_METHOD;
+       i++) {
+    if (i != SolutionDB::FIRST_METHOD) {
+      printf(" | ");
+    }
+    printf("%s", SolutionDB::MethodName(i));
+  }
+  printf("\n");
+
+  printf("fun method-eq (m1, m2) =\n"
+         "  case (m1, m2) of\n");
+  for (int i = SolutionDB::FIRST_METHOD;
+       i <= SolutionDB::LAST_METHOD;
+       i++) {
+    printf ("    | (%s, %s) => true\n",
+            SolutionDB::MethodName(i),
+            SolutionDB::MethodName(i));
+  }
+  printf("    | _ => false\n\n");
 
   printf("val solution-table =\n");
+
 
   {
     SolutionDB db;
@@ -66,6 +91,11 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
     for (const Solution &sol : sols) {
       names.insert(sol.polyhedron);
       solmap[sol.polyhedron].push_back(sol);
+
+      if (sol.ratio < 0.999999 &&
+          sol.clearance > 0.000001) {
+        soltypes[sol.polyhedron].insert(sol.method);
+      }
     }
   }
 
@@ -92,6 +122,12 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
 
       const std::vector<Solution> &sols = solmap[name];
 
+      std::vector<std::string> st;
+      for (int m : soltypes[name]) {
+        st.push_back(SolutionDB::MethodName(m));
+      }
+      st.push_back("nil");
+
       printf("  (\"%s\", %d, %d, %d, ",
              nickname.c_str(), vertices, edges, faces);
 
@@ -117,9 +153,10 @@ static void PrintTable(const std::unordered_set<std::string> &filter) {
         const auto &[center, radius] =
           SmallestSphere::Smallest(&rc, poly.vertices);
         double norm_clearance = best_clearance.clearance / radius;
-        printf("SOME(%s, %s)",
+        printf("SOME(%s, %s, %s)",
                Ftos(best_ratio.ratio).c_str(),
-               Ftos(norm_clearance).c_str());
+               Ftos(norm_clearance).c_str(),
+               Util::Join(st, " :: ").c_str());
       }
 
       printf(") ::\n");

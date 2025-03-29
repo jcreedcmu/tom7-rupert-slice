@@ -16,6 +16,7 @@
 #include "arcfour.h"
 #include "base/logging.h"
 #include "randutil.h"
+#include "hull3d.h"
 
 using vec3 = yocto::vec<double, 3>;
 
@@ -496,9 +497,10 @@ static std::pair<vec3, double> SmallestSphereRec(
     std::swap(p[0], p[pidx]);
   }
 
-  int pt = p[0];
-  p = p.subspan(1);
-  const auto &[o, radius] = SmallestSphereRec(rc, depth + 1, pts, p, simplex);
+  const int pt = p[0];
+  std::span<int> prest = p.subspan(1);
+  const auto &[o, radius] =
+    SmallestSphereRec(rc, depth + 1, pts, prest, simplex);
   const vec3 &v = pts[pt];
   if (distance(v, o) > radius) {
     if (VERBOSE) {
@@ -512,8 +514,11 @@ static std::pair<vec3, double> SmallestSphereRec(
     // to r (unless it is "very close" to a point already).
     SmallSimplex ssimplex = simplex;
     ssimplex.Push(v);
-    return SmallestSphereRec(rc, depth + 1, pts, p, ssimplex);
+    return SmallestSphereRec(rc, depth + 1, pts, prest, ssimplex);
   } else {
+    // If the point was inside the sphere, put it at the *end* of
+    // the span. We want to check exterior points first.
+    std::swap(p[0], p[p.size() - 1]);
     return std::make_pair(o, radius);
   }
 }
@@ -524,7 +529,7 @@ std::pair<vec3, double> SmallestSphere::Smallest(
     const std::vector<vec3> &pts) {
   std::vector<int> p;
   p.reserve(pts.size());
-  for (int i = 0; i < pts.size(); i++) p.push_back(i);
+  // for (int i = 0; i < pts.size(); i++) p.push_back(i);
   // PERF: Shuffling at the beginning instead of repeatedly
   // choosing a random index will generate fewer random numbers,
   // but I saw unlucky cases that took a very long time (especially
@@ -532,6 +537,13 @@ std::pair<vec3, double> SmallestSphere::Smallest(
   // the simplex has size 4 might have addressed this, so I
   // might be able to switch back here.
   // Shuffle(rc, &p);
+  // PERF
+  if (pts.size() <= 3) {
+    for (int i = 0; i < pts.size(); i++)
+      p.push_back(i);
+  } else {
+    p = Hull3D::HullPoints(pts);
+  }
 
   if (VERBOSE) {
     printf("----------------\n");

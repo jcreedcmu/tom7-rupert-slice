@@ -9,7 +9,10 @@ let
   import "polyhedra.bovex"
   import "solution-table.bovex"
 
-  do solution-table : (string * int * int * int * (float * float) option) list
+  do POLYHEDRA : (string * string * string * polyhedron-class) list
+  do solution-table : (string * int * int * int *
+                       (* Solution ratio, clearance, types *)
+                       (float * float * method list) option) list
 
   val doc-title = "Some upsetting things about shapes"
   val doc-subtitle = "There’s no subtitle either"
@@ -37,6 +40,8 @@ let
 
 
   val tt = fixedersys
+
+  val cbrt = tt[∛]
 
   fun body-font lay = span
     {(Span)
@@ -143,7 +148,7 @@ let
         (get-boxes (layout name),
          get-boxes [?],
          get-boxes [?])
-        | one-row (name, v, e, f, SOME(ratio, clearance)) =
+        | one-row (name, v, e, f, SOME(ratio, clearance, _)) =
         (get-boxes (layout name),
          get-boxes (render-float ratio),
          get-boxes (render-float clearance))
@@ -159,7 +164,7 @@ let
     end
 
   fun get-table-entry nickname =
-    case list-find (fn (n : string, v, f, e, s : (float * float) option) =>
+    case list-find (fn (n : string, v, f, e, s) =>
                     string-eq (nickname, n))
          solution-table of
          NONE => fail ("Missing entry for " ^ nickname)
@@ -182,6 +187,34 @@ let
       rupert-tier-notes: layout,
       factoid : layout }
 
+  fun polyhedron-info (c : string) =
+    case list-find-partial (fn (cc, full, human, pc) =>
+                            if string-eq (cc, c)
+                            then SOME (full, human, pc)
+                            else NONE) POLYHEDRA of
+      NONE => fail ("bad polyhedron codename " ^ c)
+    | SOME r => r
+
+  fun polyhedra-without-method (m : method) =
+    let
+      val code-names = list-map-partial
+        (fn (codename, _, _, _, SOME(_, _, l)) =>
+         if list-exists (fn mm => method-eq (m, mm)) l
+         then NONE
+         else SOME codename
+       | _ => NONE)
+        solution-table
+    (* XXX get long names *)
+
+      val human-names =
+        list-map (fn code =>
+                  let val (_, h, _) = polyhedron-info code
+                  in h
+                  end) code-names
+    in
+      string-list-join ", " human-names
+    end
+
   fun make-scorecard scorecards (nickname : string,
                                  identifier : string,
                                  human-name : string,
@@ -203,7 +236,8 @@ let
       val IMG-DIM = inch 1.4
 
       val shape-img =
-        image-inline { img = image-load (class-prefix ^ "-" ^ identifier ^ ".png"),
+        image-inline { img = image-load (class-prefix ^ "-" ^
+                                         identifier ^ ".png"),
                        height = IMG-DIM, dy = 0.0 }
 
       val residue-handle =
@@ -220,7 +254,7 @@ let
       val soltext =
         case sol of
           NONE => b[Unsolved!] ^^ nl
-        | SOME (ratio : float, clearance : float) =>
+        | SOME (ratio : float, clearance : float, _) =>
             [[b[Ratio]]: [render-float ratio][nl]] ^^
             [[b[Clearance]]: [render-float clearance][nl]]
 
@@ -420,9 +454,26 @@ let
         }) ::
 
 
-     ("ridode", {(Scorecard) }) ::
-     ("tidode", {(Scorecard) }) ::
-     ("sdode", {(Scorecard) }) ::
+     ("ridode", {(Scorecard)
+                 (* Rhombicosidodecahedron *)
+}) ::
+     ("tidode", {(Scorecard)
+       about = [The [b[truncated icosidodecahedron]] appears when you cut
+                off the vertices of an icosidodecahedron, getting
+                squares.],
+       shape-tier = TIER-C,
+       shape-tier-notes = [Flat and round at the same time. No thank you.],
+       }) ::
+
+     ("sdode", {(Scorecard)
+       about = [The [b[snub dodecahedron]] can be found by exploding a
+                dodecahedron, and twisting each of its faces a little
+                bit so that it can be completed with strips of
+                equilateral triangles.],
+       shape-tier = TIER-B,
+       shape-tier-notes = [Constantly in motion. But it's a bit much.],
+     }) ::
+
      ("ktetra", {(Scorecard)
        about = [The [b[triakis tetrahedron]] is a tetrahedron where each
                 face is augmented by a shallow tetrahedron, such that
@@ -431,6 +482,7 @@ let
        rupert-tier-notes = [Incredible how close this comes to not
                             making it!],
      }) ::
+
      ("rdode", {(Scorecard) }) ::
      ("kocta", {(Scorecard) }) ::
      ("thexa", {(Scorecard) }) ::
@@ -889,7 +941,7 @@ like the “tribonacci” constant, which is like the Fibonacci (Fi- means
 two, like in the number Five) but where we take the sum of the previous
 three numbers instead of two. The ratio of terms converges to:
 
-(1 + ∛(19 + 3√33)) + ∛(19 - 3√33)) / 3
+(1 + [cbrt](19 + 3√33)) + [cbrt](19 - 3√33)) / 3
 
 Like, I would expect √2 stuff. But I guess I should not have been
 surprised by that, because that's just math. Anyway, since these
@@ -909,7 +961,8 @@ inner shadow. Intuitively, you want the outer shadow to be “bigger”
 and the inner shadow “smaller,” so this makes sense as a heuristic
 and reduces the number of parameters. Largest area does not
 mean it is best at fitting a given inner shape, though.
-XXX This strategy can solve...
+This strategy can solve all the polyhedra (with known solutions) except:
+[layout (polyhedra-without-method METHOD_MAX)].
 
 [paragraph[Parallel]] Thinking about making the inner shadow
 as [it[small]] as possible, we see that we often (always?) reach
@@ -923,8 +976,9 @@ doesn't really change anything except to make the numbers rounder
 and the hulls easier to interpret, e.g. the cube will always be an
 axis-aligned square). Then we just optimize the outer orientation
 and position to fit around this hull.
+This strategy can solve all the polyhedra except:
+[layout (polyhedra-without-method METHOD_PARALLEL)].
 
-XXX this strategy can solve...
 XXX image may be helpful here
 
 [paragraph[Origin]] Optimize both rotations, but leave both polyhedra
@@ -937,13 +991,16 @@ case: The tetrahedron-like shapes seem to [it[require]] translation. I
 did not prove this, but given how narrow the clearance is for the
 triakis tetrahedron (or how simple the tetrahedron is), it may not be
 hard to do so. [* XXX Z3? *]
-XXX this strategy can solve...
+This strategy can solve all the polyhedra except:
+[layout (polyhedra-without-method METHOD_ORIGIN)].
+
 
 [paragraph[Special]] Combines parallel and origin, leaving only the
 other rotation to optimize. Like the origin approach, the main reason
-is to see whether solutions of this form exist.
-XXX this strategy can solve...
-
+is to see whether solutions of this form exist; it turns out to work
+in all the same cases as the origin method. This is all of the
+polyhedra except:
+[layout (polyhedra-without-method METHOD_SPECIAL)].
 
 
 [subsection[GPU solver]]
@@ -959,7 +1016,7 @@ literally broke my computer trying to install it, and had
 to buy an entirely new computer with a bigger case just to fit
 it in there.]] and hottest GPU (at the time), the NVidia RTX 4090,
 is that I can use it for important tasks like this and not just
-sniping people in glorious 4k HDR at 144fps. So I rewrote the
+sniping simulated soldiers in glorious 4k HDR at 144fps. So I rewrote the
 solver in OpenCL.
 
 In some ways this problem is well suited to the GPU; it excels at
@@ -1024,8 +1081,22 @@ Actually XXX of them. I didn't get too excited, though; there had
 been many false positives so far (due to bugs), and the reported
 numbers were like this
 
-[monospace-block[XXXX 0.9999999999999999766]]
+[monospace-block[
+outer frame:
+-0.99999999999999978,-3.7558689392125502e-16,-3.5847581116984005e-08,
+3.7558689392125502e-16,1.0000000000000002,-2.0954657592967021e-08,
+3.5847581116984005e-08,-2.0954657592967021e-08,-0.99999999999999956
+0, 0, 0
 
+inner frame:
+3.3306690738754691e-16,0.99999999999999978,5.551115123125779e-17,
+2.7755575615628914e-16,-5.5511151231257852e-17,0.99999999999999978,
+0.99999999999999978,-2.2204460492503128e-16,-2.7755575615628909e-16,
+-1.4197330001097729e-18,2.8394660002195473e-19,-0.0051151272082079749
+
+Ratio: 0.9999999999999999766]]
+
+Note how everything is either really close to 1 or zero.
 Recall that two equal frames produce identical shadows, and
 that these are invalid Rupert configurations (the "hole" eats
 the entire shape). So too when the orientations are the same
@@ -1143,6 +1214,98 @@ eventually won. Like a coward, it weasled out of a formal apology:
 
 [* In general, I spent a lot of time optimizing... *]
 
+[section[Escape COD]]
+
+Another GPU-based method I tried was to 100% the multiplayer mode of
+[it[Call Of Duty: Black Ops 6]]. It's not the sixth [it[Call of Duty]]
+game (come now), it's the sixth [it[Black Ops]] game!
+
+To me, “100%” meant:
+[ul ([Get to Prestige Master] ::
+     [Get the “Multiplayer 100%” badge] ::
+     [Get “mastery” for every item in the game.] ::
+     nil)]
+
+[paragraph[Prestige Master]] It is easy enough to max out your level
+to 55 (?) in this game, but then you can “Prestige” (jaron verb
+meaning roughly “shame”) and reset your progress, allowing you to make
+meta-“progress” through ten levels of Prestige, and then 1000 levels
+of “Prestige Master.” This allows you to feel neurotransmitters when
+you “unlock” something for the second, or third, or tenth time. The
+neurotransmitters are necessary due to the receptor desensitization
+caused by the constant stream of messages and medals telling you how
+good you are, or how many points you got, or how hard you killed six
+or seven guys at the same time by spamming them with grenades.[cite schulz1998predictive]
+This is the easiest thing to do, since it just happens by getting
+points from playing the game, no matter how you do it.
+
+[paragraph[Multiplayer 100%]] This is essentially an achievement list.
+Most of them happen naturally by just playing, but some require an
+irritatingly specific set of circumstances (“With the enforcer Perk
+Specialty active: get 10 kills while War Cry is active in a single
+match”) and so they require playing a lot, and in a specific way.
+For calibration, simply completing this list is apparently enough
+content for 365k views in the Genre of “I played video games a lot”
+on YouTube.[cite roberts2024unlocked]
+
+[paragraph[Every item mastery]] This is the most tedious. Mastery
+means you did the thing a lot. You get mastery for a weapon for
+getting 500 kills with that weapon, for example. For good weapons,
+this is easy and actually fun. For the many bad weapons, it is an
+awful grind. For example, there are these rocket launchers that are
+mainly designed for shooting down helicopters, but if you can manage
+to fire them at a human without getting killed before you finish
+looking down the sight, and you land a basically direct hit on their
+soft body, then you get a kill. Just 500 of those! Then there are
+weapons seemingly designed just for humiliating your opponent, like a
+hand-held power drill that you can drill into them twice at close
+range. Just 500 of those! Worse is the scorestreaks, which you
+activate by getting a certain number of points per life—generally a
+lot—and some of them will only do their thing in certain situations
+(like interceptors, which destroy airborne enemy scorestreaks).
+Thankfully these only need 100 kills. Then there are field upgrades,
+which are on a timer that only activates a few times per match. So
+that means that you only get a few attempts per game to disorient and
+then kill some enemies with the pathetic “neurogas” item, or to
+perform a “tactical insertion” and then kill an enemy within five
+seconds of being born. Worst of all are the “non-lethal equipment,”
+which includes items seemingly designed for a different game, like the
+“proximity alarm.” This thing alerts you when there is an enemy—which
+there always is—and then maybe if you kill the enemy while the alarm
+is beeping, it registers progress towards mastery. So after spawning,
+you hope that you can quickly throw a proximity alarm on some nearby
+wall and kill an enemy that you were going to kill anyway, all the
+while trying to intuit the undisclosed logic by which it will count
+this as a “proximity alarm assist.”
+
+[image { img = image-load "cod-mastery.jpg", width = inch 3.65 }]
+
+Anyway, I finished Cube Octahedron Dodecahedron: Block Ops 6 on
+the evening of the SIGBOVIK deadline, 28 Mar 2025, after some 178 hours
+of active in-match time.
+
+Note: I am not in any way recommending this game. I simply got
+addicted to it, since sometimes I need to keep myself wake until 2am
+with eyes dry from being transfixed to a flashing computer screen
+while I white-knuckle the mouse and keyboard, grinding for
+achievements. It is essentially artless (except sometimes by
+accident), and I only played it because I am a Counter Strike Idiot.
+The only thing I unironically like about this game is that when a
+match ends, you endure a few seconds of slow-motion invincibility, where
+environmental boundaries will not kill you. With good planning, this
+lets you explore the outskirts of the deathmatch map beyond where you
+would normally be able to reach (for example, in Stakeout, you can
+jump to a nearby building and run up its stairs to a balcony).
+Although you are invincible and cannot die, environmental effects like
+drowning still apply. If you jump into water at this point, you will
+start to suffocate through the post-game sequence, and can wind up
+extremely asphyxiated at the same time you do your victory dance in
+the winner's circle: True success!
+
+Aside from the fact that this could run simultaneously with CPU-based
+solvers, this approach surprisingly did not yield any results for
+the Rupert problem.
+
 [section[Other approaches]]
 
 * Z3
@@ -1153,8 +1316,6 @@ eventually won. Like a coward, it weasled out of a formal apology:
 
 Infinitely many
 What’s the best Rupert?
-
-Cube Octahedron Dodecahedron: Black Ops 6
 
 [section[Results]]
 [* make-sol-table () *]

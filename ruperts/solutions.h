@@ -39,6 +39,9 @@ struct SolutionDB {
   static constexpr int METHOD_RATIONAL = 11;
   static constexpr int METHOD_IMPROVE_CLEARANCE = 12;
 
+  static constexpr int FIRST_METHOD = 1;
+  static constexpr int LAST_METHOD = 12;
+
   static const char *MethodName(int m) {
     switch (m) {
     case METHOD_INVALID: return "INVALID";
