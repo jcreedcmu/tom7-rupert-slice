@@ -171,6 +171,7 @@ struct ImageRGBA {
                           float line_radius, uint32 color);
 
   // Blend a filled triangle. Either winding order.
+  // PERF: Slow (rasterizes the entire bounding box).
   void BlendTriangle32(int x0, int y0, int x1, int y1, int x2, int y2,
                        uint32_t color);
 

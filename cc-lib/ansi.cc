@@ -134,8 +134,10 @@ std::string ANSI::BackgroundRGB32(uint32_t rgba) {
 
 std::string ANSI::Time(double seconds) {
   char result[64] = {};
-  if (seconds < 0.001) {
-    snprintf(result, 64, AYELLOW("%.3f") "μs", seconds * 1000000.0);
+  if (seconds < 0.000001) {
+    snprintf(result, 64, AYELLOW("%.3f") "ns", seconds * 1'000'000'000.0);
+  } else if (seconds < 0.001) {
+    snprintf(result, 64, AYELLOW("%.3f") "μs", seconds * 1'000'000.0);
   } else if (seconds < 1.0) {
     snprintf(result, 64, AYELLOW("%.2f") "ms", seconds * 1000.0);
   } else if (seconds < 60.0) {

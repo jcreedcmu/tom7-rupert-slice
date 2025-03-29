@@ -216,9 +216,9 @@ private:
     Font(Font0Obj *f0obj) : f0obj(f0obj) {}
     Font(BuiltInFontObj *bfobj) : bfobj(bfobj) {}
     // Maybe not needed at all?
-    Font8Obj *f8obj = nullptr;
-    Font0Obj *f0obj = nullptr;
-    BuiltInFontObj *bfobj = nullptr;
+    [[maybe_unused]] Font8Obj *f8obj = nullptr;
+    [[maybe_unused]] Font0Obj *f0obj = nullptr;
+    [[maybe_unused]] BuiltInFontObj *bfobj = nullptr;
 
     // Width of the cid when the font is at 1pt.
     double CIDWidth(uint16_t cid) const;
