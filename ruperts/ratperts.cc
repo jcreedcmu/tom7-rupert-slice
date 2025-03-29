@@ -76,7 +76,10 @@ struct BigSolver {
     status_per(1.0) {
 
     SolutionDB db;
-    SolutionDB::Solution sol = db.GetSolution(455);
+    // TODO: Could also try the one with the best ratio, or really
+    // any "solution."
+    SolutionDB::Solution sol =
+      db.GetBestSolutionFor(polyhedron.name, false);
 
     const auto &[douter_rot, dotrans] =
       UnpackFrame(sol.outer_frame);
@@ -172,6 +175,9 @@ struct BigSolver {
   void Run() {
     attempts.Reset();
     iters.Reset();
+
+    status->Printf("Running on " APURPLE("%s") ".\n",
+                   polyhedron.name);
 
     ParallelFan(
       NUM_OUTER_THREADS,
@@ -442,9 +448,10 @@ static void Ratpert() {
   }
 
 
-  for (;;) {
+  // Do them round-robin, but starting at a random one.
+  for (int p = RandTo(&rc, 5); true; p = (p + 1) % 5) {
 
-    switch (rc.Byte() & 7) {
+    switch (p) {
     case 0: {
       BigSolver solver(dhexe, &status, {60.0 * 60.0});
       solver.Run();
