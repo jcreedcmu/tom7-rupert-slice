@@ -276,16 +276,39 @@ struct BigSolver {
     // quaternion here; we want to avoid Sqrt so that everything is
     // exact.
     BigRat zero(0);
-    BigQuat outer_rot = BigQuat(zero, zero, zero, BigRat(1));
-    BigQuat inner_rot = BigQuat(zero, zero, zero, BigRat(1));
+    BigQuat outer_rot;
+    BigQuat inner_rot;
     BigVec2 translation = BigVec2(zero, zero);
-    std::string what = "id";
+    std::string what;
 
-    if (rc->Byte() & 1) {
+    switch (RandTo(rc, 4)) {
+    case 0: {
       what = "ref";
       outer_rot = initial_outer_rot;
       inner_rot = initial_inner_rot;
       translation = initial_translation;
+      break;
+    }
+    case 1: {
+      what = "id";
+      BigQuat outer_rot = BigQuat(zero, zero, zero, BigRat(1));
+      BigQuat inner_rot = BigQuat(zero, zero, zero, BigRat(1));
+      break;
+    }
+    case 2:
+    case 3: {
+      // Same orientation, but not actually the identity.
+      what = "eq";
+      quat4 douter_rot = RandomQuaternion(rc);
+      outer_rot.x = BigRat::FromDouble(douter_rot.x);
+      outer_rot.y = BigRat::FromDouble(douter_rot.y);
+      outer_rot.z = BigRat::FromDouble(douter_rot.z);
+      outer_rot.w = BigRat::FromDouble(douter_rot.w);
+      inner_rot = outer_rot;
+      break;
+    }
+    default:
+      LOG(FATAL) << "Impossible";
     }
 
     Jitter(&outer_rot.x);
@@ -310,6 +333,8 @@ struct BigSolver {
       const int SCALE = 64 + RandTo(rc, 1024 * 1024 * 1024);
       scale_down.emplace_back(1, SCALE);
     }
+
+    const BigInt LOSS_SCALE = BigInt::Pow(BigInt(10), 20);
 
     int local_best_errors = 9999999;
 
@@ -373,16 +398,22 @@ struct BigSolver {
         attempts++;
         histo.Observe(errors);
         if (status_per.ShouldRun()) {
+          double d = loss.ToDouble();
           status->LineStatusf(
               thread_idx,
               AFGCOLOR(200, 200, 140, "%s") " " AWHITE("%s")
               " %d" ACYAN("×")
-              ", err #%d (#%d" ABLUE("↓") "), in %s\n",
+              ", err #%d (#%d" ABLUE("↓") "), "
+              "%.17g"
+              // " in %s\n"
+              ,
               histo.UnlabeledHoriz(32).c_str(),
               what.c_str(),
               calls,
               errors, local_best_errors,
-              ANSI::Time(timer.Seconds()).c_str());
+              d
+              // , ANSI::Time(timer.Seconds()).c_str()
+                              );
         }
         if (errors == 0) {
           Solved(orot, irot, itrans);
@@ -396,7 +427,9 @@ struct BigSolver {
         }
 
         if (errors == 0) return 0.0;
-        else return (double)errors + std::abs(loss.ToDouble());
+        else return
+               (double)errors +
+               std::abs((LOSS_SCALE * loss).ToDouble());
       };
 
     const std::array<double, D> lb =

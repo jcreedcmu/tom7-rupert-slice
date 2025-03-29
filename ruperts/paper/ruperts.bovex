@@ -138,31 +138,6 @@ let
                 else render-finite-float f
     end
 
-  fun make-sol-table () =
-    let
-
-      fun make-box lay =
-        get-boxes (layout-map-text normalize-whitespace lay)
-
-      fun one-row (name, v, e, f, NONE) =
-        (get-boxes (layout name),
-         get-boxes [?],
-         get-boxes [?])
-        | one-row (name, v, e, f, SOME(ratio, clearance, _)) =
-        (get-boxes (layout name),
-         get-boxes (render-float ratio),
-         get-boxes (render-float clearance))
-
-      val rows = list-map one-row solution-table
-
-      fun rec nil = []
-        | rec ((name, r, c) :: rest) =
-        name ^^ r ^^ c ^^ hfill() ^^ break() ^^
-        rec rest
-    in
-      rec rows
-    end
-
   fun get-table-entry nickname =
     case list-find (fn (n : string, v, f, e, s) =>
                     string-eq (nickname, n))
@@ -204,7 +179,6 @@ let
          else SOME codename
        | _ => NONE)
         solution-table
-    (* XXX get long names *)
 
       val human-names =
         list-map (fn code =>
@@ -345,13 +319,15 @@ let
                 dual is the icosahedron.],
        shape-tier = TIER-SS,
        factoid = [In more than one of Bertrand Russell’s
-                  nightmares,[cite russell1954nightmares][cite russell1961theologian]
+                  nightmares,[cite russell1954nightmares][
+                      cite russell1961theologian]
                   the universe is shaped like a dodecahedron.]
                }) ::
 
      ("icos", {(Scorecard)
        about = [The [b[icosahedron]] is more commonly known as the D20.
-                Somehow they managed to fit [it[twenty]] equilateral triangles on this!],
+                Somehow they managed to fit [it[twenty]] equilateral
+                triangles on this!],
        shape-tier = TIER-SS,
                }) ::
 
@@ -557,6 +533,7 @@ in
  [author[Dr. Tom Murphy VII, Ph.D.]]
  [date[March 2025]]
 
+ [*
  1.333333333333 is [render-float 1.33333333333]
 
  0.000123456789 is [render-float 0.000123456789]
@@ -567,12 +544,16 @@ in
 
  0.00000000123456 is [render-float 0.00000000123456]
 
+  [box {(Box) width = inch 3.0, height = inch 1.0 } [box one]]
+  [box {(Box) width = inch 3.0, height = inch 1.0 } [box two]]
+
+  *]
 
  How big is the unit cube? “1?” Seems obvious, right?
  Let me ask you another way: [it[Where]] is the unit cube? “0?”
 
  Or: How big is the unit sphere? “1?” Imagine I am asking you these
- questions where pounce upon you with the next question just as
+ questions where I pounce upon you with the next question just as
  you start to answer the first. To keep you off your balance,
  I mean. [it[Where]] is the unit sphere? “0?” Which is bigger, the
  unit cube or the unit sphere? Sweating yet?
@@ -598,7 +579,7 @@ in
  Now that I’ve gotten the “dice in sphere” pun out of the way, we can
  move onto the real topic of this paper.
 
- Late some night I was admiring the Wikipedia article on the
+ Late one night I was admiring the Wikipedia article on the
  Dodecahedron, my favorite Platonic solid. On this page I was reminded
  that the Dodecahedron is Rupert, like the cube. This seemed right,
  since if the cube has a pleasing property and the Dodecahedron is
@@ -713,9 +694,6 @@ rigid frames that satisfy the above (and we know that one of the
 translations can be (0, 0, 0) and the other (x, y, 0)). How do we find
 such frames?
 
-[box {(Box) width = inch 3.0, height = inch 1.0 } [box one]]
-[box {(Box) width = inch 3.0, height = inch 1.0 } [box two]]
-
 If you have a fast enough test, sampling will suffice for easy objects
 like the cube. Here you just generate random frames and test whether
 the condition holds. You can try all orientations and reasonable
@@ -764,7 +742,7 @@ to know about the Quaternions:
     [b[ijk]] = -1.] ::
 
     [You can just think of a quaternion as a four-dimensional vector
-    (a, b, c, d). If this is a unit-length vector, then represents an
+    (a, b, c, d). If this is a unit-length vector, then it represents an
     orientation. There are exactly two unit quaternions representing
     each unique orientation in 3D. No gimbal lock and no favorites.] ::
 
@@ -834,7 +812,7 @@ darker boundary polygon is its 2D convex hull:
 [image { img = image-load "icos-shadow.png", width = inch 3.65 }]
 
 Computing the convex hull is also “standard,” meaning that you can
-find lots slightly buggy implementations of various algorithms on the
+find lots of slightly buggy implementations of various algorithms on the
 internet. The bugs are usually because the routines are intended for
 computer graphics and so they don't have to “work,” and because the
 algorithms are conceptualized in the mathematical world where when you
@@ -1053,7 +1031,7 @@ Because I did not want to port the black-box optimizer, and because we
 can do better anyway since we understand the problem being optimized,
 I implemented a proper gradient descent optimizer for the GPU. This
 subject is well documented so I will not belabor it here, but I
-performed "approximate numerical differentiation" to compute the
+performed “approximate numerical differentiation” to compute the
 derivate with respect to each parameter independently. This involves
 evaluating the function one additional time for each parameter (with a
 small tweak), assuming that the slope is locally linear. It's not too
@@ -1077,7 +1055,7 @@ first-person shooter games.
 [subsection[Solved!]]
 
 And then I found a solution for one of the wishlist polyhedra!
-Actually XXX of them. I didn't get too excited, though; there had
+Actually all of them. I didn't get too excited, though; there had
 been many false positives so far (due to bugs), and the reported
 numbers were like this
 
@@ -1098,7 +1076,7 @@ Ratio: 0.9999999999999999766]]
 
 Note how everything is either really close to 1 or zero.
 Recall that two equal frames produce identical shadows, and
-that these are invalid Rupert configurations (the "hole" eats
+that these are invalid Rupert configurations (the “hole” eats
 the entire shape). So too when the orientations are the same
 up to symmetry (e.g. one rotates the cube 1º and the other
 91º). So I knew it was possible that we could get something
@@ -1116,14 +1094,14 @@ radius of the polyhedron, requiring a monumental amount
 of zooming-in to even perceive this thread as having volume.
 This would be a good reason that nobody found these solutions
 before: Perhaps they used single-precision floating point,
-or coarse values of "epsilon," or rejected them with visual
+or coarse values of “epsilon,” or rejected them with visual
 inspection?
 
 So I invested further effort.
 
 [subsection[Rational solvers]]
 
-The right way to ideal with floating point inaccuracy is to not use
+The right way to deal with floating point inaccuracy is to not use
 them. Lots of geometry will work great with other number systems, so
 with a little finesse we can work on this problem using rational
 numbers and sidestep the numerical problems. There are just
@@ -1138,7 +1116,16 @@ implemented rational approximations for each of the shapes, where you
 can decide ahead of time on an arbitrarily small epsilon
 (alternatively, a number of digits of precision) for the coordinates.
 For these shapes you just need a routine that can compute square and
-cube roots to arbitrary precision. (I also did π, which is fun, before
+cube roots to arbitrary precision.[footnote[One non-obvious but
+important thing to consider here: For a given accuracy goal, there are
+infinitely many rationals that fall within that range. Most of these
+are bad choices because the numerator and denominator are enormous
+numbers. So it is important that we not just generate a rational that
+is close to the target value, but that we generate a reasonably
+compact rational; otherwise downstream computations need to do a lot
+more work. Many classic approximation algorithms do not account for
+this, since for example the efficiency of a float does not depend much
+on its specific value.]] (I also did π, which is fun, before
 realizing I don't even need it.) Since the resulting shapes are not
 exact, any solution we find might only work for the slightly
 inaccurate shape, but once we have a solution we can verify it by
@@ -1153,7 +1140,55 @@ the distance between a point and the hull, which needs a square
 root (square roots of rationals are not necessarily rational).
 This is easily handled by just using the squared distance as the
 loss function (this is common even with floats and sometimes
-works better!) XXX quats
+works better!) A little trickier is rotation. Before we used
+[it[unit]] quaternions to represent orientations. Normalizing
+a quaternion means dividing by its length, which involves a root;
+we can't do this with rationals. Fortunately, we do not actually
+need unit quaternions. The rotation induced by an arbitrary q (other
+than the zero quaternion) can be given as
+
+  rot(v) = q × v × q[sup[-1]]
+
+and if you work this all out, you find that the quaternion's
+length is only used [it[squared]], which means that you never
+need to calculate the root. This means that if we start with
+rational coordinates, we can represent orientations as non-unit
+quaternions, and get rational rotated coordinates. Rational
+translation is trivial. All we have to do is make pure rational
+versions of the convex hull calculations (mostly just needs
+cross product; these become much cleaner when you know you have
+exact line-side tests due to exact representations of the
+points, too) and point-in-polygon tests, and so on. Rational
+arithmetic is like millions of times slower than floating point,
+but other than that, it's really nice!
+
+[paragraph[The optimizer is still double-based]] Now we can represent
+arbitrarily fine rotations and translations exactly, but the optimizer
+is still working on double-precision numbers. This is easily handled
+by scaling down the parameters before running the error calculation.
+For example, if the optimizer asks to try a value of 0.123 for a
+parameter, we convert that to a rational, and then divide it by
+2[sup[20]] or something large so that we only work in a very narrow
+range around the initial value. This scale is chosen randomly and
+independently for each optimization parameter.
+
+I got this working. We are primarily interested in seeing if there are
+actual solutions near the supposed ones that may just be floating
+point error. I use those solutions as starting points for
+optimization, as well as two random equal rotations and no
+translation. Alas, the purported solutions are not actually valid,
+and they do not seem to be close to any solutions. I ran the rational
+search for many days on the unsolved polyhedra with no joy.
+
+[section[Noperts]]
+
+By this point I was feeling pretty confident that the Rupert conjecture
+is actually false. This would certainly explain why nobody had
+solved these five polyhedra before! And so I set out to try to find
+more (conjectured) counterexamples, in the hopes of gaining some
+insight or at least advancing the state of the art in some small way.
+
+
 
 XXX noperts
 XXX symmetry
@@ -1227,7 +1262,7 @@ To me, “100%” meant:
      nil)]
 
 [paragraph[Prestige Master]] It is easy enough to max out your level
-to 55 (?) in this game, but then you can “Prestige” (jaron verb
+to 55 (?) in this game, but then you can “Prestige” (jargon verb
 meaning roughly “shame”) and reset your progress, allowing you to make
 meta-“progress” through ten levels of Prestige, and then 1000 levels
 of “Prestige Master.” This allows you to feel neurotransmitters when
@@ -1245,7 +1280,7 @@ irritatingly specific set of circumstances (“With the enforcer Perk
 Specialty active: get 10 kills while War Cry is active in a single
 match”) and so they require playing a lot, and in a specific way.
 For calibration, simply completing this list is apparently enough
-content for 365k views in the Genre of “I played video games a lot”
+content for 365k views in the genre of “I played video games a lot”
 on YouTube.[cite roberts2024unlocked]
 
 [paragraph[Every item mastery]] This is the most tedious. Mastery
@@ -1281,15 +1316,19 @@ this as a “proximity alarm assist.”
 [image { img = image-load "cod-mastery.jpg", width = inch 3.65 }]
 
 Anyway, I finished Cube Octahedron Dodecahedron: Block Ops 6 on
-the evening of the SIGBOVIK deadline, 28 Mar 2025, after some 178 hours
-of active in-match time.
+the evening of the SIGBOVIK deadline, 28 Mar 2025—after some 178 hours
+of active in-match time—and escaped this game.
 
 Note: I am not in any way recommending this game. I simply got
-addicted to it, since sometimes I need to keep myself wake until 2am
+addicted to it, since sometimes I need to keep myself awake until 2am
 with eyes dry from being transfixed to a flashing computer screen
 while I white-knuckle the mouse and keyboard, grinding for
 achievements. It is essentially artless (except sometimes by
 accident), and I only played it because I am a Counter Strike Idiot.
+You could perhaps use it for anthropological study if you are
+interested in a disturbingly high density of people for whom their
+love of Donald Trump is so important to their identity that they
+cram it into their 16 character character alias.[cite healey2016proving]
 The only thing I unironically like about this game is that when a
 match ends, you endure a few seconds of slow-motion invincibility, where
 environmental boundaries will not kill you. With good planning, this
@@ -1318,7 +1357,6 @@ Infinitely many
 What’s the best Rupert?
 
 [section[Results]]
-[* make-sol-table () *]
 
 [subsection[Scorecards]]
 
@@ -1331,18 +1369,14 @@ smallest sphere that contains all points in the polyhedron. Clearance
 is then [it[c]]/[it[r]]; the radius is just a normalization term so
 that this does not depend on the scale of the polyhedron. The
 [it[ratio]] is another quality metric, which is the area of the inner
-shadow divided by the area of the outer shadow. Lower ratio is clearly
-better, but some low-ratio solutions look bad because they have very
-thin walls. A third obvious choice would be to maximize volume of the
-residue solid, but this is computationally expensive and might anyway
-have the same thin-wall problem as ratio does.
+shadow divided by the area of the outer shadow. All else equal, a
+lower ratio is better, but some low-ratio solutions look bad
+because they have very thin walls. A third obvious choice would be to
+maximize volume of the residue solid, but this is computationally
+expensive and might anyway have the same thin-wall problem as ratio
+does.
 
 [layout-concat (list-map (make-scorecard scorecards) POLYHEDRA)]
-
-[*
-[layout-concat (list-map (make-scorecard scorecards)
-                (  ("cube", "cube", "cube", PLATONIC) :: nil))]
-*]
 
 [section[Improvements to BoVeX]]
 
@@ -1396,12 +1430,22 @@ the PDFs to be “correct.” LOL!!
 Can we disprove the universal Rupert conjecture, by proving that
 one of these nice symmetric polyhedra does not have the property?
 
+Or, can you find a solution to one of these unsolved polyhedra,
+demonstrating that I am a bad programmer?
+
 Harder: If the conjecture is false, can we show that the snub cube is
 the polyhedron with the fewest vertices (24) that fails it?
 
 Easier: Can we prove that for some polyhedra (e.g. the regular tetrahedron),
 any Rupert configuration involves a translation (i.e. the projected
 origins do not coincide)?
+
+[section[Lessons]]
+
+This is not the first time I have gotten myself sucked into a
+simple-seeming open math problem and then toiled away at it for
+some time, and did not solve it. I do not wish to divest myself of
+the hubris instinct XXX
 
 [section[Conclusion]]
 
@@ -1438,26 +1482,16 @@ end
 
 now, most rich ..
 
- It is just notes for now.
-
  point set version
-
- illustrate all the hulls
-
- table of best ratios/clearances
 
  small noperts
 
- gpu version
- rational version
  z3 version
    .. decidable
 
  failing as fast as possible
 
 triangle man hates particle man
-
- I'm definitely asking for it with floating points!!
 
  upsetting symmetry thing
 
@@ -1513,7 +1547,7 @@ triangle man hates particle man
  a local maximum. Adding more dimensions makes the optimization
  problem potentially easier to solve simply by descent.
 
- tier
+* re-search *
 
  communing with perverted aliens
 
@@ -1529,5 +1563,6 @@ triangle man hates particle man
   - some objects have inside-out normals?
   - emit floaters (footnotes)
   - math rendering!
+  - video citation type
 
  *)
