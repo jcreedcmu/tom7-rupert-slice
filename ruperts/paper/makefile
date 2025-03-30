@@ -54,7 +54,7 @@ CATALAN_SOLID_SVG=catalan-deltoidalhexecontahedron.svg catalan-deltoidalicositet
 
 RESIDUE_SVG=cube-residue.svg cuboctahedron-residue.svg deltoidalicositetrahedron-residue.svg disdyakisdodecahedron-residue.svg disdyakistriacontahedron-residue.svg dodecahedron-residue.svg icosahedron-residue.svg icosidodecahedron-residue.svg octahedron-residue.svg pentagonalicositetrahedron-residue.svg pentakisdodecahedron-residue.svg rhombicdodecahedron-residue.svg rhombictriacontahedron-residue.svg rhombicuboctahedron-residue.svg tetrahedron-residue.svg tetrakishexahedron-residue.svg triakisicosahedron-residue.svg triakisoctahedron-residue.svg triakistetrahedron-residue.svg truncatedcube-residue.svg truncatedcuboctahedron-residue.svg truncateddodecahedron-residue.svg truncatedicosahedron-residue.svg truncatedicosidodecahedron-residue.svg truncatedoctahedron-residue.svg truncatedtetrahedron-residue.svg
 
-NOPERT_SVG=nopert_28.svg nopert_47.svg nopert_56.svg
+NOPERT_SVG=nopert_28.svg nopert_47.svg nopert_56.svg  nopert24_3.svg nopert24_7.svg nopert24_8.svg  nopert36_24.svg nopert56_60.svg
 NOPERT_RESIDUE_SVG=nopert_28-residue.svg nopert_47-residue.svg nopert_56-residue.svg
 
 AUX_SVG=questionmark.svg

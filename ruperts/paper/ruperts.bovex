@@ -38,10 +38,49 @@ let
                           font-size = point 10.0,
                           attrs = {(Object) } } lay
 
+  fun image-array (full-width : float, images : image-handle list) =
+    let
+      val sizes = list-map image-size images
+      val total-width =
+        list-foldl (fn ({width, height}, w) => w + width) 0 sizes
+      val max-height =
+        int-to-float
+        (list-foldl (fn ({width, height}, h) => int-max(h, height)) 0 sizes)
+
+      val scale-factor = full-width /. int-to-float total-width
+
+      (*
+      do print ("Total width: " ^ int-to-string total-width ^
+                " so scale factor is: " ^ float-to-string scale-factor ^
+                "\n")
+      *)
+
+      val xpos = ref 0.0
+      val stickers = list-map
+        (fn img =>
+         let
+           val x = !xpos
+           val {width, height} = image-size img
+           val w = scale-factor *. int-to-float width
+         in
+           (*
+           print ("xpos: " ^ float-to-string x ^ " w/width " ^
+                  float-to-string w ^ "\n");
+           *)
+           xpos := x +. w;
+           image-sticker { img = img, x = x, y = 0.0, width = w }
+         end) images
+
+      val lay =
+        box {(Box) width = full-width,
+             height = scale-factor *. max-height } (layout-concat stickers)
+
+    in
+      (* debug-print-doc lay; *)
+      lay
+    end
 
   val tt = fixedersys
-
-  val cbrt = tt[∛]
 
   fun body-font lay = span
     {(Span)
@@ -49,10 +88,15 @@ let
      font-size = point 12.0,
      line-spacing = point 1.5 } lay
 
+  val layout-sup = sup
+
   fun sup lay =
     span {(Span) font-size = 8.0,
           (* Don't rephrase the text in these. *)
           no-rephrase = true } lay
+
+  (* val cbrt = tt[∛] *)
+  val cbrt = layout-sup (point 7.0) [3] ^^ rigid-hspace (point -3.0) ^^ [√]
 
   fun footnote s = color 0x999999FF [([b[footnote]]: [s])]
 
@@ -643,7 +687,9 @@ links to video content in the future.]]
 The Platonic solids
 
 [* XXX somewhere up here, need to introduce platonic, archimedean,
-catalan, and the "wishlist" *]
+catalan, and the "wishlist" and P/A/C *]
+
+[* also need to cite "related work" here *]
 
 [section[The Rupert problem]]
 
@@ -1101,15 +1147,14 @@ fetish for IEEE-754, I'm certainly asking for it! Visually
 inspecting these solutions, this is exactly what they looked
 like.
 
-[b[ON THE OTHER HAND]], some solutions can have a lot of
-nines in them! For example, the best known solution for the
-triakis tetrahedron comes within [it[one one-millionth]] of the
-radius of the polyhedron, requiring a monumental amount
-of zooming-in to even perceive this thread as having volume.
-This would be a good reason that nobody found these solutions
-before: Perhaps they used single-precision floating point,
-or coarse values of “epsilon,” or rejected them with visual
-inspection?
+[b[ON THE OTHER HAND]], some solutions can have a lot of nines in
+them! For example, the best known (to me) solution for the triakis
+tetrahedron comes within [it[one one-millionth]] of the radius of the
+polyhedron, requiring a monumental amount of zooming-in to even
+perceive this thread as having volume. This would be a good reason
+that nobody found these solutions before: Perhaps they used
+single-precision floating point, or coarse values of “epsilon,” or
+rejected them with visual inspection?
 
 So I invested further effort.
 
@@ -1240,22 +1285,19 @@ produces much more interesting shapes, some of which are
 identified as provisional Noperts!
 
 Here are some examples:
-[image { img = image-load "nopert_28.png",
-         width = inch (3.65 / 3.0) }]
-[image { img = image-load "nopert_47.png",
-         width = inch (3.65 / 3.0) }]
-[image { img = image-load "nopert_56.png",
-         width = inch (3.65 / 3.0) }]
+
+[image-array (inch 3.65,
+              list-map image-load ("nopert_28.png" ::
+                                   "nopert_47.png" ::
+                                   "nopert_56.png" :: nil))]
 
 Alas, running the solver for many more iterations on these
 eventually solves them. Here are residues for the same three:
 
-[image { img = image-load "nopert_28-residue.png",
-         width = inch (3.65 / 3.0) }]
-[image { img = image-load "nopert_47-residue.png",
-         width = inch (3.65 / 3.0) }]
-[image { img = image-load "nopert_56-residue.png",
-         width = inch (3.65 / 3.0) }]
+[image-array (inch 3.65,
+              list-map image-load ("nopert_28-residue.png" ::
+                                   "nopert_47-residue.png" ::
+                                   "nopert_56-residue.png" :: nil))]
 
 In fact, none of the shapes found with the adversarial
 method survived persistent grinding with the solver.
@@ -1277,17 +1319,18 @@ cube (which is the smallest wishlist polyhedron at 24 vertices) are
 still Nopert. One way to simplify a convex polyhedron is to delete
 some of it vertices. 2[sup[24]] is not that big, so I tried every
 subset of the snub cube. Well, not [it[every]] subset: The snub cube
-is highly symmetric, so a lot of the subsets are effectively the same.
-It seemed like too much programming work to identify the symmetric
-subsets (and error-prone), but since we know we are removing at least
-one vertex, and the snub cube is vertex transitive (all vertices are
-“equivalent” up to symmetry) I can halve the space by saying that
-vertex 0 is always removed. Then all binary words of length 23 (1 if
-the vertex corresponding to the bit is kept, 0 if removed) identify a
-reduced snub cube, so I just loop over all 8,388,608 of these and
-solve them. Indeed, every one has a solution. So we know that the
-snub cube is locally minimal; it needs all 24 of its vertices to
-defy easily solution.
+is highly symmetric, so a lot its subsets are effectively the same. It
+seemed like too much programming work to identify the symmetric
+subsets (and error-prone). Note however that we know we are removing
+at least one vertex, and the snub cube is vertex transitive (all
+vertices are “equivalent” up to symmetry). So I can halve the search
+space by saying without loss of generality that vertex 0 is always
+removed. Then all binary words of length 23 (1 if the vertex
+corresponding to the bit is kept, 0 if removed) identify a reduced
+snub cube, so I just loop over all 8,388,608 of these and solve them.
+Indeed, every one has a solution. So we know that the snub cube is
+locally minimal; it needs all 24 of its vertices to defy easy
+solution.
 
 [paragraph[Symmetry]] Another obvious fact about the wishlist polyhedra
 is that they are symmetric. So the next thing I did was to explore
@@ -1310,31 +1353,80 @@ earlier ones. You can try iterating until saturation, but then you
 usually get an infinite point set, like a cylinder or sphere.
 
 There are two 3D extensions of the Spirograph method for generating a
-symmetry from a whole number [it[n]]. One is dihedral symmetry, where
-for example you extrude the 2D polygon to a boring 3D prism (opposite
-faces are the same polygon, and the side faces just connect them with
-quadrilaterals). This symmetry is “dihedral” because you can rotate it
-by a 1/[it[n]] turn, or flip it over, and get the same shape. The
-other is cyclic symmetry, with an example being that you take the
-2D polygon and connect all its vertices to a single point (not on the
-same plane). This object can be rotated by 1/[it[n]] turns to get
-the same shape, but flipping no longer works. Amazingly, these are
-the [it[only]] infinite families of symmetries in 3D! The Spirograph
-toy is just not that fun in 3D; it just makes extrusions of 2D
-Spirographs.
+finite symmetry group from a whole number [it[n]]. One is
+dihedral symmetry, where for example you extrude the 2D polygon to a
+boring 3D prism (opposite faces are the same polygon, and the side
+faces just connect them with quadrilaterals). This symmetry is
+“dihedral” because you can rotate it by a 1/[it[n]] turn, or flip it
+over, and get the same shape. The other is cyclic symmetry, with an
+example being that you take the 2D polygon and connect all its
+vertices to a single point (not on the same plane). This object can be
+rotated by 1/[it[n]] turns to get the same shape, but flipping no
+longer works. Amazingly, these are the [it[only]] infinite families of
+symmetries in 3D! The Spirograph toy is just not that fun in 3D; at
+best it just makes extrusions of 2D Spirographs.
 
-What about finite symmetries? Well, in 3D there are exactly three,
-and they correspond directly to the platonic solids: You have
-the tetrahedral group, the octahedral group (which is the same
-symmetry enjoyed by the cube, its dual), and the icosahedral group
-(the same as the dodecahedron, its dual). This is awesome!
+[* XXX good place for diagrams *]
+
+What about finite symmetries? Well, in 3D there are exactly three, and
+they correspond directly to the platonic solids: You have the
+tetrahedral group, the octahedral group (which is the same symmetry
+enjoyed by the cube, its dual), and the icosahedral group (the same as
+the dodecahedron, its dual). The operations correspond to the
+vertices, edges, and faces of the corresponding Platonic solid. For
+example, if a face is a triangle, rotating 1/3 turn around the center
+of that face is one operation. For an edge, flipping so that its two
+connected vertices swap places is another. This is awesome!
 It gave me a new appreciation for how canonical and important the
 Platonic solids are.
 
-Polyhedra with dihedral and cyclic symmetry are not very interesting
-for the rupert problem.
+Polyhedra with dihedral and cyclic symmetry are typically not
+challenging for the Rupert problem: If your extrusion is shallow, then
+you basically have a manhole cover that is not quite round (and so it
+falls through the manhole, injuring a sewer worker who should not have
+been down there anyway while they were putting the cover back on), or
+an unnaturally regular churro, which can pass through itself the other
+way.[footnote[Actually, I think this would be a good simplified case
+to study; can we find the crossover point where manhole cover becomes
+churro, and prove that it always exists? I added this to the list of
+open problems below.]] So I explored polyhedra that have the remaining
+symmetry groups. One way to do this is to start with some point set,
+and the apply operations from the symmetry group (adding the points
+that arise from the operation) until you reach saturation. One thing
+to notice about this approach is that you always get a minimum number
+of vertices for a given choice of symmetry group. For example, if you
+start with a single point, you just get the corresponding Platonic
+solid, which we already have. So we must have at least two points. If
+we are trying to induce tetrahedral symmetry, we have this face
+operation that rotates by a third-turn (because the face is a
+triangle). When we perform that operation, those two points will
+become a triangle, so you generally end up with something that looks
+like a truncated tetrahedron (12 vertices). The only way to avoid this
+is to put the second point in a special position where it will
+coincide with itself when you perform the symmetry operations; this
+gives you something like the triakis tetrahedron (8 vertices). As a
+result, these symmetric polyhedra either tend to have lots of
+vertices, or to simply be a distorted version of one of the
+P/A/C solids.
 
-XXX noperts
+So I was unable to find any noperts with fewer than 24 vertices.
+I did find several with 24 vertices, which all look like this:
+
+[image-array (inch 3.65,
+              list-map image-load ("nopert24_3.png" ::
+                                   "nopert24_7.png" ::
+                                   "nopert24_8.png" :: nil))]
+
+These are just slightly wrong snub cubes!
+
+Here are some larger Noperts. Neither of these obviously resembles
+one of the wishlist polyhedra, so they may be new. On the other
+hand, they may also have solutions that I just didn't find; in
+that case they are not that interesting:
+
+[image-array (inch 3.65,
+              list-map image-load ("nopert36_24.png" ::
+                                   "nopert56_60.png" :: nil))]
 
 XXX symmetry
 
@@ -1531,7 +1623,11 @@ maximize volume of the residue solid, but this is computationally
 expensive and might anyway have the same thin-wall problem as ratio
 does.
 
+[*
+ FIXME
 [layout-concat (list-map (make-scorecard scorecards) POLYHEDRA)]
+
+*]
 
 [section[Improvements to BoVeX]]
 
@@ -1590,6 +1686,11 @@ demonstrating that I am a bad programmer?
 
 Harder: If the conjecture is false, can we show that the snub cube is
 the polyhedron with the fewest vertices (24) that fails it?
+
+Maybe tractable: Can we prove that polyhedra with dihedral symmetry
+(extrusions of regular [it[n]]-gons) are always solvable either
+because they form “incorrect manhole covers” or “churros”? Where
+does the crossover point occur?
 
 Easier: Can we prove that for some polyhedra (e.g. the regular tetrahedron),
 any Rupert configuration involves a translation (i.e. the projected

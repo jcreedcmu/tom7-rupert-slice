@@ -1610,7 +1610,7 @@ static void Run(uint64_t parameter) {
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
   // static constexpr int64_t MAX_SECONDS = 60 * 60;
-  static constexpr int64_t MAX_SECONDS = 30 * 60;
+  static constexpr int64_t MAX_SECONDS = 60 * 60;
 
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_REDUCE_SC;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
@@ -1618,7 +1618,8 @@ static void Run(uint64_t parameter) {
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_ADVERSARY;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RHOMBIC;
-  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_UNOPT;
+  // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_UNOPT;
+  static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
 
   switch (METHOD) {
   case SolutionDB::NOPERT_METHOD_RANDOM:
