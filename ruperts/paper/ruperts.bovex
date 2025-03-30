@@ -15,7 +15,7 @@ let
                        (float * float * method list) option) list
 
   val doc-title = "Some upsetting things about shapes"
-  val doc-subtitle = "There’s no subtitle either"
+  val doc-subtitle = "That we already knew"
 
   do set-doc-info {(PDFInfo)
                    width = inch 8.5,
@@ -347,6 +347,11 @@ let
 
      ("cocta", {(Scorecard)
        shape-tier = TIER-A,
+
+
+       factoid = [Taking the skeleton to be just rigid edges meeting
+                  at flexible joints, the cuboctahedron can flex into
+                  an octahedron.[cite wikipedia-kinematics]]
                 }) ::
 
      ("tcube", {(Scorecard)
@@ -432,7 +437,8 @@ let
 
      ("ridode", {(Scorecard)
                  (* Rhombicosidodecahedron *)
-}) ::
+        }) ::
+
      ("tidode", {(Scorecard)
        about = [The [b[truncated icosidodecahedron]] appears when you cut
                 off the vertices of an icosidodecahedron, getting
@@ -628,10 +634,18 @@ Here were my Naive Heuristics:
 
  nil)]
 
-So I set aside two and a half months to work on it.
+So I set aside two and a half months to work on it.[footnote[The
+project repository is at [tt[sourceforge.net/p/tom7misc/svn/HEAD/tree/trunk/ruperts/]]. The home page at [tt[tom7.org/ruperts]] will contain
+links to video content in the future.]]
+
+[section[Platonic, Archimedean, and Catalan solids]]
+
+The Platonic solids
 
 [* XXX somewhere up here, need to introduce platonic, archimedean,
 catalan, and the "wishlist" *]
+
+[section[The Rupert problem]]
 
 This problem is pretty easy to specify precisely. The shape in
 question is a convex polyhedron, which is just defined by its set of
@@ -1104,8 +1118,9 @@ So I invested further effort.
 The right way to deal with floating point inaccuracy is to not use
 them. Lots of geometry will work great with other number systems, so
 with a little finesse we can work on this problem using rational
-numbers and sidestep the numerical problems. There are just
-a few problems:
+numbers and sidestep the numerical problems. I used my own wrappers
+around GMP[cite granlund2015gnu] for arbitrary-precision rational
+arithmetic. There are just a few problems:
 
 [paragraph[Shapes are not rational]] Most of the polyhedra considered
 do not have vertices with rational coordinates! The cube is easy, but
@@ -1188,10 +1203,147 @@ solved these five polyhedra before! And so I set out to try to find
 more (conjectured) counterexamples, in the hopes of gaining some
 insight or at least advancing the state of the art in some small way.
 
+I call such a candidate unsolvable shape a “Nopert.” Since I have a
+fast solver, I can look for Noperts by generating a polyhedron and
+solving it. If solved, it is no Nopert!
 
+[paragraph[Random]] First, I just generated random points in a
+L-∞ unit sphere ([it[not]] a unit cube) and computed their convex
+hull. Since I wanted to try finding polyhedra with a specific number of
+vertices, I add and remove points until the hull has the desired size.
+I can simply pass this to the solver. I tried 87 million random
+polyhedra of various sizes, and all of them were easily solved.
+This included shapes with 24 or more vertices, where I know that
+Noperts exist (the wishlist polyhedra). So this suggests that Noperts
+are extremely rare, or that this is not a good way to find them,
+or both.
+
+[paragraph[Cyclic]] Generating random polyhedra with a certain number
+of vertices is a bit fiddly because of the necessity of keeping them
+convex. Simpler is to generate all the points [it[on]] the unit sphere,
+which is called a [it[cyclic]] polyhedron. I tried a million of these,
+but still every one was easily solvable.
+
+[paragraph[Adversary]] Next I tried generating shapes that would
+specifically foil the solver. I start with a random polyhedron
+with the target number of vertices. I solve it; if I can't solve
+it then it is a Nopert. Otherwise, the solution produces the 2D
+shadows where the inner is contained within the outer. I can make
+this specific solution invalid by moving one point on the inner
+hull so that it touches the outer hull. I then normalize the
+shape's diameter so that it doesn't grow without bound, and
+repeat. The new shape is typically solvable with a small tweak
+to the orientations, but the hope is that we can push vertices
+out [it[just enough]] to invalidate every solution family,
+but not so much that it creates new solution families. This
+produces much more interesting shapes, some of which are
+identified as provisional Noperts!
+
+Here are some examples:
+[image { img = image-load "nopert_28.png",
+         width = inch (3.65 / 3.0) }]
+[image { img = image-load "nopert_47.png",
+         width = inch (3.65 / 3.0) }]
+[image { img = image-load "nopert_56.png",
+         width = inch (3.65 / 3.0) }]
+
+Alas, running the solver for many more iterations on these
+eventually solves them. Here are residues for the same three:
+
+[image { img = image-load "nopert_28-residue.png",
+         width = inch (3.65 / 3.0) }]
+[image { img = image-load "nopert_47-residue.png",
+         width = inch (3.65 / 3.0) }]
+[image { img = image-load "nopert_56-residue.png",
+         width = inch (3.65 / 3.0) }]
+
+In fact, none of the shapes found with the adversarial
+method survived persistent grinding with the solver.
+
+[paragraph[Unopt]] Fond of the adversarial approach, I tried making it
+even more explicit. Here I nest the black-box optimizer inside itself:
+An outer optimizer manipulates the vertices of a shape to maximize the
+difficulty of solving the shape with the inner optimizer. (I use the
+optimizer iterations as the metric to maximize; this is important
+so that we don't get artificial variance from me using my computer
+for other things, like video games.) Alas, this approach never
+found any interesting Noperts.
+
+[paragraph[Reduction]] So far, I found no Noperts, but I know that
+they exist; the wishlist polyhedra are examples! Maybe Noperts are
+very rare, or require something special about their coordinates. The
+next thing I tried was to check if simplified versions of the snub
+cube (which is the smallest wishlist polyhedron at 24 vertices) are
+still Nopert. One way to simplify a convex polyhedron is to delete
+some of it vertices. 2[sup[24]] is not that big, so I tried every
+subset of the snub cube. Well, not [it[every]] subset: The snub cube
+is highly symmetric, so a lot of the subsets are effectively the same.
+It seemed like too much programming work to identify the symmetric
+subsets (and error-prone), but since we know we are removing at least
+one vertex, and the snub cube is vertex transitive (all vertices are
+“equivalent” up to symmetry) I can halve the space by saying that
+vertex 0 is always removed. Then all binary words of length 23 (1 if
+the vertex corresponding to the bit is kept, 0 if removed) identify a
+reduced snub cube, so I just loop over all 8,388,608 of these and
+solve them. Indeed, every one has a solution. So we know that the
+snub cube is locally minimal; it needs all 24 of its vertices to
+defy easily solution.
+
+[paragraph[Symmetry]] Another obvious fact about the wishlist polyhedra
+is that they are symmetric. So the next thing I did was to explore
+random symmetric shapes.
+
+I learned something new here (which is well known to mathematicians; I
+am just a Cyclic Symmetry Idiot). I naively thought that there were
+lots of ways to make symmetric shapes in 3D, because I was
+generalizing from a technique in 2D used by children to draw
+symmetrical stars (let's call it the Spirograph method): Take some
+points, and any whole number [it[n]], and repeat those points [it[n]]
+times around a central point, at intervals of 1/[it[n]]. I thought you
+could also do this in 3D, by taking some points and iterating them
+around one axis like this, and then iterating all those points around
+another axis (perhaps with a different divisor), and perhaps around a
+third axis. [it[This does not work!]] I mean, you get a shape, but it
+is not symmetric in the way I wanted. The reason is that most of the
+time, the later rotations violate the symmetries induced by the
+earlier ones. You can try iterating until saturation, but then you
+usually get an infinite point set, like a cylinder or sphere.
+
+There are two 3D extensions of the Spirograph method for generating a
+symmetry from a whole number [it[n]]. One is dihedral symmetry, where
+for example you extrude the 2D polygon to a boring 3D prism (opposite
+faces are the same polygon, and the side faces just connect them with
+quadrilaterals). This symmetry is “dihedral” because you can rotate it
+by a 1/[it[n]] turn, or flip it over, and get the same shape. The
+other is cyclic symmetry, with an example being that you take the
+2D polygon and connect all its vertices to a single point (not on the
+same plane). This object can be rotated by 1/[it[n]] turns to get
+the same shape, but flipping no longer works. Amazingly, these are
+the [it[only]] infinite families of symmetries in 3D! The Spirograph
+toy is just not that fun in 3D; it just makes extrusions of 2D
+Spirographs.
+
+What about finite symmetries? Well, in 3D there are exactly three,
+and they correspond directly to the platonic solids: You have
+the tetrahedral group, the octahedral group (which is the same
+symmetry enjoyed by the cube, its dual), and the icosahedral group
+(the same as the dodecahedron, its dual). This is awesome!
+It gave me a new appreciation for how canonical and important the
+Platonic solids are.
+
+Polyhedra with dihedral and cyclic symmetry are not very interesting
+for the rupert problem.
 
 XXX noperts
+
 XXX symmetry
+
+I ran various Nopert searches for 378 hours of wall time. I made
+some record keeping mistakes (double counting) of the number
+of shapes evaluated, but it was at least 117 million, and probably
+twice that.
+[* 378 hours was before I wiped the unopt examples, just based
+   on the number of attempts recorded. *]
 
 [subsubsection[Epsilon]]
 
@@ -1203,7 +1355,7 @@ Rupert solver) has a line like this in it:
 
 Here [tt[1.0e-6]] is one one-millionth, a typical value for epsilon.
 It's actually a pretty nasty choice since it is not even representable
-as a float. With clang 19, this assembles to code like
+as a float. With clang 19, this compiles to code like
 
 [monospace-block[.LCPI0_0:
         .quad   0x7fffffffffffffff
@@ -1219,8 +1371,10 @@ Threshold(double):
 
 which makes sense ([tt[ucomisd]] is unsigned comparison of
 floating-point registers) other than the two copies of [tt[0x7fff...]]
-(?). But another thing I tried was to optimize this epsilon test,
-instead writing the clear and portable
+(?). Most of the time we don't care about the actual value of epsilon,
+and remember: Powers of two are the fastest numbers.
+So another thing I tried was to optimize this epsilon test, instead
+writing the clear and portable
 
 [monospace-block[static constexpr uint32_t target_exp =
   (std::bit_cast<uint64_t>(0x1.0p-20) >> 52) & 0x7FF;
@@ -1229,9 +1383,9 @@ uint32_t exp =
   (std::bit_cast<uint64_t>(d) >> 52) & 0x7FF;
 return exp < target_exp;]]
 
-This checks against a different epsilon (the power of two close
+This checks against a cleaner epsilon (the power of two close
 to one one-millionth) by just checking the exponent bits directly.
-This compiles to the much more pleasant
+It compiles to the much more pleasant
 
 [monospace-block[        movq    rax, xmm0
         shr     rax, 52
@@ -1240,7 +1394,8 @@ This compiles to the much more pleasant
         setb    al
         ret]]
 
-It is not clear that this code is actually faster; it probably saves a
+It is not clear that this code is actually faster, but each instruction
+takes a single cycle and it performs no memory loads. It probably saves a
 few cycles of latency but vectorizes worse. It was a total wash in
 benchmarks. However, I spent some time arguing with AI about it, and
 eventually won. Like a coward, it weasled out of a formal apology:

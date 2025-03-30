@@ -1105,6 +1105,10 @@ static bool Nopert(CandidateMaker *candidates) {
 static void UnOpt(int64_t num_points) {
   constexpr double MAX_SECONDS = 60.0 * 60.0;
 
+  polyhedra.Reset();
+  attempts.Reset();
+  degenerate.Reset();
+
   Timer run_timer;
   std::mutex m;
   bool should_die = false;
@@ -1118,7 +1122,7 @@ static void UnOpt(int64_t num_points) {
   ParallelFan(
       NUM_THREADS,
       [&](int thread_idx) {
-        ArcFour rc(std::format("adv.{}.{}.{}", thread_idx,
+        ArcFour rc(std::format("unopt.{}.{}.{}", thread_idx,
                                num_points, time(nullptr)));
 
         // Cache.
@@ -1156,7 +1160,8 @@ static void UnOpt(int64_t num_points) {
             return points;
           };
 
-        auto OuterLoss = [num_points, &try_solver, &ToPoints, &rc, &m, &iter_histo](
+        auto OuterLoss = [num_points, &try_solver, &ToPoints,
+                          &rc, &m, &iter_histo](
             const std::vector<double> &args) -> LargeOpt::return_type {
             std::vector<vec3> points = ToPoints(args);
             CHECK(points.size() == num_points);
@@ -1201,11 +1206,14 @@ static void UnOpt(int64_t num_points) {
             }
 
             // Otherwise, we have a convex polyhedron.
+            // PERF: We don't actually need to compute the faces, which
+            // is slow!
             std::optional<Polyhedron> opoly = PolyhedronFromConvexVertices(
                 std::move(points), "unopt");
 
             if (!opoly.has_value()) {
-              // This can happen if the hull has degenerate faces (colinear points?).
+              // This can happen if the hull has degenerate faces
+              // (colinear points?).
               // status->Printf("wasn't convex??");
               degenerate++;
               return LargeOpt::INFEASIBLE;
@@ -1281,10 +1289,14 @@ static void UnOpt(int64_t num_points) {
         for (;;) {
           {
             MutexLock ml(&m);
-            if (should_die) return;
+            if (should_die) {
+              status->Printf("Thread %d exits.\n", thread_idx);
+              return;
+            }
             const double total_time = run_timer.Seconds();
             if (total_time > MAX_SECONDS) {
               should_die = true;
+              status->Printf("Time's up!");
               return;
             }
 
@@ -1351,11 +1363,10 @@ static void UnOpt(int64_t num_points) {
             // of them.
             should_die = true;
 
-            // Convert to
             std::optional<Polyhedron> opoly =
               PolyhedronFromConvexVertices(ToPoints(args), "unopt");
-            CHECK(opoly.has_value()) << "Bug: These should be convex point sets "
-              "by construction!";
+            CHECK(opoly.has_value()) << "Bug: These should be convex "
+              "point sets by construction!";
             const Polyhedron &poly = opoly.value();
 
             successes++;
@@ -1372,6 +1383,7 @@ static void UnOpt(int64_t num_points) {
 
             SolutionDB db;
             db.AddNopert(poly, SolutionDB::NOPERT_METHOD_UNOPT);
+            delete poly.faces;
             return;
           }
         }
@@ -1389,6 +1401,8 @@ static void DoAdversary(int64_t num_points) {
   Timer run_timer;
 
   polyhedra.Reset();
+  attempts.Reset();
+  degenerate.Reset();
 
   // Start from a random polyhedron with n vertices.
   // Solve it. If we can't, we're done.
@@ -1462,8 +1476,9 @@ static void DoAdversary(int64_t num_points) {
           for (int turn = 0; turn < MAX_TURNS; turn++) {
             frame3 outer_frame, inner_frame;
             polyhedra++;
-            std::optional<int> iters = try_solver.Solve(thread_idx,
-                                                        &rc, poly, &outer_frame, &inner_frame);
+            std::optional<int> iters =
+              try_solver.Solve(thread_idx,
+                               &rc, poly, &outer_frame, &inner_frame);
             if (!iters.has_value()) {
               MutexLock ml(&m);
               SolutionDB db;
@@ -1594,7 +1609,8 @@ static void Run(uint64_t parameter) {
 
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_SYMMETRIC;
-  static constexpr int64_t MAX_SECONDS = 60 * 60;
+  // static constexpr int64_t MAX_SECONDS = 60 * 60;
+  static constexpr int64_t MAX_SECONDS = 30 * 60;
 
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_REDUCE_SC;
   // static constexpr int METHOD = SolutionDB::NOPERT_METHOD_RANDOM;

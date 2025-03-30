@@ -107,6 +107,15 @@ struct SolutionDB {
     int method = 0;
   };
 
+  struct NopertAttempt {
+    int id = 0;
+    int points = 0;
+    int64_t attempts = 0;
+    std::string iterhisto;
+    int64_t createdate = 0;
+    int method = 0;
+  };
+
   // By default these do not return solutions marked as invalid.
   std::vector<Solution> GetAllSolutions();
   std::vector<Attempt> GetAllAttempts();
@@ -166,6 +175,8 @@ struct SolutionDB {
                         const AutoHisto &iterhisto,
                         int method);
 
+  std::vector<NopertAttempt> GetAllNopertAttempts();
+
   void AddNopert(const Polyhedron &poly, int method);
   // Or abort.
   Nopert GetNopert(int id);
@@ -175,6 +186,10 @@ struct SolutionDB {
   void ExecuteAndPrint(const std::string &s) {
     db->ExecuteAndPrint(s);
   }
+
+  // Get a built-in polyhedron ("cube", etc.) or a nopert
+  // from the database ("nopert_37", etc.). Aborts if not found.
+  Polyhedron AnyPolyhedronByName(std::string_view name);
 
  private:
   std::unique_ptr<Database> db;

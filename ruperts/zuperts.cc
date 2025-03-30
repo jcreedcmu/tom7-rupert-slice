@@ -38,6 +38,15 @@ static std::string Fresh(std::string_view hint = "") {
   return table->Fresh(hint);
 }
 
+// require no translation of either polyhedron, only rotations.
+static constexpr bool REQUIRE_ORIGIN = true;
+
+enum class Symmetry {
+  ICOSAHEDRAL,
+  OCTAHEDRAL,
+  TETRAHEDRAL,
+};
+
 enum class Containment {
   TRIANGULATION,
   COMBINATION,
@@ -56,7 +65,7 @@ inline constexpr Parameterization parameterization =
   Parameterization::BOUNDED_MATRICES;
 // Parameterization::QUATS;
 
-inline constexpr SymmetryGroup symmetry_group = SYM_OCTAHEDRAL;
+inline constexpr Symmetry SYMMETRY = Symmetry::OCTAHEDRAL;
 
 // For symbolic reasoning we want an exact representation of
 // coordinates. One thing that will generally work here is
@@ -77,6 +86,7 @@ struct SymbolicPolyhedron {
   std::vector<P3> vertices;
   const Faces *faces = nullptr;
   std::string name;
+  Symmetry symmetry = Symmetry::TETRAHEDRAL;
 };
 
 SymbolicPolyhedron SymbolicCube() {
@@ -117,8 +127,39 @@ SymbolicPolyhedron SymbolicCube() {
     .vertices = std::move(vertices),
     .faces = faces,
     .name = "cube",
+    .symmetry = Symmetry::OCTAHEDRAL,
   };
 }
+
+SymbolicPolyhedron SymbolicTetrahedron() {
+  std::vector<P3> vertices;
+  auto AddVertex = [&vertices](int x, int y, int z) {
+      int idx = (int)vertices.size();
+      vertices.push_back(P3(x, y, z));
+      return idx;
+    };
+
+  int a = AddVertex(1, 1, 1);
+  int b = AddVertex(1, -1, -1);
+  int c = AddVertex(-1, 1, -1);
+  int d = AddVertex(-1, -1, 1);
+
+  std::vector<std::vector<int>> fs;
+  fs.reserve(3);
+
+  fs.push_back({a, c, b});
+  fs.push_back({a, d, c});
+  fs.push_back({c, d, b});
+  fs.push_back({a, b, d});
+
+  Faces *faces = new Faces(4, std::move(fs));
+  return SymbolicPolyhedron{
+    .vertices = std::move(vertices),
+    .faces = faces,
+    .name = "tetrahedron",
+  };
+}
+
 
 struct Z3Bool {
   explicit Z3Bool(std::string s) : s(std::move(s)) {}
@@ -550,13 +591,13 @@ static Z3Bool EmitInTriangle(std::string *out,
 }
 
 static void AssertRotationBounds(std::string *out,
-                                 SymmetryGroup sg,
+                                 Symmetry sg,
                                  const Z3Frame &frame) {
   // Without loss of generality, we can put a bound α/2 on the angular
   // distance of the rotation. α is the maximum angular distance between
   // two vertices on the corresponding polyhedron (e.g. the icosahedron
   // for the icosahedral group). α/2 is thus a bound on the maximum
-  // angulard distance between any point on the unit sphere and a vertex
+  // angular distance between any point on the unit sphere and a vertex
   // of the symmetry group's polyhedron.
   //
   // Thinking about the cube: α will be 90 degrees. If we are trying
@@ -566,7 +607,7 @@ static void AssertRotationBounds(std::string *out,
   // picking the closest (angular distance) vertex v (in the original
   // orientation) to e; this can be no more than α/2 away. Then we
   // just apply the symmetry group operations to move s to v, and
-  // then rotate from v to e with an angulard distance of no more than
+  // then rotate from v to e with an angular distance of no more than
   // α/2.
   //
   // This argument assumes vertex transitivity, but applies regardless
@@ -582,7 +623,7 @@ static void AssertRotationBounds(std::string *out,
 
   Z3Real bound = [out, sg]() -> Z3Real {
       switch (sg) {
-      case SymmetryGroup::OCTAHEDRAL: {
+      case Symmetry::OCTAHEDRAL: {
         // For the octahedral group, α = 90 degrees, and cos(α/2) is
         // 1/sqrt(2). So we have trace(M) ≥ 1 + 2/sqrt(2)
         // (Simplify: 2/sqrt(2) = (sqrt(2) * sqrt(2))/sqrt(2) = sqrt(2).)
@@ -593,7 +634,7 @@ static void AssertRotationBounds(std::string *out,
         AppendFormat(out, "(assert (= 2.0 (* sqrt2 sqrt2)))\n");
         return Z3Real(1) + sqrt2;
       }
-      case SymmetryGroup::ICOSAHEDRAL:
+      case Symmetry::ICOSAHEDRAL:
         // For the icosahedral group, α = arccos(1/sqrt(5)), and
         // cos(α/2) = sqrt((5 + sqrt(5)) / 10)    (wolfram alpha).
         // trace(M) ≥ 1 + 2 * sqrt((5 + sqrt(5)) / 10)
@@ -602,6 +643,14 @@ static void AssertRotationBounds(std::string *out,
         // it's likely to be helpful since it would involve roots of
         // roots?
         return Z3Real("2.701301616704079864363");
+
+      case Symmetry::TETRAHEDRAL:
+        // XXX I didn't check this carefully.
+        // For the tetrahedron, the bound seems to be 90 degrees.
+        // This gives:
+        // trace(M) ≥ 1
+        return Z3Real(1);
+
       default:
         LOG(FATAL) << "unimplemented!";
         return Z3Real("error");
@@ -616,14 +665,22 @@ static void AssertRotationBounds(std::string *out,
 
 static std::pair<std::vector<Z3Vec2>, std::vector<Z3Vec2>>
 MakeParameterization(std::string *out,
+                     const SymbolicPolyhedron &outer_poly,
+                     const SymbolicPolyhedron &inner_poly,
                      const std::vector<Z3Vec3> &outer_verts,
                      const std::vector<Z3Vec3> &inner_verts) {
+
+  Z3Vec2 trans(NewReal(out, "tx"), NewReal(out, "ty"));
+  if (REQUIRE_ORIGIN) {
+    AppendFormat(out, ";; require no translation\n");
+    AppendFormat(out, "(assert (= {} 0.0))\n", trans.x.s);
+    AppendFormat(out, "(assert (= {} 0.0))\n", trans.y.s);
+  }
 
   if (parameterization == Parameterization::QUATS) {
     // Parameters.
     Z3Quat qo = NewQuat(out, "o");
     Z3Quat qi = NewQuat(out, "i");
-    Z3Vec2 trans(NewReal(out, "tx"), NewReal(out, "ty"));
 
     // AppendFormat(out, "(assert (= {} 0.0))\n", qi.x.s);
     // AppendFormat(out, "(assert (= {} 0.0))\n", qi.y.s);
@@ -648,11 +705,9 @@ MakeParameterization(std::string *out,
     AssertRotationFrame(out, inner_frame);
 
     if (parameterization == Parameterization::BOUNDED_MATRICES) {
-      AssertRotationBounds(out, symmetry_group, outer_frame);
-      AssertRotationBounds(out, symmetry_group, inner_frame);
+      AssertRotationBounds(out, outer_poly.symmetry, outer_frame);
+      AssertRotationBounds(out, inner_poly.symmetry, inner_frame);
     }
-
-    Z3Vec2 trans(NewReal(out, "tx"), NewReal(out, "ty"));
 
     Z3Vec2 id(Z3Real(0), Z3Real(0));
 
@@ -678,7 +733,9 @@ static void EmitProblem(const SymbolicPolyhedron &outer,
   std::vector<Z3Vec3> inner_verts = EmitPolyhedron(inner, "i", &out);
 
   const auto &[outer_shadow, inner_shadow] =
-    MakeParameterization(&out, outer_verts, inner_verts);
+    MakeParameterization(&out,
+                         outer, inner,
+                         outer_verts, inner_verts);
 
   // Containment constraints...
   if (containment == Containment::TRIANGULATION) {
@@ -730,7 +787,9 @@ static void EmitProblem(const SymbolicPolyhedron &outer,
   AppendFormat(&out,
                "\n"
                ";; try saving progress\n"
-               "(set-option :solver.cancel-backup-file \"zuperts-partial.z3\")\n");
+               "(set-option :solver.cancel-backup-file "
+               "\"zuperts-{}-{}-partial.z3\")\n",
+               outer.name, inner.name);
 
   AppendFormat(&out, "\n");
   AppendFormat(&out, "(check-sat)\n");
@@ -741,8 +800,8 @@ static void EmitProblem(const SymbolicPolyhedron &outer,
 }
 
 static void Emit() {
-  SymbolicPolyhedron cube = SymbolicCube();
-  EmitProblem(cube, cube, "cube.z3");
+  SymbolicPolyhedron cube = SymbolicTetrahedron();
+  EmitProblem(cube, cube, "tetrahedron.z3");
 }
 
 int main(int argc, char **argv) {

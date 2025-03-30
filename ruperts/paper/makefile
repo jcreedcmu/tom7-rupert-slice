@@ -54,11 +54,16 @@ CATALAN_SOLID_SVG=catalan-deltoidalhexecontahedron.svg catalan-deltoidalicositet
 
 RESIDUE_SVG=cube-residue.svg cuboctahedron-residue.svg deltoidalicositetrahedron-residue.svg disdyakisdodecahedron-residue.svg disdyakistriacontahedron-residue.svg dodecahedron-residue.svg icosahedron-residue.svg icosidodecahedron-residue.svg octahedron-residue.svg pentagonalicositetrahedron-residue.svg pentakisdodecahedron-residue.svg rhombicdodecahedron-residue.svg rhombictriacontahedron-residue.svg rhombicuboctahedron-residue.svg tetrahedron-residue.svg tetrakishexahedron-residue.svg triakisicosahedron-residue.svg triakisoctahedron-residue.svg triakistetrahedron-residue.svg truncatedcube-residue.svg truncatedcuboctahedron-residue.svg truncateddodecahedron-residue.svg truncatedicosahedron-residue.svg truncatedicosidodecahedron-residue.svg truncatedoctahedron-residue.svg truncatedtetrahedron-residue.svg
 
+NOPERT_SVG=nopert_28.svg nopert_47.svg nopert_56.svg
+NOPERT_RESIDUE_SVG=nopert_28-residue.svg nopert_47-residue.svg nopert_56-residue.svg
+
 AUX_SVG=questionmark.svg
 
-default : $(RESIDUE_SVG) $(PLATONIC_SOLID_SVG) $(ARCHIMEDEAN_SOLID_SVG) $(CATALAN_SOLID_SVG) $(AUX_SVG)
+ALL_SVG=$(RESIDUE_SVG) $(PLATONIC_SOLID_SVG) $(ARCHIMEDEAN_SOLID_SVG) $(CATALAN_SOLID_SVG) $(AUX_SVG) $(NOPERT_SVG) $(NOPERT_RESIDUE_SVG)
 
-ruperts.pdf : ruperts.bovex solution-table.bovex polyhedra.bovex ruperts.bib $(BOVEX_LIB) $(RESIDUE_SVG) $(ARCHIMEDEAN_SOLID_SVG) $(CATALAN_SOLID_SVG) $(AUX_SVG) icos-shadow.svg
+default : ruperts.pdf
+
+ruperts.pdf : ruperts.bovex solution-table.bovex polyhedra.bovex ruperts.bib $(BOVEX_LIB) $(ALL_SVG) icos-shadow.svg
 	$(BOVEX)/bovex.exe -I . -v ruperts.bovex -o $@
 
 table.exe : table.o $(OBJECTS)

@@ -1,6 +1,8 @@
 #include "solutions.h"
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <format>
 #include <memory>
@@ -170,6 +172,30 @@ void SolutionDB::AddNopertAttempt(int points, int64_t attempts,
           "values (%d, %lld, '%s', %lld, %d)",
           points, attempts, histo.c_str(), time(nullptr), method));
 }
+
+std::vector<SolutionDB::NopertAttempt>
+SolutionDB::GetAllNopertAttempts() {
+  std::unique_ptr<Database::Query> q =
+    db->ExecuteString(
+        "select id, points, attempts, iterhisto, createdate, method "
+        "from nopertattempts "
+        "order by id");
+
+  std::vector<NopertAttempt> ret;
+  while (std::unique_ptr<Database::Row> r = q->NextRow()) {
+    NopertAttempt att;
+    att.id = r->GetInt(0);
+    att.points = r->GetInt(1);
+    att.attempts = r->GetInt(2);
+    att.iterhisto = r->GetString(3);
+    att.createdate = r->GetInt(4);
+    att.method = r->GetInt(5);
+    ret.push_back(std::move(att));
+  }
+
+  return ret;
+}
+
 
 void SolutionDB::AddNopert(const Polyhedron &poly, int method) {
   std::string vs;
@@ -393,4 +419,26 @@ SolutionDB::Nopert SolutionDB::GetNopert(int id) {
             id)));
   CHECK(one.size() == 1) << "Couldn't find nopert " << id;
   return std::move(one[0]);
+}
+
+Polyhedron SolutionDB::AnyPolyhedronByName(std::string_view name) {
+  if (Util::TryStripPrefix("nopert_", &name)) {
+    SolutionDB db;
+    int id = atoi(std::string(name).c_str());
+    CHECK(id > 0) << name;
+    Nopert nopert = db.GetNopert(id);
+
+    std::optional<Polyhedron> opoly =
+      PolyhedronFromVertices(nopert.vertices, "nopert");
+    if (!opoly.has_value()) {
+      printf("Error constructing nopert #%d\n", id);
+      for (const vec3 &v : nopert.vertices) {
+        printf("  %s\n", VecString(v).c_str());
+      }
+      CHECK(opoly.has_value()) << "Couldn't make polyhedron " << name;
+    }
+    return std::move(opoly.value());
+  }
+
+  return PolyhedronByName(name);
 }

@@ -26,11 +26,6 @@ using Solution = SolutionDB::Solution;
 
 inline constexpr bool USE_CLEARANCE = true;
 
-static Solution GetSolution(std::string_view name) {
-  SolutionDB db;
-  return db.GetBestSolutionFor(name, USE_CLEARANCE);
-}
-
 static void RenderPNG(const Polyhedron &polyhedron,
                       const std::pair<frame3, frame3> &frames,
                       std::string_view name) {
@@ -69,9 +64,10 @@ static void RenderPNG(const Polyhedron &polyhedron,
 
 static void RenderAny(std::string_view name) {
   Timer timer;
-  Polyhedron polyhedron = PolyhedronByName(name);
+  SolutionDB db;
+  Polyhedron polyhedron = db.AnyPolyhedronByName(name);
+  const Solution &sol = db.GetBestSolutionFor(name, USE_CLEARANCE);
 
-  const Solution &sol = GetSolution(name);
   const auto &outer_frame = sol.outer_frame;
   const auto &inner_frame = sol.inner_frame;
   printf("Rendering solution " AYELLOW("%d") " from " ACYAN("%s") "\n",

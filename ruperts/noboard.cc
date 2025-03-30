@@ -1,19 +1,21 @@
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 
 #include "ansi.h"
-#include "base/stringprintf.h"
 #include "solutions.h"
 #include "util.h"
 
 using Solution = SolutionDB::Solution;
 using Nopert = SolutionDB::Nopert;
+using NopertAttempt = SolutionDB::NopertAttempt;
 
 static void PrintAll() {
   SolutionDB db;
@@ -25,7 +27,7 @@ static void PrintAll() {
   for (const Solution &sol : solutions) {
     std::string_view poly = sol.polyhedron;
     CHECK(Util::TryStripPrefix("nopert_", &poly)) << sol.polyhedron;
-    printf("%s\n", std::string(poly).c_str());
+    // printf("%s\n", std::string(poly).c_str());
     solved[atoi(std::string(poly).c_str())]++;
   }
 
@@ -39,7 +41,7 @@ static void PrintAll() {
             });
 
   for (const Nopert &nopert : noperts) {
-    printf(AGREY("%d.") " " AWHITE("%4d") AGREY("v")
+    printf(AGREY("% 3d.") " " AWHITE("%4d") AGREY("v")
            " via " ACYAN("%s") " (%s)",
            nopert.id,
            (int)nopert.vertices.size(),
@@ -62,11 +64,51 @@ static void PrintAll() {
          smallest);
 }
 
+static void PrintAttempts() {
+  SolutionDB db;
+
+  std::map<int, int64_t> attempts_by_method;
+  std::map<int, int64_t> attempts_by_points;
+
+  int64_t attempts_all = 0;
+  std::vector<NopertAttempt> atts = db.GetAllNopertAttempts();
+  for (const NopertAttempt &att : atts) {
+    printf(AGREY("% 3d.") " " AWHITE("%d") AGREY("v") " via "
+           ACYAN("%s") " " AYELLOW("%lld") " attempts\n",
+           att.id,
+           att.points,
+           SolutionDB::NopertMethodName(att.method),
+           att.attempts);
+    attempts_by_method[att.method] += att.attempts;
+    attempts_by_points[att.points] += att.attempts;
+    attempts_all += att.attempts;
+  }
+
+  printf("\n" AWHITE("By method") ":\n");
+  for (const auto &[method, num] : attempts_by_method) {
+    printf("  " ACYAN("%s") ": " AYELLOW("%lld") "\n",
+           SolutionDB::NopertMethodName(method), num);
+  }
+
+  printf("\n" AWHITE("By points") ":\n");
+  for (const auto &[pts, num] : attempts_by_points) {
+    printf("  " AWHITE("%d") ": " AYELLOW("%lld") "\n",
+           pts, num);
+  }
+
+  printf("\n" AWHITE("Total") ": %lld\n", attempts_all);
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  printf(AWHITE("Noperts:") "\n");
-  PrintAll();
+  if (argc >= 2 && (std::string)argv[1] == "--attempts") {
+    printf(AWHITE("Nopert attempts:") "\n");
+    PrintAttempts();
+  } else {
+    printf(AWHITE("Noperts:") "\n");
+    PrintAll();
+  }
 
   return 0;
 }

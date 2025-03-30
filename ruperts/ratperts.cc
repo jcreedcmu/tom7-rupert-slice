@@ -404,7 +404,7 @@ struct BigSolver {
               AFGCOLOR(200, 200, 140, "%s") " " AWHITE("%s")
               " %d" ACYAN("×")
               ", err #%d (#%d" ABLUE("↓") "), "
-              "%.17g"
+              "%.8g"
               // " in %s\n"
               ,
               histo.UnlabeledHoriz(32).c_str(),
