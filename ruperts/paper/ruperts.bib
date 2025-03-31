@@ -1,3 +1,4 @@
+(* -*- aaph -*- *)
 
 val wikipedia-roll-pitch-yaw =
   bib-website {(Website)
@@ -217,7 +218,77 @@ val healey2016proving =
 
 val wikipedia-kinematics =
   bib-website {(Website)
-  url = "https://en.wikipedia.org/wiki/Kinematics_of_the_cuboctahedron",
-  author = "Wikipedia",
-  title = "Kinematics of the cuboctahedron",
+    url = "https://en.wikipedia.org/wiki/Kinematics_of_the_cuboctahedron",
+    author = "Wikipedia",
+    title = "Kinematics of the cuboctahedron",
+  }
+
+val demoura2008z3 =
+  bib-article {(Article)
+    title = "Z3: An efficient SMT solver",
+    author = "De Moura, Leonardo and Björner, Nikolaj",
+    journal = ("International conference on Tools and Algorithms " ^
+               "for the Construction and Analysis of Systems"),
+    page-start = 337,
+    page-end = 340,
+    year = 2008,
+    month = MARCH,
+    publisher = "Springer",
+  }
+
+val tarski1951decision =
+  bib-article {(Article)
+    title = "A decision method for elementary algebra and geometry",
+    author = "Tarski, Alfred",
+    year = 1951,
+    publisher = "University of California Press",
+(*    location = "Berkeley and Los Angeles", *)
+  }
+
+val matiyasevich1970diophantine =
+  bib-article {(Article)
+    title= "Диофантовость перечислимых множеств",
+    author = "Матиясевич, Юрий Владимирович",
+    journal = "Доклады Академии наук",
+    volume = 191,
+    number = 2,
+    page-start = 279,
+    page-end = 282,
+    year = 1970,
+  }
+
+
+val collins1976quantifier =
+  bib-article {(Article)
+    title= "Quantifier elimination for real closed fields by cylindrical algebraic decomposition: a synopsis",
+    author= "Collins, George E.",
+    journal= "ACM SIGSAM Bulletin",
+    volume= 10,
+    number= 1,
+    page-start = 10,
+    page-end = 12,
+    year= 1976,
+    publisher= "ACM",
+ (*    location = "New York", *)
+  }
+
+val schlafli1901theorie =
+  bib-article {(Article)
+    title = "Theorie der vielfachen Kontinuität",
+    author = "Schläfli, Ludwig",
+    journal = "Auftrage der Denkschriften-Kommission der Schweizerischen naturforschenden Gesellschaft",
+    year = 1901,
+    volume = 38,
+    page-start = 1,
+    page-end = 237
+  }
+
+
+val coxeter1973regular =
+  bib-book {(Book)
+    title = "Regular polytopes",
+    author = "Coxeter, Harold Scott Macdonald",
+    year = 1973,
+    publisher = "Dover",
+    pages = 321,
   }
