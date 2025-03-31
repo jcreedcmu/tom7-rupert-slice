@@ -650,22 +650,6 @@ in
  [author[Dr. Tom Murphy VII, Ph.D.]]
  [date[March 2025]]
 
- [*
- 1.333333333333 is [render-float 1.33333333333]
-
- 0.000123456789 is [render-float 0.000123456789]
-
- 123456789 is [render-float 123456789.0]
-
- 1234567890000 is [render-float 1234567890000.0]
-
- 0.00000000123456 is [render-float 0.00000000123456]
-
-  [box {(Box) width = inch 3.0, height = inch 1.0 } [box one]]
-  [box {(Box) width = inch 3.0, height = inch 1.0 } [box two]]
-
-  *]
-
  [color 0x990000FF [If you are reading this: Hehe, I didn’t finish
                     the paper yet! Some parts are mature, and others
                     just trail off and go XXX! Also you will see
@@ -695,22 +679,74 @@ in
  sphere,” which I think may be true but sounds like I’m just trying to
  be an asshole.]]
 
- ... shrinkwrap ...
+ Of course we can only fit one unit cube at a time in the unit
+ sphere, but there's a lot of space left over. You could ask yourself,
+ if I have [it[n]] cubes, what's the smallest sphere I could
+ fit them within? Would it surprise you to find out that for [it[n]]=8,
+ the tightest arrangement is not the 2x2x2 cube? For example,
+ this arrangement fits in a sphere that's a little smaller:
 
- Does the unit sphere fit inside the
+ XXX diagram
 
- Now that I’ve gotten the “dice in sphere” pun out of the way, we can
- move onto the real topic of this paper.
+ I created the above by computer search. This is how it goes with me:
+ I do enjoy a beautiful math result where everything is in its right
+ place, but to be honest, what [it[really]] titillates me is when the
+ [it[problem]] is beautiful but the [it[solution]] is upsetting. I
+ call this a "Platonic Horror." One of the things I like about it is
+ that any clear thinker will imagine cubes and spheres, and ask a
+ simple well-formed question like that. You could contrast this with
+ man-made horrors like "the conventional unit cube and unit sphere are
+ apparently using the word 'unit' differently," or "IEEE-754
+ denormals" or "U+FE18 PRESENTATION FORM FOR VERTICAL RIGHT WHITE
+ LENTICULAR BRAKCET"[cite freytag2024known]. Aliens would never think
+ to spell the word "bracket" wrong in the formal name of a Unicode
+ character. But they would think about putting cubes in spheres, and
+ then find out that it's kinda messed up, and then some of them of
+ them would find it strangely titillating that the solution is not
+ "nice," and they probably have their own version of SIGBOVIK out
+ there on ΞΔO-UΓΘX 11 where they have giggled about this specific
+ fact, and I like that idea.
+
+ Anyway, now that I’ve gotten the “Dice in Sphere” pun out of the way,
+ we can move onto the real topic of this paper: [it[Dice in Dice]].
+
+[vspace (inch 0.5)]
+
+ One wonders why so much energy is expended on wrecking the world!
+
+ Something about being super rich and powerful seems to attract people
+ to asshattery, or assholery, or to make an ass out of u and me. All
+ throughout history we have had this problem. If I were super rich, I
+ would just hang out with my smart friends and do math. Right? One
+ rare example of this seemingly working out well was the Prince called
+ Rupert, formally [it[Prince Rupert of the Rhine, Duke of Cumberland,
+ KG, PC, FRS]] (not off to a good start, to be honest, but maybe all
+ the appelations are semi-meta-ironic like Dr. Tom Murphy VII Ph.D.). I
+ didn't learn much about this prince (he's been dead for hundreds of
+ years) but once he retired from being a war sailor, he "converted
+ some of the apartments at Windsor Castle to a luxury laboratory,
+ complete with forges, instruments, and raw materials, from where he
+ conducted a range of experiments."[cite wikipedia-rupert] Yes!
+ Correct! This is the same fellow who learned about Prince Rupert's
+ Drop and then did not protest when people attributed its invention to
+ him (hard to blame them for the mistake with a name like that). Then
+ during what I imagine was a pleasant evening in the pub arguing with
+ his friends over presumably nasty 17th-century beer, he came up with
+ the following question: Can you pass a cube through another cube of
+ the same size? The answer is, surprisingly: Yes! This became known as
+ Prince Rupert's Cube, and the hole that's left over looks like this:
+
+ XXX diagram
 
  Late one night I was admiring the Wikipedia article on the
  Dodecahedron, my favorite Platonic solid. On this page I was reminded
  that the Dodecahedron is Rupert, like the cube. This seemed right,
  since if the cube has a pleasing property and the Dodecahedron is
- awesome, it should also have that pleasing property. This is of
+ awesome, it should also have that pleasing property.[footnote[This is of
  course not true. For example, the cube can tile space and the
- dodecahedron obviously cannot. The property of having pleasing
+ dodecahedron obviously cannot.]] [* The property of having pleasing
  properties is itself pleasing, though, and throughout history
- people have ... (Bertrand Russell, Godel)
+ people have ... (Bertrand Russell, Godel) *]
 
  Indeed, all the Platonic solids have the Rupert property. The Platonic
  solids are beautiful and so the fact that all of them have this pleasing
@@ -719,7 +755,7 @@ in
  property,” which made my brain feel surprised but happy. I might have
  even gotten to sleep, had I stopped reading at that moment. But then I
  read “of the 13 Archimedean solids, it is known that at least ten have
- the Rupert property,” and this made my brain surprised and angry. How
+ the Rupert property,” and this made my brain surprised and upset. How
  could it be the case that we think this is true for [it[all]] convex
  polyhedra (infinitely many, and mostly gigantic weird ugly ones) but
  we don’t know for some 3 simple beautiful ones? Did nobody check? It
@@ -744,7 +780,11 @@ Here were my Naive Heuristics:
 
  [I am definitely not the best mathematician to have tried this, but
   it’s possible that I’m the best programmer to try it, and plausible
-  that nobody has tried it with a very fast and hot GPU.] ::
+  that nobody has tried it with a very large and hot GPU.] ::
+
+ [If I find solutions, great; we can check those off the list. If
+  I don't, I'll learn something, because it doesn't seem like it
+  should be conjectured to be true but hard to find.] ::
 
  [I can whip this up in a day (or maybe a weekend) and then put it
   aside if I can’t solve it.] ::
@@ -758,14 +798,87 @@ the future.]]
 
 [section[Platonic, Archimedean, and Catalan solids]]
 
-The Platonic solids
+The convex solids called Platonic all have faces made from the same
+regular polygon (like a square or equilateral triangle). There are
+only five: The tetrahedron, cube, icosahedron, and dodecahedron. (For
+images of these shapes you can see the results section at the end of
+the paper.) I love them (Platonically)! It's kind of amazing that
+there are only five, but here's a good way to feel comfortable with
+that idea. First, remember that regular hexagons fit together
+perfectly to tile the plane. If you tried to put septagons or octagons
+together, they would not fit; hexagons are the last ones that fit.
+With five or fewer sides, you can't tile the plane, but you can fold
+them over and start making a polyhedron (3D shape). This tells us that
+a Platonic solid must have faces that are pentagons, squares, or
+triangles. The pentagon is pretty big so there's only one way to put
+them together. Same for the cube. The triangle has three ways, but
+it's not too hard to see that you are limited to these three if you
+try to work it out.
 
-[* XXX somewhere up here, need to introduce platonic, archimedean,
-catalan, and the "wishlist" and P/A/C *]
+These solids are named after Plato, but it's clear to me that any
+clear thinker would eventually discover these; if there are aliens
+somewhere, then they know about the same five shapes, though probably
+not by the same name unless they have been creepily spying on us,
+or perhaps if Plato was not all that he seemed!
 
-[* also need to cite "related work" here *]
+There are two kinds of convex solids that are almost as good as the
+Platonic ones: The Archimedean and Catalan solids. The Archimedean
+ones have faces that are regular polygons (but more than one type),
+and moreover are [it[vertex transitive]]. Vertex transitivity means
+approximately that every vertex on the polyhedron has the same shape
+(the connecting edges and faces are the same, just maybe rotated). One
+way to think about this is that you could 3D print some connectors
+with holes in them and assemble the solid of connectors and straws,
+and you would only need one kind of connector. For a similar reason
+that there are only five Platonic solids, there are only 13
+Archimedean solids.
+
+Each Archimedean solid has a dual, which is a Catalan solid. These are
+perhaps cooler. Catalan solids have symmetric vertices and are
+[it[face transitive]]; the faces are not regular polygons but if you
+cut out polygons from paper you would only need one shape to make these.
+There are also thirteen of these.
+
+The Archimedean and Catalan solids are canonical and probably also
+known to aliens. There are some further generalizations (like the
+Johnson solids), but each time we get weaker properties, weirder
+shapes, and more of them. It becomes less likely that Aliens are out
+there holding their own SIGBOVIK conference and thinking about the
+same thing. So in this paper I'm only concerned with the Platonic,
+Archimedean, and Catalan solids, which I'll abbreviate P/A/C.
+
+
+All of the Platonic solids have the Rupert property ("are Rupert"),
+which we'll define more carefully in the next section. Upsettingly,
+only [it[most]] of the Archimedean and Catalan solids are known
+to be Rupert. The unknown ones I'll call the "wishlist" polyhedra
+in this paper; they are:
+
+The Archimedean solid called the [b[Rhombicosidodecahedron]], and its
+dual, the Catalan solid called the [b[Deltoidal hexecontahedron]]; the
+Archimedan [b[Snub dodecahedron]] and its dual, the Catalan
+[b[Pentagonal hexecontahedron]]; and the Archimedean [b[snub cube]].
+Upsettingly: Its dual, the pentagonal icositetrahedron, [it[does]]
+have the Rupert property!
+
+[subsection[Related work which I did not read]]
+
+I should mention: The reason that we know that solutions to most of
+these exist, and that they are written about on Wikipedia to keep me
+up late at night, is due to the [it[related work]]—a.k.a the
+[it[spoilers]]. Since I am am highly spoiler-averse and writing for
+SIGBOVIK, whose prestigious standards and practices transcend
+pedestrian norms like a related work section, I did not look at the
+related work [it[at all]] while doing this research. It might take the
+fun out of doing it myself. It is, after all, [it[re]]-search!
+
+I can however cite a few spoilers for your convenience.[cite chai2018rupert][cite lavau2019truncated][cite fredriksson2022optimizing]
 
 [section[The Rupert problem]]
+
+As we said, a polyhedron is "Rupert" if you can pass an identical copy
+of the polyhedron clean through itself, leaving a proper hole. The
+conjecture is that all convex polyhedra are Rupert.
 
 This problem is pretty easy to specify precisely. The shape in
 question is a convex polyhedron, which is just defined by its set of
@@ -1099,10 +1212,11 @@ although the translation parameters are the best behaved of the bunch
 (optimizing the translation parameters alone is actually a convex
 problem). The main reason to do this is to see whether there are
 always solutions that have this form. It does not appear to be the
-case: The tetrahedron-like shapes seem to [it[require]] translation. I
-did not prove this, but given how narrow the clearance is for the
-triakis tetrahedron (or how simple the tetrahedron is), it may not be
-hard to do so. [* XXX Z3? *]
+case: The tetrahedron-like shapes seem to [it[require]] translation.[footnote[
+I gave a half-hearted attempt to prove this by computer in the "Other
+approaches" section below. Given how narrow the clearance is for the
+triakis tetrahedron (and how simple the tetrahedron is), it may be
+tractable for someone who is good at math.]]
 This strategy can solve all the polyhedra except:
 [layout (polyhedra-without-method METHOD_ORIGIN)].
 
@@ -1178,13 +1292,15 @@ shadow, or across the other’s hull), but maybe you or someone else
 who’s smarter than me could figure it out. Lazy people would use
 automatic differentiation and might be happy with that.
 
-Anyway, this all works too! It is indeed faster than the CPU version
-(about XXX times faster), although it is harder to play around with
-algorithmic tweaks and it scales worse to polyhedra with larger
-triangulations. I mainly found solutions using the CPU methods, and
-mainly because running things on the GPU means I can’t simultaneously
-use my computer for other important activies like over-the-top violent
-first-person shooter games.
+Anyway, this all works too! It is indeed faster than the CPU version,
+although it is harder to play around with algorithmic tweaks and it
+scales worse to polyhedra with larger triangulations. I mainly found
+solutions using the CPU methods, and mainly because running things on
+the GPU means I can’t simultaneously use my computer for other
+important activies like over-the-top violent first-person shooter
+games.
+
+[* XXX stats here on how many rupert configurations I tried *]
 
 [subsection[Solved!]]
 
@@ -1210,18 +1326,16 @@ inner frame:
 
 Ratio: 0.9999999999999999766]]
 
-Note how everything is either really close to 1 or zero.
-Recall that two equal frames produce identical shadows, and
-that these are invalid Rupert configurations (the “hole” eats
-the entire shape). So too when the orientations are the same
-up to symmetry (e.g. one rotates the cube 1º and the other
-91º). So I knew it was possible that we could get something
-really close to identical shadows, but that they might look
-like they satisfy the condition within the precision of
-double-precision floating point numbers. Also, given my
-fetish for IEEE-754,[cite ieee754] I’m certainly asking for it! Visually
-inspecting these solutions, this is exactly what they looked
-like.
+Note how everything is either really close to 1 or zero. Recall that
+two equal frames produce identical shadows, and that these are invalid
+Rupert configurations (the “hole” eats the entire shape). So too when
+the orientations are the same up to symmetry (e.g. one rotates the
+cube 1º and the other 91º). So I knew it was possible that we could
+get something really close to identical shadows, but that they might
+look like they satisfy the condition within the precision of
+double-precision floating point numbers. Also, given my fetish for
+IEEE-754,[cite ieee754] I’m certainly asking for it! Visually
+inspecting these solutions, this is exactly what they looked like.
 
 [b[ON THE OTHER HAND]], some solutions can have a lot of nines in
 them! For example, the best known (to me) solution for the triakis
@@ -1231,6 +1345,8 @@ perceive this thread as having volume. This would be a good reason
 that nobody found these solutions before: Perhaps they used
 single-precision floating point, or coarse values of “epsilon,” or
 rejected them with visual inspection?
+
+[* XXX: Should mention the one whose ratio is furthest from 1? *]
 
 So I invested further effort.
 
@@ -1315,6 +1431,7 @@ optimization, as well as two random equal rotations and no
 translation. Alas, the purported solutions are not actually valid,
 and they do not seem to be close to any solutions. I ran the rational
 search for many days on the unsolved polyhedra with no joy.
+[* XXX do I have stats on how long ratperts ran? *]
 
 [section[Noperts]]
 
@@ -1572,7 +1689,7 @@ What? Fuck you! You’re telling me that 3D and 4D are special?
 No more cool shapes after that, and we don’t even get to keep some
 of the cool ones we already had? It seems that in 5D and beyond, there
 is just not enough space. Perhaps, then, 5D chess is actually a boring,
-easy game, like Candyland?
+easy game for children, like Candyland?
 
 [subsection[Bonus digression: Epsilon]]
 
@@ -1913,8 +2030,8 @@ FixederSys font family[cite fixedersys-site] with a lot more Unicode
 characters, like the many exotic mathematical symbols that nobody has
 ever used. Unicode is even more inspiring to notation fetishists than
 [tt[amssymb]] in this regard. It’s too bad that the math in this paper
-is so elementary, or else we could be like [b (fixedersys[A ≽ B ⊯ ⊱∔C
-⊶ ∷D⊰])].
+is so elementary, or else we could write [b (fixedersys[A ≽ B ⊯ ⊱∔C
+⊶ ∷D⊰])] like they do on ΞΔO-UΓΘX 11.
 
 [paragraph[“Robustness”]]
 BoVeX no longer crashes programs like Adobe Acrobat that expect
@@ -1984,26 +2101,11 @@ end
 
 (*
 
-now, most rich ..
-
- point set version
-
- small noperts
-
- z3 version
-   .. decidable
-
  failing as fast as possible
-
-triangle man hates particle man
-
- upsetting symmetry thing
 
  you get objects with names like these:
  https://mathworld.wolfram.com/Octahedron.html
  "gyrobifastigium"
-
- triangle man hates particle man (degenerate triangles)
 
  what’s the best platonic solid?
  icosahedron has a triforce in it (orthogonal projection with face
@@ -2050,10 +2152,6 @@ triangle man hates particle man
  When you have two dimensions, it is possible to get trapped in
  a local maximum. Adding more dimensions makes the optimization
  problem potentially easier to solve simply by descent.
-
-* re-search *
-
- communing with perverted aliens
 
  man-made horrors like,
    - typos in unicode
