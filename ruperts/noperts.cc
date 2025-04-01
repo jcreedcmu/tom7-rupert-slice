@@ -131,6 +131,16 @@ struct TrySolver {
         cache.pop_front();
       }
     }
+
+    if (orounds.has_value()) {
+      if (outer_frame_out != nullptr) {
+        *outer_frame_out = entry.outer_frame;
+      }
+      if (inner_frame_out != nullptr) {
+        *inner_frame_out = entry.inner_frame;
+      }
+    }
+
     return orounds;
   }
 
