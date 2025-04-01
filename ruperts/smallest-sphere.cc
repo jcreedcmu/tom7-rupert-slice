@@ -529,6 +529,7 @@ std::pair<vec3, double> SmallestSphere::Smallest(
     const std::vector<vec3> &pts) {
   std::vector<int> p;
   p.reserve(pts.size());
+
   // for (int i = 0; i < pts.size(); i++) p.push_back(i);
   // PERF: Shuffling at the beginning instead of repeatedly
   // choosing a random index will generate fewer random numbers,
@@ -543,6 +544,37 @@ std::pair<vec3, double> SmallestSphere::Smallest(
       p.push_back(i);
   } else {
     p = Hull3D::HullPoints(pts);
+  }
+
+  {
+    // Now remove duplicates. Ugh.
+    std::vector<int> pp;
+    pp.reserve(p.size());
+
+    // Points that are closer than this are considered duplicates.
+    static constexpr double distance_threshold = 1.0e-10;
+    static constexpr double flatness_threshold = 1.0e-10;
+    auto TooClose = [](const vec3 &a, const vec3 &b) -> bool {
+        // PERF avoid square roots
+        return distance(a, b) < distance_threshold;
+      };
+
+    for (int i = 0; i < pts.size(); i++) {
+      const vec3 &v = pts[i];
+      bool already = false;
+      for (int z : pp) {
+        if (TooClose(pts[z], v)) {
+          already = true;
+          break;
+        }
+      }
+
+      if (!already) {
+        pp.push_back(i);
+      }
+    }
+
+    p = std::move(pp);
   }
 
   if (VERBOSE) {

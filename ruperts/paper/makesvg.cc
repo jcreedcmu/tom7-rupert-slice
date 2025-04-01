@@ -33,6 +33,17 @@ void TransformMesh(const mat4 &mtx, TriangularMesh3D *mesh) {
   for (vec3 &v : mesh->vertices) v = yocto::transform_point(mtx, v);
 }
 
+static ImageRGBA FlipImage(const ImageRGBA &img) {
+  ImageRGBA out(img.Width(), img.Height());
+  for (int y = 0; y < img.Height(); y++) {
+    for (int x = 0; x < img.Width(); x++) {
+      int yy = img.Height() - 1 - y;
+      out.SetPixel32(x, yy, img.GetPixel32(x, y));
+    }
+  }
+  return out;
+}
+
 static void SaveSVG(std::string_view infile, std::string_view outfile) {
 
   TriangularMesh3D mesh = LoadSTL(infile);

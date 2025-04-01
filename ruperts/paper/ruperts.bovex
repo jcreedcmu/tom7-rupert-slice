@@ -101,7 +101,8 @@ let
   (* val cbrt = tt[∛] *)
   val cbrt = layout-sup (point 7.0) [3] ^^ rigid-hspace (point -3.0) ^^ [√]
 
-  fun footnote s = color 0x999999FF [([b[footnote]]: [s])]
+  fun footnote s = span {(Span) font-color = 0x999999FF, font-size = 9.0 }
+                   [ ([b[footnote]]: [s])]
 
   val next-figure-id = ref 1
   fun figure-id () =
@@ -112,6 +113,8 @@ let
     end
 
   val ROLL-PITCH-YAW = figure-id()
+  val DODECAHEDRON-ALIGNED = figure-id()
+  val CUBE-TRIANGULATION = figure-id()
 
   val questionmark-png = image-load "questionmark.png"
 
@@ -141,7 +144,7 @@ let
         else
           let
             val ipart : int = trunc f
-            val fpart : float = int-to-float ipart -. f
+            val fpart : float = f -. int-to-float ipart
           in
             if ipart >= 1000000 andalso ipart <= 100000000
             then layout (int-to-string ipart)
@@ -265,29 +268,35 @@ let
         | SOME _ => image-load (identifier ^ "-residue.png")
 
 
-      val nl = hfill () ^^ break ()
+      val nl = (* hfill () ^^ break () *) [\\]
 
       val soltext =
         case sol of
-          NONE => b (color 0x880000FF [Unsolved!]) ^^ nl
+          NONE => nl ^^ b (color 0x880000FF [Unsolved!])
         | SOME (ratio : float, clearance : float, _) =>
-            [[b[Ratio]]: [render-float ratio][nl]] ^^
-            [[b[Clearance]]: [render-float clearance][nl]]
+            [[nl][b[Ratio]]: [render-float ratio]] ^^
+            [[nl][b[Clearance]]: [render-float clearance]]
+
+      fun tier lay = helvetica (b lay)
 
       (* Could add optional explanations. *)
       val shape-tier =
         case card of
           {(Scorecard) shape-tier, shape-tier-notes} =>
-            [[b[Tier (shape)]]: [shape-tier] [it [“[shape-tier-notes]”]][nl]]
-        | {(Scorecard) shape-tier} => [[b[Tier (shape)]]: [shape-tier][nl]]
+            [[nl][b[Tier (shape)]]:
+             [tier shape-tier] [it [“[shape-tier-notes]”]]]
+        | {(Scorecard) shape-tier} => [[nl][b[Tier (shape)]]:
+                                       [tier shape-tier]]
         | _ => []
 
       (* Could add optional explanations. *)
       val rupert-tier =
         case card of
           {(Scorecard) rupert-tier, rupert-tier-notes} =>
-            [[b[Tier (Rupert)]]: [rupert-tier] [it [“[rupert-tier-notes]”]][nl]]
-        | {(Scorecard) rupert-tier} => [[b[Tier (Rupert)]]: [rupert-tier][nl]]
+            [[nl][b[Tier (Rupert)]]:
+             [tier rupert-tier] [it [“[rupert-tier-notes]”]]]
+        | {(Scorecard) rupert-tier} => [[b[Tier (Rupert)]]:
+                                        [tier rupert-tier]]
         | _ => []
 
       val about =
@@ -298,7 +307,7 @@ let
 
       val factoid =
         case card of
-          {(Scorecard) factoid} => [[b[Fun fact]]: [factoid][nl]]
+          {(Scorecard) factoid} => [[nl][b[Fun fact]]: [factoid]]
         | _ => []
 
       fun capitalize "" = ""
@@ -319,15 +328,15 @@ let
       image-array (inch 3.65, shape-handle :: residue-handle :: nil) ^^
       [
 
-       [size (point 15.0) (b (layout (capitalize human-name)))][nl]
-       [b[Class]]: [case pclass of
+       [size (point 15.0) (b (layout (capitalize human-name)))]
+       [nl][b[Class]]: [case pclass of
           PLATONIC => [Platonic]
         | ARCHIMEDEAN => [Archimedean]
-        | CATALAN => [Catalan]][nl]
-       [about][nl]
-       [b[Vertices]]: [layout (int-to-string vertices)][nl]
-       [b[Edges]]: [layout (int-to-string edges)][nl]
-       [b[Faces]]: [layout (int-to-string faces)][nl]
+        | CATALAN => [Catalan]]
+       [nl][about]
+       [nl][b[Vertices]]: [layout (int-to-string vertices)]
+       [nl][b[Edges]]: [layout (int-to-string edges)]
+       [nl][b[Faces]]: [layout (int-to-string faces)]
        [shape-tier]
        [soltext]
        [rupert-tier]
@@ -377,7 +386,7 @@ let
 
      ("icos", {(Scorecard)
        about = [The [b[icosahedron]] is more commonly known as the D20.
-                Somehow they managed to fit [it[twenty]] equilateral
+                Somehow they managed to fit [b[twenty]] equilateral
                 triangles on this!],
        shape-tier = TIER-SS,
                }) ::
@@ -412,16 +421,16 @@ let
                 the cube, such that all the edges are the same length.],
        shape-tier = TIER-F,
        shape-tier-notes = [Terrible. A worse version of the cube.],
-       rupert-tier = TIER-B,
-       rupert-tier-notes = [Notably chunky residue, although it’s basically
-                            the same as the cube’s.]
+       rupert-tier = TIER-A,
+       rupert-tier-notes = [Notably chunky residue, which actually leaves
+                            entire faces intact!]
                 }) ::
 
      ("tocta", {(Scorecard)
        about = [The [b[truncated octahedron]] improves upon the octahedron
                 by replacing its corners with squares.],
        shape-tier = TIER-B,
-       shape-tier = [Wouldn’t you rather have a dodecahedron?],
+       shape-tier-notes = [Wouldn’t you rather have a dodecahedron?],
        factoid = [This one can tile space!],
        }) ::
 
@@ -441,7 +450,7 @@ let
                 cuboctahedron you would need to fiddle with the
                 resulting rectangles to turn them into squares.],
        shape-tier = TIER-C,
-       shape-tier-notes = [Hexagons, squares, [it[and]] octagons? Seems like
+       shape-tier-notes = [Hexagons, squares, [b[and]] octagons? Seems like
                            a victim of design-by-committee.],
         }) ::
 
@@ -497,7 +506,7 @@ let
                  with squares and either triangles or pentagons, depending
                  on your mood.],
         shape-tier = TIER-C,
-        shape-tier-notes = [Now [it[this]] is just [it[ridiculous]].],
+        shape-tier-notes = [Now [b[this]] is just [b[ridiculous]].],
         }) ::
 
      ("tidode", {(Scorecard)
@@ -577,7 +586,7 @@ let
                 (* Deltoidal hexecontahedron *)
       shape-tier = TIER-C,
       shape-tier-notes = [I don’t dislike the kite shape that each of
-                          its 60 faces has, but who needs [it[sixty]]
+                          its sixty faces has, but who needs [b[sixty]]
                           kites?],
                 }) ::
 
@@ -594,7 +603,7 @@ let
                            unsettling.],
        factoid = [This one is Rupert and it is quite easy to find a
                   witness to this. This makes it very puzzling that
-                  its dual, the snub cube, does [it[not]] seem to
+                  its dual, the snub cube, does [b[not]] seem to
                   be solvable.],
                 }) ::
 
@@ -640,21 +649,27 @@ let
                   for the other by just mirroring.]}) ::
      nil)
 
+  fun centered-image width filename =
+    let
+      val FULL-WIDTH = inch 3.65
+      val padding = (FULL-WIDTH -. width) *. 0.5
+
+      val img = image-load filename
+      val { width = pixel-width, height = pixel-height } = image-size img
+      val ratio : float = pixel-width / pixel-height
+      val height = width /. ratio
+    in
+      box {(Box) width = FULL-WIDTH, height = height }
+      (image-sticker { img = img, x = padding, y = 0.0, width = width })
+    end
+
 in
 
 (main-text (body-font
-[
- [title (layout doc-title)][vspace (point 5.0)]
- [sub-title (layout doc-subtitle)]
+[[title (layout doc-title)][vspace (point 5.0)][
+sub-title (layout doc-subtitle)]
 
- [author[Dr. Tom Murphy VII, Ph.D.]]
- [date[March 2025]]
-
- [color 0x990000FF [If you are reading this: Hehe, I didn’t finish
-                    the paper yet! Some parts are mature, and others
-                    just trail off and go XXX! Also you will see
-                    that I didn't implement footnotes in BoVeX
-                    – Tom 7, late on 30 Mar 2025]]
+ [author[Dr. Tom Murphy VII, Ph.D.]][date[March 2025]]
 
  How big is the unit cube? “1?” Seems obvious, right?
  Let me ask you another way: [it[Where]] is the unit cube? “0?”
@@ -680,63 +695,74 @@ in
  be an asshole.]]
 
  Of course we can only fit one unit cube at a time in the unit
- sphere, but there's a lot of space left over. You could ask yourself,
- if I have [it[n]] cubes, what's the smallest sphere I could
- fit them within? Would it surprise you to find out that for [it[n]]=8,
- the tightest arrangement is not the 2x2x2 cube? For example,
- this arrangement fits in a sphere that's a little smaller:
+ sphere, but there’s a lot of space left over. You could ask yourself,
+ if I have [it[n]] cubes, what’s the smallest sphere I could
+ fit them within? Would it surprise you to find out that for [it[n]]=6,
+ the tightest arrangement is not a 3×2×1 grid? Or a 2×2 slab with a
+ centered cube above and below? Or even something
+ symmetrical? For example, this arrangement fits in a sphere that’s a
+ little smaller:
 
- XXX diagram
+ [centered-image (inch 2.5) "dyson6.png"]
 
- I created the above by computer search. This is how it goes with me:
+ What the hell, right? I found this by computer search (namely: after
+ trying to solve the problem myself, I searched on the internet using
+ a computer for [it[spoilers]], and found some[cite gensane2008producing]).
+ I love it! (Platonically!) This is how it goes with me:
  I do enjoy a beautiful math result where everything is in its right
  place, but to be honest, what [it[really]] titillates me is when the
  [it[problem]] is beautiful but the [it[solution]] is upsetting. I
- call this a "Platonic Horror." One of the things I like about it is
+ call this a “Platonic Horror.” One of the things I like about it is
  that any clear thinker will imagine cubes and spheres, and ask a
  simple well-formed question like that. You could contrast this with
- man-made horrors like "the conventional unit cube and unit sphere are
- apparently using the word 'unit' differently," or "IEEE-754
- denormals" or "U+FE18 PRESENTATION FORM FOR VERTICAL RIGHT WHITE
- LENTICULAR BRAKCET"[cite freytag2024known]. Aliens would never think
- to spell the word "bracket" wrong in the formal name of a Unicode
- character. But they would think about putting cubes in spheres, and
- then find out that it's kinda messed up, and then some of them of
- them would find it strangely titillating that the solution is not
- "nice," and they probably have their own version of SIGBOVIK out
- there on ΞΔO-UΓΘX 11 where they have giggled about this specific
- fact, and I like that idea.
+ man-made horrors like “the conventional unit cube and unit sphere are
+ apparently using the word ‘unit’ differently,” or “IEEE-754
+ denormals”[cite ieee754] or “[tt[U+FE18 PRESENTATION FORM FOR
+ VERTICAL RIGHT WHITE LENTICULAR BRAKCET]]”[cite freytag2024known].
+ Aliens would never think to spell the word “bracket” wrong in the
+ formal name of a Unicode character. But they would think about
+ putting cubes in spheres, and then find out that it’s kinda messed
+ up, and then some of them would find it strangely titillating
+ that the solution is not “nice,” and they probably have their own
+ version of SIGBOVIK out there on ΞΔO-UΓΘX 11 where they have giggled
+ about this specific fact, and I like that idea.
 
  Anyway, now that I’ve gotten the “Dice in Sphere” pun out of the way,
  we can move onto the real topic of this paper: [it[Dice in Dice]].
 
-[vspace (inch 0.5)]
+[vspace (inch 0.1)]
 
- One wonders why so much energy is expended on wrecking the world!
-
+ So, um, why is so much energy wasted on trying to wreck the world?
  Something about being super rich and powerful seems to attract people
- to asshattery, or assholery, or to make an ass out of u and me. All
- throughout history we have had this problem. If I were super rich, I
- would just hang out with my smart friends and do math. Right? One
- rare example of this seemingly working out well was the Prince called
- Rupert, formally [it[Prince Rupert of the Rhine, Duke of Cumberland,
- KG, PC, FRS]] (not off to a good start, to be honest, but maybe all
- the appelations are semi-meta-ironic like Dr. Tom Murphy VII Ph.D.). I
- didn't learn much about this prince (he's been dead for hundreds of
- years) but once he retired from being a war sailor, he "converted
- some of the apartments at Windsor Castle to a luxury laboratory,
- complete with forges, instruments, and raw materials, from where he
- conducted a range of experiments."[cite wikipedia-rupert] Yes!
- Correct! This is the same fellow who learned about Prince Rupert's
- Drop and then did not protest when people attributed its invention to
- him (hard to blame them for the mistake with a name like that). Then
- during what I imagine was a pleasant evening in the pub arguing with
- his friends over presumably nasty 17th-century beer, he came up with
- the following question: Can you pass a cube through another cube of
- the same size? The answer is, surprisingly: Yes! This became known as
- Prince Rupert's Cube, and the hole that's left over looks like this:
+ to asshattery, or assholery, or assault, or making an ass out of u
+ and me. All throughout history we have had this problem. If I were
+ super rich, I would just hang out with my smart friends and do math.
+ Right? One rare example of this seemingly working out well was the
+ Prince called Rupert, formally [it[Prince Rupert of the Rhine, Duke
+ of Cumberland, KG, PC, FRS]] (not off to a good start, to be honest,
+ but maybe all the appellations are semi-meta-ironic like Dr. Tom
+ Murphy VII Ph.D.). I didn’t learn much about this prince (he’s been
+ dead for hundreds of years) but once he retired from being a war
+ sailor, he “converted some of the apartments at Windsor Castle to a
+ luxury laboratory, complete with forges, instruments, and raw
+ materials, from where he conducted a range of experiments.”[cite
+ wikipedia-rupert] Yes! Correct! This is the same fellow who learned
+ about Prince Rupert’s Drop and then did not protest when people
+ attributed its invention to him (hard to blame them for the mistake
+ with a name like that). Then during what I imagine was a pleasant
+ evening in the pub arguing with his friends over presumably nasty
+ 17th-century beer, he came up with the following question: Can you
+ pass a cube through another cube of the same size? The answer is,
+ surprisingly: Yes! If you rotate the cube so that it looks like a
+ square (the small way), and rotate the other so that it looks like a
+ hexagon (the big way), then you can fit it through:
 
- XXX diagram
+ [centered-image (inch 1.8) "rupert-hexagon.png"]
+
+ This became known as Prince Rupert’s Cube,
+ and the cube donut that’s left over looks like this:
+
+ [centered-image (inch 1.8) "ruperts-cube.png"]
 
  Late one night I was admiring the Wikipedia article on the
  Dodecahedron, my favorite Platonic solid. On this page I was reminded
@@ -783,7 +809,7 @@ Here were my Naive Heuristics:
   that nobody has tried it with a very large and hot GPU.] ::
 
  [If I find solutions, great; we can check those off the list. If
-  I don't, I'll learn something, because it doesn't seem like it
+  I don’t, I’ll learn something, because it doesn’t seem like it
   should be conjectured to be true but hard to find.] ::
 
  [I can whip this up in a day (or maybe a weekend) and then put it
@@ -800,29 +826,31 @@ the future.]]
 
 The convex solids called Platonic all have faces made from the same
 regular polygon (like a square or equilateral triangle). There are
-only five: The tetrahedron, cube, icosahedron, and dodecahedron. (For
-images of these shapes you can see the results section at the end of
-the paper.) I love them (Platonically)! It's kind of amazing that
-there are only five, but here's a good way to feel comfortable with
-that idea. First, remember that regular hexagons fit together
-perfectly to tile the plane. If you tried to put septagons or octagons
-together, they would not fit; hexagons are the last ones that fit.
-With five or fewer sides, you can't tile the plane, but you can fold
-them over and start making a polyhedron (3D shape). This tells us that
-a Platonic solid must have faces that are pentagons, squares, or
-triangles. The pentagon is pretty big so there's only one way to put
-them together. Same for the cube. The triangle has three ways, but
-it's not too hard to see that you are limited to these three if you
-try to work it out.
+only five: The tetrahedron, cube, octahedron, icosahedron, and
+dodecahedron. (For images of these shapes you can see the results
+section at the end of the paper.) I love them! (Platonically!) (And
+also sexually!) It’s kind of amazing that there are only five, but
+here’s a good way to feel comfortable with that idea. First, remember
+that regular hexagons fit together perfectly to tile the plane. If you
+tried to put septagons or octagons together, they would not fit;
+hexagons are the last ones that fit. With five or fewer sides, you
+can’t tile the plane, but you can fold them over and start making a
+polyhedron (3D shape). This tells us that a Platonic solid must have
+faces that are pentagons, squares, or triangles. The pentagon is
+pretty big so there’s only one way to put them together. Same for the
+cube. The triangle has three ways, but it’s not too hard to see that
+you are limited to these three if you try to work it out.
 
-These solids are named after Plato, but it's clear to me that any
+These solids are named after Plato, but it’s obvious to me that any
 clear thinker would eventually discover these; if there are aliens
 somewhere, then they know about the same five shapes, though probably
 not by the same name unless they have been creepily spying on us,
 or perhaps if Plato was not all that he seemed!
 
 There are two kinds of convex solids that are almost as good as the
-Platonic ones: The Archimedean and Catalan solids. The Archimedean
+Platonic ones: The Archimedean and Catalan solids. You might want
+to look at the results section to see pictures of these, since
+they are cool and you probably like cool shapes. The Archimedean
 ones have faces that are regular polygons (but more than one type),
 and moreover are [it[vertex transitive]]. Vertex transitivity means
 approximately that every vertex on the polyhedron has the same shape
@@ -844,20 +872,20 @@ known to aliens. There are some further generalizations (like the
 Johnson solids), but each time we get weaker properties, weirder
 shapes, and more of them. It becomes less likely that Aliens are out
 there holding their own SIGBOVIK conference and thinking about the
-same thing. So in this paper I'm only concerned with the Platonic,
-Archimedean, and Catalan solids, which I'll abbreviate P/A/C.
+same thing. So in this paper I’m only concerned with the Platonic,
+Archimedean, and Catalan solids, which I’ll abbreviate P/A/C.
 
 
-All of the Platonic solids have the Rupert property ("are Rupert"),
-which we'll define more carefully in the next section. Upsettingly,
+All of the Platonic solids have the Rupert property (“are Rupert”),
+which we’ll define more carefully in the next section. Upsettingly,
 only [it[most]] of the Archimedean and Catalan solids are known
-to be Rupert. The unknown ones I'll call the "wishlist" polyhedra
+to be Rupert. The unknown ones I’ll call the “wishlist” polyhedra
 in this paper; they are:
 
-The Archimedean solid called the [b[Rhombicosidodecahedron]], and its
-dual, the Catalan solid called the [b[Deltoidal hexecontahedron]]; the
-Archimedan [b[Snub dodecahedron]] and its dual, the Catalan
-[b[Pentagonal hexecontahedron]]; and the Archimedean [b[snub cube]].
+The Archimedean solid called the [b[rhombicosidodecahedron]], and its
+dual, the Catalan solid called the [b[deltoidal hexecontahedron]]; the
+Archimedean [b[snub dodecahedron]] and its dual, the Catalan
+[b[pentagonal hexecontahedron]]; and the Archimedean [b[snub cube]].
 Upsettingly: Its dual, the pentagonal icositetrahedron, [it[does]]
 have the Rupert property!
 
@@ -865,8 +893,8 @@ have the Rupert property!
 
 I should mention: The reason that we know that solutions to most of
 these exist, and that they are written about on Wikipedia to keep me
-up late at night, is due to the [it[related work]]—a.k.a the
-[it[spoilers]]. Since I am am highly spoiler-averse and writing for
+up late at night, is due to the [it[related work]]—a.k.a. the
+[it[spoilers]]. Since I am highly spoiler-averse and writing for
 SIGBOVIK, whose prestigious standards and practices transcend
 pedestrian norms like a related work section, I did not look at the
 related work [it[at all]] while doing this research. It might take the
@@ -874,11 +902,15 @@ fun out of doing it myself. It is, after all, [it[re]]-search!
 
 I can however cite a few spoilers for your convenience.[cite chai2018rupert][cite lavau2019truncated][cite fredriksson2022optimizing]
 
+[vspace (inch 0.1)]\\
 [section[The Rupert problem]]
 
-As we said, a polyhedron is "Rupert" if you can pass an identical copy
-of the polyhedron clean through itself, leaving a proper hole. The
-conjecture is that all convex polyhedra are Rupert.
+As we said, a solid is “Rupert” if you can pass an identical copy of
+the solid clean through itself, leaving a proper hole. It’s easy to
+think of non-convex shapes where it’s clearly not possible, and
+convex shapes that aren’t polyhedra (like the sphere) where it’s
+clearly not possible. The conjecture is that all convex polyhedra are
+Rupert.
 
 This problem is pretty easy to specify precisely. The shape in
 question is a convex polyhedron, which is just defined by its set of
@@ -907,7 +939,7 @@ translation; together these are a rigid frame (hereafter just
 component of the translations are unimportant and we can just consider
 2D translations. Moreover, since we just care about the relative
 positions of the objects, we can say that the outer polyhedron is
-fixed at (0,0). We need to be able to rotate both shapes arbitrarily,
+fixed at (0, 0). We need to be able to rotate both shapes arbitrarily,
 though.
 
 The inner shadow being completely contained within the outer shadow is
@@ -958,14 +990,15 @@ rotation around the x, y, and z axes (“pitch,” “roll,” and “yaw”; se
 Figure [ROLL-PITCH-YAW]). This approach actually sucks (famously,
 Euler was not that good at math). You can get all orientations this
 way, but you will get some orientations more often than
-others.[footnote[Euler rotation is accomplished by rotating along each
+others (this is related to the phenomenon of “gimbal lock”).[* footnote[Euler rotation is accomplished by rotating along each
 axis in turn. Imagine gimbal lock: Rotate the Earth such that ... The
 density of parameters that are close to this gimbal lock position is
-much higher.]] Maybe that is okay for you (or Eu-ler) but I want all
+much higher.] *] Maybe that is okay for you (or Eu-ler) but I want all
 orientations to be equally likely.
 
-[image { img = image-load "roll_pitch_yaw_mnemonic.png",
-         width = inch 3.65 }]
+[centered-image (inch 3.0) "roll_pitch_yaw_mnemonic.png"]
+[* [image { img = image-load "roll_pitch_yaw_mnemonic.png",
+         width = inch 3.65 }] *]
 Figure [ROLL-PITCH-YAW].
 Wikipedia[cite wikipedia-roll-pitch-yaw] provides this useful mnemonic
 for remembering which axis corresponds to each of the three words. The
@@ -1003,16 +1036,18 @@ rejection sampling. Rejection sampling is a very robust way to
 generate uniform samples in some set. What you do is generate random
 points inside some domain that contains the target set, and throw away
 points that aren’t in the target. For example, to generate points in a
-unit circle, you can generate points in the 2x2 square (it’s [it[not]]
+unit circle, you can generate points in the 2×2 square (it’s [it[not]]
 the unit square) that contains that circle. π/4 of these points will
 be in the circle, and so you get samples at an efficiency of about
 78.5%.
 
-[image { img = image-load "sample-circle.png", width = inch 3.65 }]
+[centered-image (inch 2.5) "sample-circle.png"]
 
 To generate points inside a sphere, you do the same thing, but in a
-2x2x2 cube. This sphere has volume 4π/3 and the cube has volume 8,
+2×2×2 cube. This sphere has volume 4π/3 and the cube has volume 8,
 so you get samples at an efficiency of about 52.4%.
+
+[centered-image (inch 2.5) "sample-sphere.png"]
 
 To generate 4D points inside a 4D hypersphere[footnote
 [We should say “3-sphere,” or “hyperball”, since the convention
@@ -1024,10 +1059,10 @@ but now the hypervolume is π[sup[2]]/2, and the 4D hypercube has hypervolume
 
 Upsettingly, as we increase dimensions, the hypervolume of the
 [it[n]]-dimensional hypersphere approaches zero (!?) and the
-[it[n]]-dimensional hypercube’s grows exponentially, so this
+[it[n]]-dimensional hypercube’s volume grows exponentially, so this
 technique approaches perfect 0% efficiency.
 
-[image { img = image-load "sample-nd-hypersphere.png", width = inch 3.65 }]
+[centered-image (inch 2.5) "sample-nd-hypersphere.png"]
 
 Fortunately, we only need 4D vectors, and 30% efficiency is fine
 because my computer can calculate like 1 billion samples per second
@@ -1056,7 +1091,7 @@ points, their boundary polygon is a much more convenient
 representation of the shadow. Here is a shadow of the icosahedron. The
 darker boundary polygon is its 2D convex hull:
 
-[image { img = image-load "icos-shadow.png", width = inch 3.65 }]
+[centered-image (inch 2.5) "icos-shadow.png"]
 
 Computing the convex hull is also “standard,” meaning that you can
 find lots of slightly buggy implementations of various algorithms on the
@@ -1166,14 +1201,24 @@ like the “tribonacci” constant, which is like the Fibonacci (Fi- means
 two, like in the number Five) but where we take the sum of the previous
 three numbers instead of two. The ratio of terms converges to:
 
-(1 + [cbrt](19 + 3√33)) + [cbrt](19 - 3√33)) / 3
+[rigid-hspace (inch 0.75)](1 + [cbrt](19 + 3√33)) + [cbrt](19 - 3√33)) / 3
 
 Like, I would expect √2 stuff. But I guess I should not have been
 surprised by that, because that’s just math. Anyway, since these
-are all convex polyhedra, at least you don’t need the
+are all convex polyhedra, at least you don’t need to explicitly
+specify the connectivity of the vertices. I just compute the
+3D convex hull (using a slow polynomial-time search for coplanar
+vertices where all the points are on one side of the plane)
+to get the faces; it’s okay that this is slow because you only
+need to do this once at program startup time.[footnote[In fact,
+the solvers mostly just work with the point sets; we know
+they are convex so this is enough for us to implicitly reason
+about the shape. We do at least want to draw the polyhedra
+for debugging or posterity purposes.]]
 
-... xxx solves them all, but not the unknown ones ...
-
+Once all the polyhedra are in the computer, I easily confirmed
+what we already knew: The Platonic solids, ten of the Archimedean
+solids, and eleven of the Catalan solids, are Rupert.
 
 [subsection[Alternate solvers]]
 
@@ -1202,9 +1247,17 @@ and the hulls easier to interpret, e.g. the cube will always be an
 axis-aligned square). Then we just optimize the outer orientation
 and position to fit around this hull.
 This strategy can solve all the polyhedra except:
+tetrahedron, triakis tetrahedron.
+[*
+dodecahedron actually does have a solution here; it’s just close
+to 0. Since it has a solution with SPECIAL, and special is even
+more restrictive, it must have a good solution here too.
 [layout (polyhedra-without-method METHOD_PARALLEL)].
+*]
 
-XXX image may be helpful here
+[centered-image (inch 3.0) "dodecahedron-aligned.png"][break()
+]Figure [DODECAHEDRON-ALIGNED]. The dodecahedron with two non-parallel
+faces aligned to the z axis.
 
 [paragraph[Origin]] Optimize both rotations, but leave both polyhedra
 centered on the origin. This reduces the number of parameters,
@@ -1213,8 +1266,8 @@ although the translation parameters are the best behaved of the bunch
 problem). The main reason to do this is to see whether there are
 always solutions that have this form. It does not appear to be the
 case: The tetrahedron-like shapes seem to [it[require]] translation.[footnote[
-I gave a half-hearted attempt to prove this by computer in the "Other
-approaches" section below. Given how narrow the clearance is for the
+I gave a half-hearted attempt to prove this by computer in the “Other
+approaches” section below. Given how narrow the clearance is for the
 triakis tetrahedron (and how simple the tetrahedron is), it may be
 tractable for someone who is good at math.]]
 This strategy can solve all the polyhedra except:
@@ -1255,7 +1308,7 @@ calculation and black box optimizers are not natural for the GPU
 
 To test whether the inner shadow is within the outer shadow, I
 replaced the convex hull-based test with one that is worse but more
-easily parallelized. For each polyhedra I generate its triangulation,
+easily parallelized. For each polyhedron I generate its triangulation,
 where each face is made with triangles (this is trivial to do with
 triangle fans because they are convex polygons). Now observe that when
 I project these triangular faces to the 2D shadow, any point that is
@@ -1273,14 +1326,17 @@ of the triangulation, no matter which one you use. This is not
 ideal, but it only gives us false negatives (failing to find a solution
 if one exists), which is not a serious problem.
 
-[* XXX good place for diagram *]
+[centered-image (inch 3.0) "cube-triangulation.png"][break()
+]Figure [CUBE-TRIANGULATION]. Left: A cube may be triangulated like this
+(only top and bottom triangulations shown for clarity). Right: Viewed
+from the top, the center point is not strictly within any face triangle.
 
 Because I did not want to port the black-box optimizer, and because we
 can do better anyway since we understand the problem being optimized,
 I implemented a proper gradient descent optimizer for the GPU. This
 subject is well documented so I will not belabor it here, but I
 performed “approximate numerical differentiation” to compute the
-derivate with respect to each parameter independently. This involves
+derivative with respect to each parameter independently. This involves
 evaluating the function one additional time for each parameter (with a
 small tweak), assuming that the slope is locally linear. It’s not too
 bad to implement, but since this problem has 10 optimization
@@ -1297,10 +1353,8 @@ although it is harder to play around with algorithmic tweaks and it
 scales worse to polyhedra with larger triangulations. I mainly found
 solutions using the CPU methods, and mainly because running things on
 the GPU means I can’t simultaneously use my computer for other
-important activies like over-the-top violent first-person shooter
+important activities like over-the-top violent first-person shooter
 games.
-
-[* XXX stats here on how many rupert configurations I tried *]
 
 [subsection[Solved!]]
 
@@ -1312,19 +1366,19 @@ numbers were like this:
 [monospace-block-ext { left-indent = 0.0, width = inch 3.6,
                        line-spacing = 0.05, font-size = point 7.0,
                        attrs = {(Object) } }
- [outer frame:
--0.99999999999999978,-3.7558689392125502e-16,-3.5847581116984005e-08,
-3.7558689392125502e-16,1.0000000000000002,-2.0954657592967021e-08,
-3.5847581116984005e-08,-2.0954657592967021e-08,-0.99999999999999956
-0, 0, 0
+ [  outer frame:
+  -0.99999999999999978,-3.7558689392125502e-16,-3.5847581116984005e-08,
+  3.7558689392125502e-16,1.0000000000000002,-2.0954657592967021e-08,
+  3.5847581116984005e-08,-2.0954657592967021e-08,-0.99999999999999956
+  0, 0, 0
 
-inner frame:
-3.3306690738754691e-16,0.99999999999999978,5.551115123125779e-17,
-2.7755575615628914e-16,-5.5511151231257852e-17,0.99999999999999978,
-0.99999999999999978,-2.2204460492503128e-16,-2.7755575615628909e-16,
--1.4197330001097729e-18,2.8394660002195473e-19,-0.0051151272082079749
+  inner frame:
+  3.3306690738754691e-16,0.99999999999999978,5.551115123125779e-17,
+  2.7755575615628914e-16,-5.5511151231257852e-17,0.99999999999999978,
+  0.99999999999999978,-2.2204460492503128e-16,-2.7755575615628909e-16,
+  -1.4197330001097729e-18,2.8394660002195473e-19,-0.0051151272082079749
 
-Ratio: 0.9999999999999999766]]
+  Ratio: 0.9999999999999999766]]
 
 Note how everything is either really close to 1 or zero. Recall that
 two equal frames produce identical shadows, and that these are invalid
@@ -1334,7 +1388,7 @@ cube 1º and the other 91º). So I knew it was possible that we could
 get something really close to identical shadows, but that they might
 look like they satisfy the condition within the precision of
 double-precision floating point numbers. Also, given my fetish for
-IEEE-754,[cite ieee754] I’m certainly asking for it! Visually
+IEEE-754, I’m certainly asking for it! Visually
 inspecting these solutions, this is exactly what they looked like.
 
 [b[ON THE OTHER HAND]], some solutions can have a lot of nines in
@@ -1344,9 +1398,10 @@ polyhedron, requiring a monumental amount of zooming-in to even
 perceive this thread as having volume. This would be a good reason
 that nobody found these solutions before: Perhaps they used
 single-precision floating point, or coarse values of “epsilon,” or
-rejected them with visual inspection?
-
-[* XXX: Should mention the one whose ratio is furthest from 1? *]
+rejected them with visual inspection? One of the solutions,
+for the rhombicosidodecahedron, actually had a computed ratio of
+[tt[0.99999998752759711]], which is definitely in the range where
+you start expecting doubles to act like numbers.
 
 So I invested further effort.
 
@@ -1399,7 +1454,7 @@ we can’t do this with rationals. Fortunately, we do not actually
 need unit quaternions. The rotation induced by an arbitrary q (other
 than the zero quaternion) can be given as
 
-  rot(v) = q × v × q[sup[-1]]
+[rigid-hspace (inch 1.1)]rot([it[v]]) = q[it[v]]q[sup[-1]]
 
 and if you work this all out, you find that the quaternion’s
 length is only used [it[squared]], which means that you never
@@ -1431,7 +1486,10 @@ optimization, as well as two random equal rotations and no
 translation. Alas, the purported solutions are not actually valid,
 and they do not seem to be close to any solutions. I ran the rational
 search for many days on the unsolved polyhedra with no joy.
-[* XXX do I have stats on how long ratperts ran? *]
+
+All told, I ran 165,768,128 iterations of the various solvers (each
+trying thousands of configurations) on just the wishlist polyhedra.
+That's a lot of spicy meatballs!
 
 [section[Noperts]]
 
@@ -1513,9 +1571,9 @@ very rare, or require something special about their coordinates. The
 next thing I tried was to check if simplified versions of the snub
 cube (which is the smallest wishlist polyhedron at 24 vertices) are
 still Nopert. One way to simplify a convex polyhedron is to delete
-some of it vertices. 2[sup[24]] is not that big, so I tried every
+some of its vertices. 2[sup[24]] is not that big, so I tried every
 subset of the snub cube. Well, not [it[every]] subset: The snub cube
-is highly symmetric, so a lot its subsets are effectively the same. It
+is highly symmetric, so a lot of its subsets are effectively the same. It
 seemed like too much programming work to identify the symmetric
 subsets (and error-prone). Note however that we know we are removing
 at least one vertex, and the snub cube is vertex transitive (all
@@ -1587,7 +1645,7 @@ to study; can we find the crossover point where manhole cover becomes
 churro, and prove that it always exists? I added this to the list of
 open problems below.]] So I explored polyhedra that have the remaining
 symmetry groups. One way to do this is to start with some point set,
-and the apply operations from the rotational symmetry group (adding
+and then apply operations from the rotational symmetry group (adding
 the points that arise from the operation) until you reach saturation.
 This [it[will]] saturate, unlike in the Spirograph method described
 above. But one thing to notice about this approach is that each point
@@ -1680,8 +1738,8 @@ Very happy so far.
 What do you think happens in 5D?
 
 Wrong! In 5D, and all greater dimensions, there are just two finite
-rotational symmetry groups. There’s just one called A[sub[5]]
-corresponding to the 5D tetrahedron (5-simplex) and one called B[sub[5]]
+rotational symmetry groups. There’s just one called A5
+corresponding to the 5D tetrahedron (5-simplex) and one called B5
 corresponding to the 5D hypercube and 5D octahedron (5-orthoplex).
 No additional symmetry groups, no additional Platonic
 solids.[cite coxeter1973regular]
@@ -1703,17 +1761,17 @@ Here [tt[1.0e-6]] is one one-millionth, a typical value for epsilon.
 It’s actually a pretty nasty choice since it is not even representable
 as a float. With clang 19, this compiles to code like
 
-[monospace-block[.LCPI0_0:
-        .quad   0x7fffffffffffffff
-        .quad   0x7fffffffffffffff
-.LCPI0_1:
-        .quad   0x3eb0c6f7a0b5ed8d
-Threshold(double):
-        andpd   xmm0, xmmword ptr [layout "[rip + .LCPI0_0]"]
-        movsd   xmm1, qword ptr [layout "[rip + .LCPI0_1]"]
-        ucomisd xmm1, xmm0
-        seta    al
-        ret]]
+[monospace-block[  .LCPI0_0:
+          .quad   0x7fffffffffffffff
+          .quad   0x7fffffffffffffff
+  .LCPI0_1:
+          .quad   0x3eb0c6f7a0b5ed8d
+  Threshold(double):
+          andpd   xmm0, xmmword ptr [layout "[rip + .LCPI0_0]"]
+          movsd   xmm1, qword ptr [layout "[rip + .LCPI0_1]"]
+          ucomisd xmm1, xmm0
+          seta    al
+          ret]]
 
 which makes sense ([tt[ucomisd]] is unsigned comparison of
 floating-point registers) other than the two copies of [tt[0x7fff...]]
@@ -1722,12 +1780,12 @@ and remember: Powers of two are the fastest numbers.
 So another thing I tried was to optimize this epsilon test, instead
 writing the clear and portable
 
-[monospace-block[static constexpr uint32_t target_exp =
-  (std::bit_cast<uint64_t>(0x1.0p-20) >> 52) & 0x7FF;
+[monospace-block[  static constexpr uint32_t target_exp =
+    std::bit_cast<uint64_t>(0x1.0p-20) >> 52;
 
-uint32_t exp =
-  (std::bit_cast<uint64_t>(d) >> 52) & 0x7FF;
-return exp < target_exp;]]
+  uint32_t exp =
+    std::bit_cast<uint64_t>(d) >> 52;
+  return (exp & 0x7FF) < (target_exp & 0x7FF);]]
 
 This checks against a cleaner epsilon (the power of two close
 to one one-millionth) by just checking the exponent bits directly.
@@ -1792,7 +1850,7 @@ awful grind. For example, there are these rocket launchers that are
 mainly designed for shooting down helicopters, but if you can manage
 to fire them at a human without getting killed before you finish
 looking down the sight, and you land a basically direct hit on their
-soft body, then you get a kill. Just 500 of those! Then there are
+soft fleshy body, then you get a kill. Just 500 of those! Then there are
 weapons seemingly designed just for humiliating your opponent, like a
 hand-held power drill that you can drill into them twice at close
 range. Just 500 of those! Worse is the scorestreaks, which you
@@ -1859,7 +1917,7 @@ The SMT solver Z3[cite demoura2008z3] has a good reputation (eleven
 thousand citations!) so I tried it out like I usually do, and again
 I was disappointed. I encoded the problem as follows:
 
-Two 3x3 matrices, representing the rotation of the outer shape and
+Two 3×3 matrices, representing the rotation of the outer shape and
 inner shape (no need to even require the shapes to be the same here).
 We can assert that the matrix is a rotation by requiring it to be
 orthogonal and to have a determinant of 1; these are non-linear
@@ -1950,21 +2008,20 @@ Infinitely many
 
 [section[Results]]
 
-This section lists the results for each of the Platonic, Archimedean,
-and Catalan polyhedra. If the polyhedron has a known solution, the
-residue with the highest [it[clearance]] is shown. [it[Clearance]] is
-defined as follows: Take the minimum Euclidean distance [it[c]]
-between the 2D inner and outer hulls, and the radius [it[r]] of the
-smallest sphere that contains all points in the polyhedron. Clearance
-is then [it[c]]/[it[r]]; the radius is just a normalization term so
-that this does not depend on the scale of the polyhedron. The
-[it[ratio]] is another quality metric, which is the area of the inner
-shadow divided by the area of the outer shadow. All else equal, a
-lower ratio is better, but some low-ratio solutions look bad
-because they have very thin walls. A third obvious choice would be to
-maximize volume of the residue solid, but this is computationally
-expensive and might anyway have the same thin-wall problem that
-the ratio metric does.
+This section lists the results for each of the P/A/C polyhedra. If the
+polyhedron has a known solution, the residue with the highest
+[it[clearance]] is shown. [it[Clearance]] is defined as follows: Take
+the minimum Euclidean distance [it[c]] between the 2D inner and outer
+hulls, and the radius [it[r]] of the smallest sphere that contains all
+points in the polyhedron. Clearance is then [it[c]]/[it[r]]; the
+radius is just a normalization term so that this does not depend on
+the scale of the polyhedron. The [it[ratio]] is another quality
+metric, which is the area of the inner shadow divided by the area of
+the outer shadow. All else equal, a lower ratio is better, but some
+low-ratio solutions look bad because they have very thin walls. A
+third obvious choice would be to maximize volume of the residue solid,
+but this is computationally expensive and might anyway have the same
+thin-wall problem that the ratio metric does.
 
 Like everything in this paper, I generated these images using software
 I wrote from scratch. The polyhedra themselves are very
@@ -1990,13 +2047,15 @@ Idiot.
 
 [layout-concat (list-map (make-scorecard scorecards) POLYHEDRA)]
 
+[vspace (inch 0.3)]\\
 [section[Improvements to BoVeX]]
 
-To make my life harder, but also more thrilling, I typeset this
-paper in BoVeX, which is a document preparation system I wrote
-as a joke (?) for SIGBOVIK 2024.[cite murphy2024badness] You can
-tell from the way that the math looks like a child typeset it
-that I didn’t yet implement any fancy layout algorithms for that.
+To make my life harder, but also more thrilling, I typeset this paper
+in BoVeX, which is a document preparation system I wrote as a joke (?)
+for SIGBOVIK 2024.[cite murphy2024badness] You probably already
+noticed that I did not implement proper footnotes still. You also can
+tell from the way that the math looks like a child typeset it that I
+didn’t yet implement any fancy layout algorithms for that.
 
 I did, however, spend precious vacation days in the run-up to SIGBOVIK
 2025 adding features and fixing other, less important deficiencies of
@@ -2162,7 +2221,6 @@ end
   - reencode PNGs before embedding, perhaps in pdf.cc
   - some objects have inside-out normals?
   - emit floaters (footnotes)
-  - video citation type
 
  probably won't do
   - vector/raster image wrapper, so that both are happening in tandem

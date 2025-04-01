@@ -1135,7 +1135,15 @@ static void GrindNoperts() {
   using Solution = SolutionDB::Solution;
   ArcFour rc(std::format("grind.noperts.{}", time(nullptr)));
   SolutionDB db;
-  std::unordered_set<int> banned;
+
+  // XXX I temporarily set this to ones that I know I've already
+  // tried. Better to look for attempts in the database and use
+  // that to prioritize.
+  std::unordered_set<int> banned = {
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+    20, 21, 22, 23, 25,
+    24, 60, 61, 62, 63 };
+
 
   for (;;) {
     std::vector<Nopert> all_noperts = db.GetAllNoperts();
@@ -1319,7 +1327,7 @@ int main(int argc, char **argv) {
   }
 
   // Grind every unsolved cell.
-  if (false) {
+  if (true) {
     std::unordered_set<std::string> poly_filter;
     for (int i = 1; i < argc; i++) {
       poly_filter.insert(argv[i]);

@@ -147,6 +147,9 @@ struct Scene {
   const vec3 object_pos = vec3{0.0, 0.0, 0.0};
   ArcFour rc = ArcFour(std::format("shrink.{}", time(nullptr)));
 
+  // identity
+  frame3 rot = translation_frame(vec3{0, 0, 0});
+
   double best_radius = std::numeric_limits<double>::infinity();
 
   std::vector<frame3> cubes;
@@ -178,8 +181,13 @@ struct Scene {
                          &deg,
                          &x, &y, &z)) {
         frame3 cube = translation_frame(-center);
-        cube = rotation_frame(vec3{ax, ay, az},
-                              deg * (std::numbers::pi / 180.0)) * cube;
+        cube =
+          // rotate around cube center.
+          translation_frame(vec3{0.5, 0.5, 0.5}) *
+          rotation_frame(vec3{ax, ay, az},
+                         deg * (std::numbers::pi / 180.0)) *
+          translation_frame(vec3{-0.5, -0.5, 0.5}) *
+          cube;
         cube = translation_frame(vec3{x, y, z}) * cube;
         cube = translation_frame(center) * cube;
         cubes.push_back(cube);
@@ -257,6 +265,8 @@ struct Scene {
       auto Vertex = [&](double x, double y, double z) {
           vec3 model_vertex =
             transform_point(cube, vec3{.x = x, .y = y, .z = z});
+
+          model_vertex = transform_point(rot, model_vertex);
           return ProjectPt(persp, transform_point(frame, model_vertex));
         };
       std::array<vec3, 8> cv;
@@ -477,6 +487,11 @@ UI::EventResult UI::HandleEvents() {
         break;
       }
 
+      case SDLK_s: {
+        // XXX save as STL
+        break;
+      }
+
       case SDLK_SPACE: {
         PlayPause();
         ui_dirty = true;
@@ -559,11 +574,23 @@ UI::EventResult UI::HandleEvents() {
       //                   0
 
       switch (event.jbutton.button) {
-      case 2: ui_dirty = true; break;
-      case 3: ui_dirty = true; break;
+      case 2:
+        ui_dirty = true;
+        scene.rot = rotation_frame(vec3{1, 0, 0},
+                                   90.0 * (std::numbers::pi / 180.0));
+        break;
+      case 3:
+        ui_dirty = true;
+        scene.rot = rotation_frame(vec3{0, 1, 0},
+                                   90.0 * (std::numbers::pi / 180.0));
+        break;
       case 6: current_gamepad |= INPUT_S; break;
       case 7: current_gamepad |= INPUT_T; break;
-      case 0: current_gamepad |= INPUT_B; break;
+      case 0:
+        ui_dirty = true;
+        scene.rot = rotation_frame(vec3{0, 0, 1}, 0.0);
+        current_gamepad |= INPUT_B;
+        break;
       case 1: current_gamepad |= INPUT_A; break;
       case 4:
         ui_dirty = true;

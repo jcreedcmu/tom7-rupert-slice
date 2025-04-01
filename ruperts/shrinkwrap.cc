@@ -52,7 +52,7 @@ using quat4 = quat<double, 4>;
 
 // We just represent the unit cube (0,0,0)-(1,1,1) as its
 // rigid transformation.
-static constexpr int NUM_CUBES = 10;
+static constexpr int NUM_CUBES = 6;
 
 static constexpr int NUM_THREADS = 8;
 static StatusBar status = StatusBar(NUM_THREADS + 2);
@@ -131,6 +131,11 @@ static std::vector<std::array<frame3, 5>> Manual5() {
 static std::vector<std::array<frame3, 6>> Manual6() {
   std::vector<std::array<frame3, 6>> v;
 
+  const frame3 z45 =
+    translation_frame(vec3{.5, .5, 0}) *
+    rotation_frame(vec3{0, 0, 1}, 0.785398) *
+    translation_frame(vec3{-.5, -.5, 0});
+
   {
     // 2x2 with one centered above and below
     frame3 cube1 = translation_frame(vec3{0, 0, 0});
@@ -157,6 +162,17 @@ static std::vector<std::array<frame3, 6>> Manual6() {
                     {cube1, cube2, cube3, cube4, cube5, cube6}));
   }
 
+  {
+    frame3 cube1 = translation_frame(vec3{0, 0, 0});
+    frame3 cube2 = translation_frame(vec3{0, 1, 0});
+    frame3 cube3 = translation_frame(vec3{1, -.1, 0});
+    frame3 cube4 = translation_frame(vec3{1, 0.9, 0.5});
+    frame3 cube5 = translation_frame(vec3{0.3, 0.3, -1}) * z45;
+    frame3 cube6 = translation_frame(vec3{1.25, 1.15, -0.5}) * z45;
+
+    v.push_back(std::array<frame3, 6>(
+                    {cube1, cube2, cube3, cube4, cube5, cube6}));
+  }
 
   return v;
 }
@@ -591,9 +607,9 @@ struct Shrinkwrap {
         f.z -= eval.sphere.first.z;
 
         // Spread 'em out.
-        f.x *= 1.01;
-        f.y *= 1.01;
-        f.z *= 1.01;
+        f.x *= 1.001;
+        f.y *= 1.001;
+        f.z *= 1.001;
       }
       good.push_back(Good{.radius = radius, .cubes = cubes});
     }

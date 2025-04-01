@@ -54,6 +54,8 @@ static void PrintAll(bool noperts,
   std::unordered_map<std::string, std::vector<Solution>> solmap;
   std::set<std::string> names;
 
+  int64_t all_iters = 0;
+
   {
     SolutionDB db;
     std::vector<Attempt> atts = db.GetAllAttempts();
@@ -81,6 +83,10 @@ static void PrintAll(bool noperts,
       printf(AWHITE("%s") ":\n", name.c_str());
 
       const std::vector<Attempt> &atts = attmap[name];
+
+      for (const Attempt &att : atts) {
+        all_iters += att.iters;
+      }
 
       if (full) {
         for (const Attempt &att : atts) {
@@ -160,6 +166,8 @@ static void PrintAll(bool noperts,
       }
     }
   }
+
+  printf("Total iters: %lld\n", all_iters);
 }
 
 int main(int argc, char **argv) {
