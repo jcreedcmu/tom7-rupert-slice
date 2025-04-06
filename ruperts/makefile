@@ -159,6 +159,7 @@ perspective.exe : perspective.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
+# probably obsolete. Became shrinkwrap.
 dyson-fit.exe : dyson-fit.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
@@ -188,6 +189,10 @@ mesh_test.exe : mesh_test.o $(OBJECTS)
 	@echo -n "!"
 
 shrinkboard.exe : shrinkboard.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+churro.exe : churro.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 

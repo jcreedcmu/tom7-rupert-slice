@@ -1,0 +1,88 @@
+
+This is code relating to my paper:
+
+   "Some upsetting things about shapes (that we already knew)"
+   Tom Murphy VII, SIGBOVIK 2025, April 2025
+   http://tom7.org/ruperts/
+
+which attempts unsuccessfully to resolve the question of whether
+there exist Rupert configurations for the Archimedean and Catalan
+solids (there are five unknown ones). You can read the paper for
+more background and more details.
+
+Lots of this code works well, but I caution you against assuming
+that something in here is correct! There are things in here that
+were throwaway experiments (and sometimes I threw them away because
+they didn't work). I am not that good at math or geometry! The
+core stuff should be pretty good (ruperts, ratperts, noperts). I
+believe the polyhedra are specified correctly and that the results
+claimed in the paper are correct.
+
+This should compile with just a modern C++ compiler (I used clang 19),
+provided you have some source libraries from the same SVN repository
+in directories parallel to this one. You need: cc-lib, codec, sqlite.
+After that, just run "make -j 12".
+
+External dependencies:
+  The GPU code needs OpenCL. The CPU versions are more mature, so I
+  recommend looking at those to the extent that I recommend looking at
+  anything.
+
+  The CPU versions benefit from GMP if you have it. If not, comment
+  out those lines at the beginning of the makefile and it will instead
+  use my plain C++ implementations from cc-lib.
+
+
+To reproduce results from the paper, start with ruperts.exe to generate
+solutions to various solids. You'll want to edit the code in main
+to enable the thing you want to do. Note that it will "solve" the
+wishlist polyhedra due to floating point roundoff. If these are very
+close to 0.0 clearance or 1.0 ratio, then they are probably not
+actual solutions. ratperts can see if they are close to actual solutions.
+
+Solutions are stored in an sqlite database (solutions.h), and you can
+see the current solutions with scoreboard.exe.
+
+If you have solutions and want to make them better, run imperts.exe.
+
+If you want to try to find more polyhedra that are hard to solve, run
+noperts.exe. You can see its finds with noboard.exe. (Once you have
+some of these, ruperts.exe can spend more time trying to solve them. I
+am interested if you find new-looking polyhedra that survive a lot of
+solution attempts. If it is less than 24 vertices, that is definitely
+interesting to me!)
+
+ratperts.exe attempts to solve using rational coordinates (much
+slower), and it tries starting with the floating-point-roundoff
+configurations in the database if there are any. You probably need to
+edit it to have it work on the shapes you're interested in. Obviously
+I am interested in solutions to the wishlist polyhedra; if they come
+out of ratperts then they are probably actual solutions.
+
+gpuperts is the GPU version. I don't recommend it, but it does
+successfully solve the easy shapes.
+
+shrinkwrap was my attempt to pack cubes in spheres. I spent most of
+the time trying to get a "smallest sphere that contains these points"
+routine, but there still seems to be a problem with my implementation
+of Welzl's algorithm where it is very slow on some inputs. shrinkwrap
+readily produces such inputs. Still need to debug this.
+
+zuperts.exe generates a Z3 program (text) to try to solve or prove
+some of these impossible. I didn't have any luck with Z3.
+
+tostl.exe can turn shapes into STL files for 3D printing or whatever.
+
+soltostl.exe can compute the residue from a solution. It uses rational
+math so it should produce a proper mesh even for difficult solutions.
+It's pretty complicated, though. (The final STL output can of course
+have coincident vertices because it uses floating point numbers.) I
+use this to generate the residues in the paper.
+
+In paper/ there are some tools that generate the images in the paper,
+and the BoVeX source of the paper.
+
+In viewer/ there are some confusing tools for viewing STL meshes or
+shrinkwrap configurations. These are mostly so that I can create the
+".view" matrices for rendering the angle I want of a shape for the
+paper.

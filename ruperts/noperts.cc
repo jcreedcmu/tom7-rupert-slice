@@ -78,8 +78,6 @@ static vec3 RandomVec(ArcFour *rc) {
 // Return the number of iterations taken, or nullopt if we exceeded
 // the limit. If solved and the arguments are non-null, sets the outer
 // frame and inner frame to some solution.
-//
-// Note:
 static constexpr int NOPERT_ITERS = 200000;
 static constexpr int MIN_VERBOSE_ITERS = 5000;
 static constexpr bool SAVE_HARD = false;
@@ -209,7 +207,7 @@ struct TrySolver {
           frame3 rotate = yocto::rotation_frame(tweaked_rot);
           frame3 translate = yocto::translation_frame(
               vec3{.x = dx, .y = dy, .z = 0.0});
-          return rotate * translate;
+          return translate * rotate;
         };
 
       std::function<double(const std::array<double, D> &)> Loss =
@@ -1613,6 +1611,7 @@ static void DoAdversary(int64_t num_points) {
   db.AddNopertAttempt(num_points, polyhedra.Read(), iter_histo,
                       SolutionDB::NOPERT_METHOD_ADVERSARY);
 }
+
 
 // Prep
 static void Run(uint64_t parameter) {

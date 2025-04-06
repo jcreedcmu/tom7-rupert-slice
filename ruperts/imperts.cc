@@ -354,7 +354,7 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
               .y = original_trans.y + dy,
               .z = 0.0,
             });
-        return rotate * translate;
+        return translate * rotate;
       };
 
     std::function<double(const std::array<double, D> &)> Loss =
