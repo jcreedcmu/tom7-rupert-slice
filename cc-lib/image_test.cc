@@ -5,12 +5,23 @@
 #include <functional>
 #include <cstdint>
 
-#include "base/logging.h"
-#include "arcfour.h"
+#include "ansi-image.h"
 #include "ansi.h"
+#include "arcfour.h"
+#include "base/logging.h"
+#include "base/stringprintf.h"
 
 using uint8 = uint8_t;
 using uint32 = uint32_t;
+
+// TODO: Show the color swatches!
+#define CHECK_COLOR_EQ(cexp1, cexp2) do {               \
+  const uint32_t c1 = (cexp1), c2 = (cexp2);            \
+  CHECK(c1 == c2) <<                                    \
+    StringPrintf("Colors not equal: #%08X != #%08X\n" \
+                 "First expression:\n  %s\nSecond:\n  %s\n", \
+                 c1, c2, #cexp1, #cexp2);                    \
+  } while (0)
 
 static void TestCreateAndDestroy() {
   {
@@ -213,7 +224,7 @@ static void TestFilledCircle() {
   {
     ImageRGBA img(10, 10);
     img.Clear32(0x000000FF);
-    // This should cover the entire image.
+    // This should NOT cover the entire image.
     img.BlendFilledCircle32(4, 4, 1, 0x23458A77);
     uint32_t in_color = img.GetPixel32(4, 4);
     CHECK(in_color == 0x102040FF) << in_color;
@@ -225,6 +236,27 @@ static void TestFilledCircle() {
   }
 
   // TODO: More circle tests
+}
+
+static void TestThickCircle() {
+  {
+    ImageRGBA img(10, 10);
+    img.Clear32(0x000000FF);
+    // Should hit corners but not center.
+    img.BlendThickCircleAA32(4, 5.1, 7.0, 5.4,
+                             0xFF0000CC);
+
+    // printf("%s\n", ANSIImage::HalfChar(img, 0xAAAAAAFF).c_str());
+
+    // Color should be composited, so alpha is FF and red is
+    // former alpha.
+    CHECK_COLOR_EQ(img.GetPixel32(0, 0), 0xCC0000FF);
+    CHECK_COLOR_EQ(img.GetPixel32(0, 9), 0xCC0000FF);
+    CHECK_COLOR_EQ(img.GetPixel32(9, 0), 0xCC0000FF);
+    CHECK_COLOR_EQ(img.GetPixel32(9, 9), 0xCC0000FF);
+
+    CHECK_COLOR_EQ(img.GetPixel32(4, 5), 0x000000FF);
+  }
 }
 
 static void TestCopyImage() {
@@ -396,6 +428,7 @@ int main(int argc, char **argv) {
   TestScaleDown();
   TestLineEndpoints();
   TestFilledCircle();
+  TestThickCircle();
   TestCopyImage();
   TestTriangle();
 

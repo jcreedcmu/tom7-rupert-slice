@@ -36,7 +36,7 @@ endif
 
 RE2_OBJECTS=re2/bitstate.o re2/compile.o re2/dfa.o re2/filtered_re2.o re2/mimics_pcre.o re2/nfa.o re2/onepass.o re2/parse.o re2/perl_groups.o re2/prefilter.o re2/prefilter_tree.o re2/prog.o re2/re2.o re2/regexp.o re2/set.o re2/simplify.o re2/stringpiece.o re2/tostring.o re2/unicode_casefold.o re2/unicode_groups.o re2/util/rune.o re2/util/strutil.o
 
-TEST_UTIL=ansi.o util.o arcfour.o
+TEST_UTIL=ansi.o util.o arcfour.o image.o
 
 %.o : %.cc *.h makefile
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
@@ -114,7 +114,7 @@ textsvg_test.exe : textsvg.o textsvg_test.o $(BASE)
 lines_test.exe : lines_test.o arcfour.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-image_test.exe : image_test.o arcfour.o image.o stb_image.o stb_image_write.o $(BASE)
+image_test.exe : image_test.o arcfour.o image.o stb_image.o stb_image_write.o ansi.o ansi-image.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 util_test.exe : util_test.o util.o arcfour.o $(BASE)
@@ -254,7 +254,7 @@ image-resize_test.exe : image.o image-resize.o stb_image.o stb_image_write.o ima
 integer-voronoi_test.exe : integer-voronoi.o integer-voronoi_test.o image.o stb_image.o stb_image_write.o color-util.o arcfour.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-zip_test.exe : zip.o zip_test.o miniz.o arcfour.o ansi.o util.o $(BASE)
+zip_test.exe : zip.o zip_test.o miniz.o arcfour.o ansi.o util.o image.o stb_image.o stb_image_write.o $(BASE)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 status-bar_test.exe : status-bar.o status-bar_test.o ansi.o util.o $(BASE)

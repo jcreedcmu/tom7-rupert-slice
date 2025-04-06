@@ -274,7 +274,7 @@ struct BigRat {
 
   inline ~BigRat();
 
-  // In base 10.
+  // In base 10, as either an integer (with denominator = 1) or "n/d".
   inline std::string ToString() const;
   // Should get the result within one ULP for all representable
   // doubles. Returns positive or negative infinity if the value is

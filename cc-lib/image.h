@@ -169,6 +169,9 @@ struct ImageRGBA {
   // PERF: Slow (rasterizes the entire bounding box).
   void BlendThickCircle32(float x, float y, float circle_radius,
                           float line_radius, uint32 color);
+  // Even slower.
+  void BlendThickCircleAA32(float x, float y, float circle_radius,
+                            float line_radius, uint32 color);
 
   // Blend a filled triangle. Either winding order.
   // PERF: Slow (rasterizes the entire bounding box).
@@ -201,7 +204,9 @@ struct ImageRGBA {
 
   // Ignore the alpha channel.
   ImageRGB IgnoreAlpha() const;
-  // TODO: Remove alpha with matte.
+  // TODO: Remove alpha with matte. Ignores alpha component
+  // of matte_rgba.
+  ImageRGB CompositeOntoMatte(uint32_t matte_rgba) const;
 
   // Images must all be the same dimensions.
   static ImageRGBA FromChannels(const ImageA &red,
@@ -276,6 +281,9 @@ struct ImageRGB {
 
   // Convert to RGBA format with a constant alpha value; typically 0xFF.
   ImageRGBA AddAlpha(uint8_t a = 0xFF) const;
+
+  // R-G-B byte order.
+  std::vector<uint8> ToBuffer8() const;
 
   // TODO: Extract individual channels, or build from channels.
 

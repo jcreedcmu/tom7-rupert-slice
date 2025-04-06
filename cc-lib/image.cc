@@ -945,7 +945,7 @@ void ImageRGBA::BlendFilledCircleAA32(float x, float y, float r, uint32 color) {
           return dd <= rr ? 1 : 0;
         };
       uint8_t aout;
-      if (SAMPLE_9) {
+      if constexpr (SAMPLE_9) {
         int inside = 0;
 
         // spaced by thirds, but offset by one sixth.
@@ -965,7 +965,7 @@ void ImageRGBA::BlendFilledCircleAA32(float x, float y, float r, uint32 color) {
         aout = alpha4[inside];
       }
 
-      // PERF could compute the 32-bit color once
+      // PERF alpha array could actually be rgba array
       BlendPixel32(xx, yy, rgb0 | aout);
     }
   }
@@ -1033,6 +1033,93 @@ void ImageRGBA::BlendThickCircle32(float x, float y, float circle_radius,
     }
   }
 }
+
+void ImageRGBA::BlendThickCircleAA32(float x, float y, float circle_radius,
+                                     float line_radius, uint32_t color) {
+
+  const float outer_radius = circle_radius + line_radius * 0.5f;
+  const float inner_radius = circle_radius - line_radius * 0.5f;
+
+  // Degenerate.
+  if (inner_radius <= 0.0f)
+    return BlendFilledCircleAA32(x, y, inner_radius, color);
+
+  const int xmin = std::max(0, (int)std::floor(x - outer_radius));
+  const int ymin = std::max(0, (int)std::floor(y - outer_radius));
+  const int xmax = std::min(width - 1, (int)std::ceil(x + outer_radius));
+  const int ymax = std::min(height - 1, (int)std::ceil(y + outer_radius));
+
+  const float orr = outer_radius * outer_radius;
+  const float irr = inner_radius * inner_radius;
+
+  const uint32_t rgb0 = color & 0xFFFFFF00;
+  const uint16_t a = color & 0xFF;
+
+  // IMO, noticeably better
+  static constexpr bool SAMPLE_9 = true;
+
+  // alpha values for 0-4 hits
+  const std::array<uint8_t, 5> alpha4 = {
+    (uint8_t)0x00,
+    (uint8_t)(a >> 2),
+    (uint8_t)(a >> 1),
+    (uint8_t)((a * 3) >> 2),
+    (uint8_t)a
+  };
+
+  // and for 0-9
+  const std::array<uint8_t, 10> alpha9 = {
+    (uint8_t)0x00,
+    (uint8_t)((a * 1) / 9),
+    (uint8_t)((a * 2) / 9),
+    (uint8_t)((a * 3) / 9),
+    (uint8_t)((a * 4) / 9),
+    (uint8_t)((a * 5) / 9),
+    (uint8_t)((a * 6) / 9),
+    (uint8_t)((a * 7) / 9),
+    (uint8_t)((a * 8) / 9),
+    (uint8_t)a,
+  };
+
+  // integer grid
+  for (int yy = ymin; yy <= ymax; yy++) {
+    const float dy = yy - y;
+    for (int xx = xmin; xx <= xmax; xx++) {
+      const float dx = xx - x;
+      // Sample four corners. Here we treat the pixel as being
+      // the top-left corner.
+      auto Sample = [dx, dy, orr, irr](float adx, float ady) {
+          const float dxs = dx + adx, dys = dy + ady;
+          const float dd = (dxs * dxs) + (dys * dys);
+          return (dd <= orr && dd > irr) ? 1 : 0;
+        };
+      uint8_t aout;
+      if constexpr (SAMPLE_9) {
+        int inside = 0;
+
+        // spaced by thirds, but offset by one sixth.
+        for (int sy : {1, 3, 5}) {
+          for (int sx : {1, 3, 5}) {
+            inside += Sample(sx / 6.0f, sy / 6.0f);
+          }
+        }
+
+        aout = alpha9[inside];
+      } else {
+        int inside = 0;
+        inside += Sample(0.25f, 0.25f);
+        inside += Sample(0.25f, 0.75f);
+        inside += Sample(0.75f, 0.25f);
+        inside += Sample(0.75f, 0.75f);
+        aout = alpha4[inside];
+      }
+
+      // PERF alpha array could actually be rgba array
+      BlendPixel32(xx, yy, rgb0 | aout);
+    }
+  }
+}
+
 
 void ImageRGBA::BlendTriangle32(int x0, int y0,
                                 int x1, int y1,
@@ -1273,6 +1360,13 @@ ImageRGB ImageRGBA::IgnoreAlpha() const {
   return ImageRGB(std::move(rgb), width, height);
 }
 
+ImageRGB ImageRGBA::CompositeOntoMatte(uint32_t matte_rgba) const {
+  ImageRGB ret(width, height);
+  ret.Clear32(matte_rgba);
+  ret.BlendImage(0, 0, *this);
+  return ret;
+}
+
 std::tuple<float, float, float, float>
 ImageRGBA::SampleBilinear(float x, float y) const {
   // Truncate to integer pixels.
@@ -1396,6 +1490,10 @@ bool ImageRGB::SavePNG(const std::string &filename) const {
 vector<uint8> ImageRGB::SavePNGToVec() const {
   CHECK((int)rgb.size() == width * height * 3);
   return stbi_make_png_rgb(width, height, rgb.data());
+}
+
+std::vector<uint8_t> ImageRGB::ToBuffer8() const {
+  return rgb;
 }
 
 string ImageRGB::SavePNGToString() const {
