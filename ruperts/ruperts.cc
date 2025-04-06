@@ -414,7 +414,7 @@ struct SimulSolver : public Solver<SolutionDB::METHOD_SIMUL> {
       [this, &OuterFrame, &InnerFrame](
           const std::array<double, D> &args) {
         attempts++;
-        return LossFunction(polyhedron, OuterFrame(args), InnerFrame(args));
+        return LossFunctionContainsOrigin(polyhedron, OuterFrame(args), InnerFrame(args));
       };
 
     constexpr double Q = 0.15;
@@ -907,7 +907,7 @@ struct OriginSolver : public Solver<SolutionDB::METHOD_ORIGIN> {
     std::function<double(const std::array<double, D> &)> Loss =
         [this, &OuterFrame, &InnerFrame](const std::array<double, D> &args) {
           attempts++;
-          return LossFunction(polyhedron, OuterFrame(args), InnerFrame(args));
+          return LossFunctionContainsOrigin(polyhedron, OuterFrame(args), InnerFrame(args));
         };
 
     constexpr double Q = 0.25;
@@ -981,7 +981,7 @@ struct AlmostIdSolver : public Solver<SolutionDB::METHOD_ALMOST_ID> {
       [this, &OuterFrame, &InnerFrame](
           const std::array<double, D> &args) {
         attempts++;
-        return LossFunction(polyhedron, OuterFrame(args), InnerFrame(args));
+        return LossFunctionContainsOrigin(polyhedron, OuterFrame(args), InnerFrame(args));
       };
 
     constexpr double Q = 0.001;

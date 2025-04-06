@@ -131,7 +131,7 @@ static std::optional<int> DoSolve(int thread_idx,
       [&poly, &OuterFrame, &InnerFrame](
           const std::array<double, D> &args) {
         solve_attempts++;
-        return LossFunction(poly, OuterFrame(args), InnerFrame(args));
+        return LossFunctionContainsOrigin(poly, OuterFrame(args), InnerFrame(args));
       };
 
     constexpr double Q = 0.15;

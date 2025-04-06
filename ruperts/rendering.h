@@ -28,6 +28,10 @@ struct Rendering {
                   float r = 20.0f,
                   uint32_t color = 0xFFFF00AA);
 
+  void RenderSolution(const Polyhedron &p,
+                      const frame3 &outer_frame,
+                      const frame3 &inner_frame);
+
   void RenderTriangle(const Mesh2D &mesh, int ai, int bi, int ci,
                       uint32_t color);
 

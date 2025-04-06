@@ -196,5 +196,9 @@ churro.exe : churro.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
+dtest.exe : dtest.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
 clean :
 	rm -f *.o *.exe $(OBJECTS)

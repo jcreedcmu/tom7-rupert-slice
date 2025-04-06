@@ -1113,9 +1113,9 @@ std::pair<int, int> TwoNonParallelFaces(ArcFour *rc, const Polyhedron &poly) {
 // a better choice for large numbers of vertices, and computing
 // the hull/hullcircle is probably pointless for something like
 // the tetrahedron).
-double LossFunction(const Polyhedron &poly,
-                    const frame3 &outer_frame,
-                    const frame3 &inner_frame) {
+double LossFunctionContainsOrigin(const Polyhedron &poly,
+                                  const frame3 &outer_frame,
+                                  const frame3 &inner_frame) {
   Mesh2D souter = Shadow(Rotate(poly, outer_frame));
   Mesh2D sinner = Shadow(Rotate(poly, inner_frame));
 
@@ -1139,6 +1139,43 @@ double LossFunction(const Polyhedron &poly,
     if (circle.DefinitelyInside(iv))
       continue;
 
+    if (!InHull(souter, outer_hull, iv)) {
+      // slow :(
+      error += DistanceToHull(souter.vertices, outer_hull, iv);
+      errors++;
+    }
+  }
+
+  if (error == 0.0 && errors > 0) [[unlikely]] {
+    // If they are not in the mesh, don't return an actual zero.
+    return std::numeric_limits<double>::min() * errors;
+  } else {
+    return error;
+  }
+}
+
+
+double LossFunction(const Polyhedron &poly,
+                    const frame3 &outer_frame,
+                    const frame3 &inner_frame) {
+  Mesh2D souter = Shadow(Rotate(poly, outer_frame));
+  Mesh2D sinner = Shadow(Rotate(poly, inner_frame));
+
+  // Although computing the convex hull is expensive, the tests
+  // below are O(n*m), so it is helpful to significantly reduce
+  // one of the factors.
+  const std::vector<int> outer_hull = GrahamScan(souter.vertices);
+  if (outer_hull.size() < 3) {
+    // If the outer hull is degenerate, then the inner hull
+    // cannot be strictly within it. We don't have a good
+    // way to measure the gradient here, though.
+    return 1'000'000.0;
+  }
+
+  // Does every vertex in inner fall inside the outer shadow?
+  double error = 0.0;
+  int errors = 0;
+  for (const vec2 &iv : sinner.vertices) {
     if (!InHull(souter, outer_hull, iv)) {
       // slow :(
       error += DistanceToHull(souter.vertices, outer_hull, iv);

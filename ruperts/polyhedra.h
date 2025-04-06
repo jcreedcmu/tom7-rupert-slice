@@ -241,6 +241,9 @@ double AreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull);
 // be done much faster by just testing whether it's a known distance
 // from the hull. This represents the circumscribed circle of the hull,
 // centered at the origin.
+//
+// Note that this requires for correctness (but does not check) that
+// the hull contains the origin.
 struct HullCircumscribedCircle {
   HullCircumscribedCircle(const std::vector<vec2> &vertices,
                           const std::vector<int> &hull) {
@@ -261,6 +264,9 @@ struct HullCircumscribedCircle {
 
 // Same idea, but with an inscribed circle. This touches edges, not
 // vertices.
+//
+// Note that this requires for correctness (but does not check) that
+// the hull contains the origin.
 struct HullInscribedCircle {
   HullInscribedCircle(const std::vector<vec2> &vertices,
                       const std::vector<int> &hull) {
@@ -389,6 +395,15 @@ double TriangleSignedDistance(vec2 p0, vec2 p1, vec2 p2, vec2 p);
 // Standard loss function for solution procedure. This recomputes the
 // entire problem; if some of the parameters are fixed (e.g. the outer
 // transformation) then you should not use this!
+//
+// Requires that outer the polyhedron contain the origin after applying
+// the frame. This is typical (P/A/C solids all contain it; usually we
+// do not translate the outer poly). If you aren't sure, use LossFunction.
+double LossFunctionContainsOrigin(const Polyhedron &poly,
+                                  const frame3 &outer_frame,
+                                  const frame3 &inner_frame);
+
+// Same, but does not assume the outer polyhedron contains the origin.
 double LossFunction(const Polyhedron &poly,
                     const frame3 &outer_frame,
                     const frame3 &inner_frame);

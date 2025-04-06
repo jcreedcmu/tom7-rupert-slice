@@ -103,7 +103,8 @@ struct TrySolver {
       MutexLock ml(&mu);
       for (const CacheEntry &entry : cache) {
         attempts++;
-        double d = LossFunction(poly, entry.outer_frame, entry.inner_frame);
+        double d = LossFunction(
+            poly, entry.outer_frame, entry.inner_frame);
         if (d <= 0.0) {
           if (outer_frame_out != nullptr) {
             *outer_frame_out = entry.outer_frame;
@@ -214,6 +215,9 @@ struct TrySolver {
         [&poly, &OuterFrame, &InnerFrame](
             const std::array<double, D> &args) {
           attempts++;
+          // Note that random polyhedra often do not contain the
+          // origin, so it is not sound to use LossFunctionContainsOrigin.
+          // We could consider requiring this (using smallest sphere)?
           return LossFunction(poly, OuterFrame(args), InnerFrame(args));
         };
 

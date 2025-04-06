@@ -116,7 +116,7 @@ static double ClearanceLoss(
 
   // Otherwise we have some point outside.
   // PERF: We should reuse the computations from GetClearance here.
-  return 10000.0 + LossFunction(poly, outer_frame, inner_frame);
+  return 10000.0 + LossFunctionContainsOrigin(poly, outer_frame, inner_frame);
 }
 
 static double MethodLoss(
