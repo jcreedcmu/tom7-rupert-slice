@@ -115,7 +115,7 @@ static void Validate() {
     rendering.RenderTriangulation(souter, 0xAA0000FF);
     rendering.RenderTriangulation(sinner, 0x00FF00AA);
     // This looks correct.
-    rendering.Save(StringPrintf("validate-recreate-%s.png", poly.name));
+    rendering.Save(std::format("validate-recreate-{}.png", poly.name));
   }
 
   printf("Made BigQuats\n");
@@ -135,7 +135,7 @@ static void Validate() {
     Rendering rendering(poly, 1920, 1080);
     rendering.RenderTriangulation(souter, 0xAA0000FF);
     // This looks correct.
-    rendering.Save(StringPrintf("validate-rotated-%s.png", poly.name));
+    rendering.Save(std::format("validate-rotated-{}.png", poly.name));
   }
 
   printf("Rotated\n");

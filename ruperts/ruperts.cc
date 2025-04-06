@@ -70,7 +70,7 @@ static void SaveSolution(const Polyhedron &poly,
     Rendering rendering(poly, 3840, 2160);
     rendering.RenderHull(souter, outer_hull, 0xAA0000FF);
     rendering.RenderHull(sinner, inner_hull, 0x00FF00AA);
-    rendering.Save(StringPrintf("hulls-%s.png", poly.name));
+    rendering.Save(std::format("hulls-{}.png", poly.name));
   }
 
   std::optional<double> new_ratio =
@@ -93,7 +93,7 @@ static void SaveSolution(const Polyhedron &poly,
 
   printf("Added solution (" AYELLOW("%s") ") to database with "
          "ratio " APURPLE("%.17g") ", clearance " ABLUE("%.17g") "\n",
-         poly.name, ratio, clearance);
+         poly.name.c_str(), ratio, clearance);
 }
 
 static constexpr int NUM_THREADS = 4;
@@ -161,8 +161,8 @@ struct Solver {
     status->Printf("Solved! %lld iters, %lld attempts, in %s\n", iters.Read(),
                    attempts.Read(), ANSI::Time(run_timer.Seconds()).c_str());
 
-    WriteImage(StringPrintf("solved-%s-%s.png", LowerMethod().c_str(),
-                            polyhedron.name),
+    WriteImage(std::format("solved-{}-{}.png", LowerMethod(),
+                           polyhedron.name),
                outer_frame, inner_frame);
 
     std::string contents =
@@ -175,8 +175,8 @@ struct Solver {
                   "\n%s\n",
                   error_histo.SimpleAsciiString(50).c_str());
 
-    std::string sfile = StringPrintf("solution-%s-%s.txt",
-                                     LowerMethod().c_str(),
+    std::string sfile = std::format("solution-{}-{}.txt",
+                                     LowerMethod(),
                                      polyhedron.name);
 
     Util::WriteFile(sfile, contents);
@@ -192,8 +192,7 @@ struct Solver {
     ParallelFan(
       NUM_THREADS,
       [&](int thread_idx) {
-        ArcFour rc(StringPrintf("solve.%d.%lld", thread_idx,
-                                time(nullptr)));
+        ArcFour rc(std::format("solve.{}.{}", thread_idx, time(nullptr)));
 
         for (;;) {
           {
@@ -234,8 +233,8 @@ struct Solver {
                 // PERF: Maybe only write this at the end when
                 // there is a time limit?
                 std::string file_base =
-                  StringPrintf("best-%s-%s.%lld",
-                               LowerMethod().c_str(),
+                  std::format("best-{}-{}.%lld",
+                               LowerMethod(),
                                polyhedron.name, iters.Read());
                 WriteImage(file_base + ".png", outer_frame, inner_frame);
               }
@@ -253,8 +252,8 @@ struct Solver {
                 std::string bar =
                   ANSI::ProgressBar(
                       (int64_t)total_time, end_sec,
-                      StringPrintf(APURPLE("%s") " | " ACYAN("%s"),
-                                   polyhedron.name, LowerMethod().c_str()),
+                      std::format(APURPLE("{}") " | " ACYAN("{}"),
+                                  polyhedron.name, LowerMethod()),
                       total_time);
 
                 // TODO: Can use progress bar when there's a timer.
@@ -1014,7 +1013,7 @@ static void SolveAlmostId(const Polyhedron &polyhedron, StatusBar *status,
 static void SolveWith(const Polyhedron &poly, int method, StatusBar *status,
                       std::optional<double> time_limit) {
   status->Printf("Solve " AYELLOW("%s") " with " AWHITE("%s") "...\n",
-                 poly.name,
+                 poly.name.c_str(),
                  SolutionDB::MethodName(method));
 
   switch (method) {
@@ -1062,7 +1061,7 @@ static void ReproduceEasySolutions(
       if (HasSolutionWithMethod(poly)) {
         status.Printf(
             "Already solved " AYELLOW("%s") " with " AWHITE("%s") "\n",
-            poly.name, SolutionDB::MethodName(method));
+            poly.name.c_str(), SolutionDB::MethodName(method));
       } else {
         SolveWith(poly, method, &status, time_limit);
       }
@@ -1257,7 +1256,7 @@ static void GrindRandom(const std::unordered_set<std::string> &poly_filter) {
 
       std::vector<std::pair<const Polyhedron *, int>> remaining;
       for (const Polyhedron &poly : all) {
-        printf(AWHITE("%s") ":", poly.name);
+        printf(AWHITE("%s") ":", poly.name.c_str());
         bool has_solution = false;
         for (int method : {
             SolutionDB::METHOD_HULL,
@@ -1310,8 +1309,10 @@ int main(int argc, char **argv) {
   StatusBar status(STATUS_LINES);
 
   if (argc > 1) {
+    SolutionDB db;
     std::string name = argv[1];
-    Polyhedron poly = PolyhedronByName(name);
+    Polyhedron poly = // PolyhedronByName(name);
+      db.AnyPolyhedronByName(name);
 
     for (;;) {
       SolveWith(poly, SolutionDB::METHOD_SIMUL, &status, 3600.0);
@@ -1322,7 +1323,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (false) {
+  if (true) {
     GrindNoperts();
   }
 

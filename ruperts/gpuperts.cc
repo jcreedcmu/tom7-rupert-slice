@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <format>
 #include <limits>
 #include <optional>
 #include <string>
@@ -335,7 +336,7 @@ struct RupertGPU {
 
           }
         }
-        eimg.Save(StringPrintf("%s-err-debug.png", poly.name));
+        eimg.Save(std::format("{}-err-debug.png", poly.name));
       }
 
       printf("Success at index %d! Reading solution...\n", idx);
@@ -465,8 +466,7 @@ struct RupertGPU {
                 QuatString(oq).c_str(),
                 QuatString(iq).c_str(),
                 t.x, t.y);
-          Util::WriteFile(StringPrintf("%s-gpu-solved.txt", poly.name),
-                          sol);
+          Util::WriteFile(std::format("{}-gpu-solved.txt", poly.name), sol);
           printf("%s", sol.c_str());
 
           Rendering rendering(poly, 1920, 1080);
@@ -479,7 +479,7 @@ struct RupertGPU {
           rendering.DarkenBG();
           rendering.RenderMesh(sinner);
           rendering.RenderBadPoints(sinner, souter);
-          rendering.Save(StringPrintf("%s-gpu-solved.png", poly.name));
+          rendering.Save(std::format("{}-gpu-solved.png", poly.name));
           return;
         }
         TIME_END(solution);
@@ -603,7 +603,7 @@ static void Run() {
   // Polyhedron target = Dodecahedron();
   RupertGPU gpupert(target, 10000);
 
-  printf("Running on the " APURPLE("%s") "\n", target.name);
+  printf("Running on the " APURPLE("%s") "\n", target.name.c_str());
   gpupert.Run();
   printf("Run done\n");
 

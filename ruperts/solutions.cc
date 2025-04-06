@@ -429,7 +429,7 @@ Polyhedron SolutionDB::AnyPolyhedronByName(std::string_view name) {
     Nopert nopert = db.GetNopert(id);
 
     std::optional<Polyhedron> opoly =
-      PolyhedronFromVertices(nopert.vertices, "nopert");
+      PolyhedronFromVertices(nopert.vertices, std::format("nopert_{}", id));
     if (!opoly.has_value()) {
       printf("Error constructing nopert #%d\n", id);
       for (const vec3 &v : nopert.vertices) {

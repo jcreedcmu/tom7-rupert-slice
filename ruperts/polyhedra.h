@@ -75,7 +75,7 @@ struct Polyhedron {
   // a new Faces object that you have to manage.
   const Faces *faces = nullptr;
   // The optional name of the polyhedron.
-  const char *name = "";
+  std::string name;
   // The optional symmetry group(s).
   SymmetryGroup symmetry = SYM_UNKNOWN;
 };
@@ -360,6 +360,15 @@ void SaveAsSTL(const Polyhedron &poly, std::string_view filename);
 void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
                           std::string_view filename);
 
+// Save polyhedron as JSON.
+void SaveAsJSON(const Polyhedron &poly, std::string_view filename);
+
+// Save solution as JSON.
+void SaveAsJSON(const frame3 &outer_frame,
+                const frame3 &inner_frame,
+                std::string_view filename);
+
+
 // Unpack a rigid frame into a rotation (as a normalized quaternion)
 // and a translation vector. If the matrix is not actually a rigid
 // transform, then the result may not be meaningful.
@@ -407,12 +416,12 @@ TriangularMesh3D ApproximateSphere(int depth);
 // by the caller. Can fail if the points are not actually a convex
 // hull, returning nullopt.
 std::optional<Polyhedron> PolyhedronFromConvexVertices(
-    std::vector<vec3> vertices, const char *name = "");
+    std::vector<vec3> vertices, std::string_view name = "");
 
 // First compute the convex hull and discard points outside it.
 // Then, the same as above. This only fails for degenerate point sets.
 std::optional<Polyhedron> PolyhedronFromVertices(
-    std::vector<vec3> vertices, const char *name = "");
+    std::vector<vec3> vertices, std::string_view name = "");
 
 // Return a newly constructed polyhedron (from below) by its name,
 // or abort.

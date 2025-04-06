@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <format>
 #include <numbers>
 #include <string>
 #include <utility>
@@ -34,7 +35,7 @@ static void AnimateMesh(const Polyhedron &poly) {
 
   constexpr int SIZE = 1080;
   constexpr int FRAMES = 10 * 60;
-  MovRecorder rec(StringPrintf("animate-%s.mov", poly.name), SIZE, SIZE);
+  MovRecorder rec(std::format("animate-{}.mov", poly.name), SIZE, SIZE);
 
   StatusBar status(2);
   Periodically status_per(1.0);
@@ -185,7 +186,7 @@ static void Visualize(const Polyhedron &poly) {
       rendering.RenderPerspectiveWireframe(rpoly, Rendering::Color(i));
     }
 
-    rendering.Save(StringPrintf("wireframe-%s.png", poly.name));
+    rendering.Save(std::format("wireframe-{}.png", poly.name));
   }
 
   {
@@ -203,7 +204,7 @@ static void Visualize(const Polyhedron &poly) {
     printf("Hull size %d\n", (int)hull.size());
     // rendering.RenderHull(mesh, hull);
 
-    rendering.Save(StringPrintf("shadow-%s.png", poly.name));
+    rendering.Save(std::format("shadow-{}.png", poly.name));
   }
 }
 

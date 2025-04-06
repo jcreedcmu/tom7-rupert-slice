@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <format>
 #include <functional>
 #include <limits>
 #include <mutex>
@@ -191,8 +192,8 @@ static void SaveImprovement(SolutionDB *db,
     Render(outer_frame, inner_frame,
            0xAA0000FF, 0x00FF00AA, true);
 
-    rendering.Save(StringPrintf("impert-%s-%lld.png",
-                                poly.name, time(nullptr)));
+    rendering.Save(std::format("impert-{}-{}.png",
+                               poly.name, time(nullptr)));
   }
 
   std::string old_ratio_str = ARED("(invalid)");;
@@ -207,7 +208,7 @@ static void SaveImprovement(SolutionDB *db,
 
   printf("Added solution (" AYELLOW("%s") ") to db; "
          "ratio " "%s" AGREEN(" → ") ACYAN("%.7g") "\n",
-         poly.name, old_ratio_str.c_str(), ratio);
+         poly.name.c_str(), old_ratio_str.c_str(), ratio);
 }
 
 
@@ -607,7 +608,7 @@ struct Imperts {
 
           status->Printf("[" AYELLOW("%d") "] #%d. " AWHITE("%s") " "
                          "(via %s)\n",
-                         thread_idx, solution.id, poly.name,
+                         thread_idx, solution.id, poly.name.c_str(),
                          SolutionDB::MethodName(solution.method));
 
           Timer solve_timer;
@@ -632,8 +633,8 @@ struct Imperts {
             MutexLock ml(&m);
 
             threadstatus[thread_idx] =
-              StringPrintf("Completed " AWHITE("%s") "[%d]", poly.name,
-                           solution.id);
+              std::format("Completed " AWHITE("{}") "[{}]", poly.name,
+                          solution.id);
 
             total_gen_sec += gen_sec;
             total_solve_sec += solve_sec;

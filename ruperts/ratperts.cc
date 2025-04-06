@@ -132,7 +132,7 @@ struct BigSolver {
     Rendering rendering(poly, 3840, 2160);
     rendering.RenderTriangulation(souter, 0xAA0000FF);
     rendering.RenderTriangulation(sinner, 0x00FF00AA);
-    rendering.Save(filename, poly.name);
+    rendering.Save(filename);
     status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
   }
 
@@ -177,7 +177,7 @@ struct BigSolver {
     iters.Reset();
 
     status->Printf("Running on " APURPLE("%s") ".\n",
-                   polyhedron.name);
+                   polyhedron.name.c_str());
 
     ParallelFan(
       NUM_OUTER_THREADS,
@@ -202,7 +202,7 @@ struct BigSolver {
               status->Printf(
                   "[" AWHITE("rational") " " APURPLE("%s")
                   "] Time limit exceeded after %s\n",
-                  polyhedron.name,
+                  polyhedron.name.c_str(),
                   ANSI::Time(run_timer.Seconds()).c_str());
               return;
             }
@@ -233,8 +233,8 @@ struct BigSolver {
                 std::string bar =
                   ANSI::ProgressBar(
                       (int64_t)total_time, end_sec,
-                      StringPrintf(APURPLE("%s") " | " ACYAN("%s"),
-                                   polyhedron.name, LowerMethod().c_str()),
+                      std::format(APURPLE("{}") " | " ACYAN("{}"),
+                                  polyhedron.name, LowerMethod()),
                       total_time);
 
                 status->EmitLine(NUM_OUTER_THREADS, bar.c_str());

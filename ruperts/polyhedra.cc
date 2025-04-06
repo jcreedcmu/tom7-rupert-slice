@@ -1,7 +1,6 @@
 
 #include "polyhedra.h"
 
-#include <set>
 #include <format>
 #include <limits>
 #include <string_view>
@@ -30,7 +29,6 @@
 #include "randutil.h"
 #include "set-util.h"
 #include "util.h"
-#include "point-map.h"
 
 #include "yocto_matht.h"
 
@@ -1195,7 +1193,6 @@ std::optional<double> GetRatio(const Polyhedron &poly,
 std::optional<double> GetClearance(const Polyhedron &poly,
                                    const frame3 &outer_frame,
                                    const frame3 &inner_frame) {
-  // Compute new error ratio.
   Polyhedron outer = Rotate(poly, outer_frame);
   Polyhedron inner = Rotate(poly, inner_frame);
   Mesh2D souter = Shadow(outer);
@@ -1275,6 +1272,73 @@ void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
 
   delete tet.faces;
 }
+
+void SaveAsJSON(const Polyhedron &poly, std::string_view filename) {
+  std::string contents = "{\n";
+  AppendFormat(&contents, " \"name\": \"{}\",\n", poly.name);
+  StringAppendF(&contents, " \"verts\": [\n");
+  const auto &verts = poly.vertices;
+  for (int ii = 0; ii < verts.size(); ++ ii) {
+    const auto &v = verts[ii];
+    AppendFormat(&contents, "  [{},{},{}]", v[0], v[1], v[2]);
+    if (ii + 1 < verts.size()) {
+      AppendFormat(&contents, ",\n");
+    }
+  }
+  AppendFormat(&contents, "],\n");
+  AppendFormat(&contents, " \"faces\": [\n");
+  for (int ii = 0; ii < poly.faces->v.size(); ++ ii) {
+    AppendFormat(&contents, "  [");
+    const auto &face = poly.faces->v[ii];
+    int n = face.size();
+    for (int jj = 0; jj < n; ++jj) {
+      int vidx = face[jj];
+      AppendFormat(&contents, "{}", vidx);
+      if (jj + 1 < n) {
+        AppendFormat(&contents, ",");
+      }
+    }
+    AppendFormat(&contents, "]");
+    if (ii + 1 < poly.faces->v.size()) {
+      AppendFormat(&contents, ",\n");
+    }
+  }
+  AppendFormat(&contents, "]");
+
+  StringAppendF(&contents, "\n}\n");
+
+  std::string f = (std::string)filename;
+  Util::WriteFile(f, contents);
+  printf("Wrote " AGREEN("%s") "\n", f.c_str());
+}
+
+void SaveAsJSON(const frame3 &outer_frame,
+                const frame3 &inner_frame,
+                std::string_view filename) {
+  std::string contents = "{\n";
+  AppendFormat(
+      &contents,
+      " \"outerframe\": "
+      "[\n  {},{},{},\n  {},{},{},\n  {},{},{},\n  {},{},{}],",
+      outer_frame.x.x, outer_frame.x.y, outer_frame.x.z,
+      outer_frame.y.x, outer_frame.y.y, outer_frame.y.z,
+      outer_frame.z.x, outer_frame.z.y, outer_frame.z.z,
+      outer_frame.o.x, outer_frame.o.y, outer_frame.o.z);
+  AppendFormat(
+      &contents,
+      " \"innerframe\": "
+      "[\n  {},{},{},\n  {},{},{},\n  {},{},{},\n  {},{},{}]",
+      inner_frame.x.x, inner_frame.x.y, inner_frame.x.z,
+      inner_frame.y.x, inner_frame.y.y, inner_frame.y.z,
+      inner_frame.z.x, inner_frame.z.y, inner_frame.z.z,
+      inner_frame.o.x, inner_frame.o.y, inner_frame.o.z);
+  StringAppendF(&contents, "\n}\n");
+
+  std::string f = (std::string)filename;
+  Util::WriteFile(f, contents);
+  printf("Wrote " AGREEN("%s") "\n", f.c_str());
+}
+
 
 Polyhedron PolyhedronByName(std::string_view name) {
   if (name == "tetrahedron") return Tetrahedron();
@@ -1676,7 +1740,7 @@ TriangularMesh3D ApproximateSphere(int depth) {
 template<bool FRAGILE>
 static bool InitPolyhedronInternal(
     std::vector<vec3> vertices,
-    const char *name,
+    std::string_view name,
     Polyhedron *out) {
   static constexpr int VERBOSE = 0;
 
@@ -1761,7 +1825,7 @@ static bool InitPolyhedronInternal(
 
   if (VERBOSE > 0) {
     printf("%s: There are %d vertices.\n",
-           name, (int)vertices.size());
+           std::string(name).c_str(), (int)vertices.size());
   }
 
   // wlog i > j > k.
@@ -1780,7 +1844,7 @@ static bool InitPolyhedronInternal(
 
   if (VERBOSE > 0) {
     printf("%s: There are %d distinct faces.\n",
-           name, (int)all_faces.size());
+           std::string(name).c_str(), (int)all_faces.size());
   }
 
   // Make it deterministic.
@@ -1839,7 +1903,7 @@ static bool InitPolyhedronInternal(
     return false;
 
   out->vertices = std::move(vertices);
-  out->name = name;
+  out->name = std::string(name);
   return true;
 }
 
@@ -1853,7 +1917,7 @@ static Polyhedron MakeConvexOrDie(
 }
 
 std::optional<Polyhedron> PolyhedronFromConvexVertices(
-    std::vector<vec3> vertices, const char *name) {
+    std::vector<vec3> vertices, std::string_view name) {
   Polyhedron poly;
   if (!InitPolyhedronInternal<false>(vertices, name, &poly)) {
     return std::nullopt;
@@ -1865,7 +1929,7 @@ std::optional<Polyhedron> PolyhedronFromConvexVertices(
 // that the hull code generates. We can fuse coplanar faces, or
 // in the internals I think it has an even better representation.
 std::optional<Polyhedron> PolyhedronFromVertices(
-    std::vector<vec3> vertices, const char *name) {
+    std::vector<vec3> vertices, std::string_view name) {
   if (vertices.size() < 4) return {};
   std::vector<int> hull = Hull3D::HullPoints(vertices);
   std::vector<vec3> hull_vertices;

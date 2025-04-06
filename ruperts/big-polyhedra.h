@@ -40,7 +40,7 @@ struct BigQuat {
 struct BigPoly {
   std::vector<BigVec3> vertices;
   const Faces *faces = nullptr;
-  const char *name = "";
+  std::string name;
 };
 
 struct BigMesh2D {
