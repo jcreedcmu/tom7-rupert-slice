@@ -4137,7 +4137,8 @@ bool PDF::AddImageRGB(float x, float y,
 
   // Also easy to support JPG here.
   if (compression == CompressionType::PNG) {
-    std::vector<uint8_t> png = img.SavePNGToVec();
+    std::vector<uint8_t> png =
+      ZIP::RGBEncodeAsPNG(img.Width(), img.Height(), img.ToBuffer8());
     return pdf_add_png_data(x, y,
                             display_width, display_height,
                             png.data(), png.size(),

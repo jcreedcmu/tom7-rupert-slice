@@ -16,6 +16,7 @@
 #include "util.h"
 #include "periodically.h"
 #include "timer.h"
+#include "image.h"
 
 // These do whole-buffer decompression, but using the stream interface,
 // to exercise that.
@@ -531,6 +532,51 @@ static void TestZlib() {
   printf("zlib round trip " AGREEN("OK") "\n");
 }
 
+static void TestPNGRGBA() {
+  ImageRGBA img(16, 16);
+  img.Clear32(0xFF3355CC);
+  img.BlendFilledCircle32(3, 4, 4, 0x33998aCC);
+  img.BlendPixel32(2, 7, 0xFFFF22FF);
+  img.SetPixel32(15, 0, 0x00000000);
+  CHECK(img == img);
+
+  std::vector<uint8_t> png_bytes =
+    ZIP::EncodeAsPNG(img.Width(), img.Height(), img.ToBuffer8());
+
+  std::unique_ptr<ImageRGBA> img2(
+      ImageRGBA::LoadFromMemory(png_bytes));
+  CHECK(img2.get() != nullptr);
+
+  CHECK(img == *img2);
+}
+
+static void TestPNGRGB() {
+  ImageRGBA img_rgba(16, 16);
+  img_rgba.Clear32(0xFF3355CC);
+  img_rgba.BlendFilledCircle32(3, 4, 4, 0x33998aCC);
+  img_rgba.BlendPixel32(2, 7, 0xFFFF22FF);
+  img_rgba.SetPixel32(15, 0, 0x00000000);
+  ImageRGB img = img_rgba.CompositeOntoMatte(0x440000FF);
+  CHECK(img == img);
+
+  std::vector<uint8_t> png_bytes =
+    ZIP::RGBEncodeAsPNG(img.Width(), img.Height(), img.ToBuffer8());
+
+  std::unique_ptr<ImageRGBA> img2_rgba(
+      ImageRGBA::LoadFromMemory(png_bytes));
+  CHECK(img2_rgba.get() != nullptr);
+
+  // Alpha channel should all be FF.
+  for (int y = 0; y < img2_rgba->Height(); y++) {
+    for (int x = 0; x < img2_rgba->Height(); x++) {
+      CHECK((img2_rgba->GetPixel32(x, y) & 0xFF) == 0xFF);
+    }
+  }
+  ImageRGB img2 = img2_rgba->IgnoreAlpha();
+
+  CHECK(img == img2);
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
 
@@ -543,6 +589,9 @@ int main(int argc, char **argv) {
   TestRegression3();
   // FindCounterexample();
   TestRoundTripRandom();
+
+  TestPNGRGBA();
+  TestPNGRGB();
 
   printf("OK\n");
   return 0;

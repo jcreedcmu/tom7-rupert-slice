@@ -93,6 +93,10 @@ struct ZIP {
   static std::vector<uint8_t> EncodeAsPNG(int width, int height,
                                           const std::vector<uint8_t> &rgba);
 
+  // Same, with RGB pixels.
+  static std::vector<uint8_t> RGBEncodeAsPNG(int width, int height,
+                                             const std::vector<uint8_t> &rgb);
+
   // Custom file format. I should also support pkzip and gzip here.
   // gzip, annoyingly, stores the size mod 2^32, which is a practical
   // problem for modern files (e.g. wikipedia far exceeds this).

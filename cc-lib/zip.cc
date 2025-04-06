@@ -675,12 +675,14 @@ std::vector<uint8_t> ZIP::ZipVector(const std::vector<uint8_t> &v,
 
 std::vector<uint8_t> ZIP::ZlibPtr(const uint8_t *data, size_t size,
                                   int level) {
-  return CompressPtr<std::vector<uint8_t>>(data, size, level, TDEFL_WRITE_ZLIB_HEADER);
+  return CompressPtr<std::vector<uint8_t>>(data, size, level,
+                                           TDEFL_WRITE_ZLIB_HEADER);
 }
 
 std::vector<uint8_t> ZIP::ZlibVector(const std::vector<uint8_t> &v,
                                      int level) {
-  return CompressPtr<std::vector<uint8_t>>(v.data(), v.size(), level, TDEFL_WRITE_ZLIB_HEADER);
+  return CompressPtr<std::vector<uint8_t>>(v.data(), v.size(), level,
+                                           TDEFL_WRITE_ZLIB_HEADER);
 }
 
 std::string ZIP::ZlibString(std::string_view s, int level) {
@@ -690,11 +692,13 @@ std::string ZIP::ZlibString(std::string_view s, int level) {
 
 
 std::vector<uint8_t> ZIP::UnZlibPtr(const uint8_t *data, size_t size) {
-  return DecompressPtr<std::vector<uint8_t>>(data, size, TINFL_FLAG_PARSE_ZLIB_HEADER);
+  return DecompressPtr<std::vector<uint8_t>>(data, size,
+                                             TINFL_FLAG_PARSE_ZLIB_HEADER);
 }
 
 std::vector<uint8_t> ZIP::UnZlibVector(const std::vector<uint8_t> &v) {
-  return DecompressPtr<std::vector<uint8_t>>(v.data(), v.size(), TINFL_FLAG_PARSE_ZLIB_HEADER);
+  return DecompressPtr<std::vector<uint8_t>>(v.data(), v.size(),
+                                             TINFL_FLAG_PARSE_ZLIB_HEADER);
 }
 
 std::string ZIP::UnZlibString(std::string_view s) {
@@ -704,15 +708,30 @@ std::string ZIP::UnZlibString(std::string_view s) {
 
 std::vector<uint8_t> ZIP::EncodeAsPNG(int width, int height,
                                       const std::vector<uint8_t> &rgba) {
- size_t enc_len = 0;
- void *enc = tdefl_write_image_to_png_file_in_memory_ex(
-     rgba.data(), width, height, 4, &enc_len, 9, false);
- CHECK(enc != nullptr);
+  CHECK((int)rgba.size() == width * height * 4) << rgba.size();
+  size_t enc_len = 0;
+  void *enc = tdefl_write_image_to_png_file_in_memory_ex(
+      rgba.data(), width, height, 4, &enc_len, 9, false);
+  CHECK(enc != nullptr);
 
- std::vector<uint8_t> ret(enc_len);
- memcpy(ret.data(), enc, enc_len);
- free(enc);
- return ret;
+  std::vector<uint8_t> ret(enc_len);
+  memcpy(ret.data(), enc, enc_len);
+  free(enc);
+  return ret;
+}
+
+std::vector<uint8_t> ZIP::RGBEncodeAsPNG(int width, int height,
+                                         const std::vector<uint8_t> &rgb) {
+  CHECK((int)rgb.size() == width * height * 3) << rgb.size();
+  size_t enc_len = 0;
+  void *enc = tdefl_write_image_to_png_file_in_memory_ex(
+      rgb.data(), width, height, 3, &enc_len, 9, false);
+  CHECK(enc != nullptr);
+
+  std::vector<uint8_t> ret(enc_len);
+  memcpy(ret.data(), enc, enc_len);
+  free(enc);
+  return ret;
 }
 
 
