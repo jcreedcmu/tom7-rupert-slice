@@ -2019,7 +2019,7 @@ RAPIDJSON_DIAG_PUSH
 #if defined(__GNUC__) && __GNUC__ >= 8
 RAPIDJSON_DIAG_OFF(class-memaccess) // ignore complains from gcc that no trivial copy constructor exists.
 #endif
-            std::memcpy(e, values, count * sizeof(GenericValue));
+            std::memcpy((void*)e, values, count * sizeof(GenericValue));
 RAPIDJSON_DIAG_POP
         }
         else
@@ -2037,7 +2037,7 @@ RAPIDJSON_DIAG_PUSH
 #if defined(__GNUC__) && __GNUC__ >= 8
 RAPIDJSON_DIAG_OFF(class-memaccess) // ignore complains from gcc that no trivial copy constructor exists.
 #endif
-            std::memcpy(m, members, count * sizeof(Member));
+            std::memcpy((void*)m, members, count * sizeof(Member));
 RAPIDJSON_DIAG_POP
         }
         else

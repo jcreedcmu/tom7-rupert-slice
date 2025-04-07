@@ -93,12 +93,12 @@ static void BuiltInWidths() {
 static void SpaceLine() {
   PDF pdf(PDF::PDF_LETTER_WIDTH, PDF::PDF_LETTER_HEIGHT);
   PDF::Info info;
-  snprintf(info.creator, 63, "pdf_test.cc");
-  snprintf(info.producer, 63, "Tom 7");
-  snprintf(info.title, 63, "It is a test");
-  snprintf(info.author, 63, "None");
-  snprintf(info.author, 63, "No subject");
-  snprintf(info.date, 63, "30 Dec 2023");
+  info.creator = "pdf_test.cc";
+  info.producer = "Tom 7";
+  info.title = "It is a test";
+  info.author = "None";
+  info.author = "No subject";
+  info.date = "6 Apr 2025";
   pdf.SetInfo(info);
 
   const Font *times = pdf.GetBuiltInFont(PDF::TIMES_ROMAN);
@@ -149,12 +149,12 @@ static void MakeSimplePDF() {
           PDF::Options{.use_compression = COMPRESS_TEST_PDF});
 
   PDF::Info info;
-  snprintf(info.creator, 63, "pdf_test.cc");
-  snprintf(info.producer, 63, "Tom 7");
-  snprintf(info.title, 63, "It is a test");
-  snprintf(info.author, 63, "None");
-  snprintf(info.author, 63, "No subject");
-  snprintf(info.date, 63, "30 Dec 2023");
+  info.creator = "pdf_test.cc";
+  info.producer = "Tom 7";
+  info.title = "It is a test";
+  info.author = "None";
+  info.author = "No subject";
+  info.date = "6 Apr 2025";
   pdf.SetInfo(info);
 
   std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf",
@@ -479,12 +479,12 @@ static void MakeMinimalPDF() {
   [[maybe_unused]]
   PDF::Page *page = pdf.AppendNewPage();
   PDF::Info info;
-  snprintf(info.creator, 63, "pdf_test.cc");
-  snprintf(info.producer, 63, "Tom 7");
-  snprintf(info.title, 63, "Minimal PDF");
-  snprintf(info.author, 63, "None");
-  snprintf(info.author, 63, "No subject");
-  snprintf(info.date, 63, "8 Jun 2024");
+  info.creator = "pdf_test.cc";
+  info.producer = "Tom 7";
+  info.title = "Minimal PDF";
+  info.author = "None";
+  info.author = "No subject";
+  info.date = "6 Apr 2025";
   pdf.SetInfo(info);
 
   std::string pasement_name = pdf.AddTTF("fonts/DFXPasement9px.ttf",
@@ -511,12 +511,12 @@ static void SimpleUnicode() {
   [[maybe_unused]]
   PDF::Page *page = pdf.AppendNewPage();
   PDF::Info info;
-  snprintf(info.creator, 63, "pdf_test.cc");
-  snprintf(info.producer, 63, "Tom 7");
-  snprintf(info.title, 63, "Simple Unicode PDF");
-  snprintf(info.author, 63, "None");
-  snprintf(info.author, 63, "No subject");
-  snprintf(info.date, 63, "8 Jun 2024");
+  info.creator = "pdf_test.cc";
+  info.producer = "Tom 7";
+  info.title = "Simple Unicode PDF";
+  info.author = "None";
+  info.author = "No subject";
+  info.date = "6 Apr 2025";
   pdf.SetInfo(info);
 
   std::string pala_name = pdf.AddTTF("pala.ttf",

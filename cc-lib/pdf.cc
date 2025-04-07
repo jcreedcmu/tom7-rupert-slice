@@ -761,46 +761,6 @@ static std::string PDFDocEncodeString(std::string_view utf8_text) {
   return ret;
 }
 
-static std::optional<std::string> WinAnsiEncodeString(std::string_view text) {
-  std::string ret = "(";
-  ret.reserve(text.size());
-  while (!text.empty()) {
-    uint8_t pdf_char = 0;
-    const int code_len =
-      UTF8ToWinAnsiEncoding(text.data(), text.size(), &pdf_char);
-    if (code_len < 0) {
-      return std::nullopt;
-    }
-    text.remove_prefix(code_len);
-
-    switch (pdf_char) {
-    case '(':
-    case ')':
-    case '\\':
-      // Escape these.
-      ret.push_back('\\');
-      ret.push_back(pdf_char);
-      break;
-    case '\n':
-    case '\r':
-    case '\t':
-    case '\b':
-    case '\f':
-      // Skip over these characters.
-      break;
-    default:
-      if (pdf_char >= 32 && pdf_char <= 128) {
-        ret.push_back(pdf_char);
-      } else {
-        StringAppendF(&ret, "\\%03o", pdf_char);
-      }
-    }
-  }
-  ret.push_back(')');
-  return ret;
-}
-
-
 int PDF::SaveObject(FILE *fp, int index) {
   Object *object = GetObject(index);
   if (!object)
