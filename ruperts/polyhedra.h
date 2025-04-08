@@ -408,6 +408,12 @@ double LossFunction(const Polyhedron &poly,
                     const frame3 &outer_frame,
                     const frame3 &inner_frame);
 
+// Same, but also compute a gradient when we have a solution (which
+// is slow).
+double FullLossContainsOrigin(const Polyhedron &poly,
+                              const frame3 &outer_frame,
+                              const frame3 &inner_frame);
+
 // Get the ratio inner_area / outer_area, which is a reasonable metric
 // for how good the solution is. Will be in [0, 1). Returns nullopt
 // if the solution is not valid.

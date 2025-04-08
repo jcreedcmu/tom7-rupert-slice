@@ -1154,7 +1154,6 @@ double LossFunctionContainsOrigin(const Polyhedron &poly,
   }
 }
 
-
 double LossFunction(const Polyhedron &poly,
                     const frame3 &outer_frame,
                     const frame3 &inner_frame) {
@@ -1188,6 +1187,57 @@ double LossFunction(const Polyhedron &poly,
     return std::numeric_limits<double>::min() * errors;
   } else {
     return error;
+  }
+}
+
+double FullLossContainsOrigin(
+    const Polyhedron &poly,
+    const frame3 &outer_frame, const frame3 &inner_frame) {
+
+  Polyhedron outer = Rotate(poly, outer_frame);
+  Polyhedron inner = Rotate(poly, inner_frame);
+  Mesh2D souter = Shadow(outer);
+  Mesh2D sinner = Shadow(inner);
+
+  if (AllZero(souter.vertices) ||
+      AllZero(sinner.vertices)) {
+
+    return 1.0e6;
+  }
+
+  std::vector<int> outer_hull = QuickHull(souter.vertices);
+  std::vector<int> inner_hull = QuickHull(sinner.vertices);
+
+  if (outer_hull.size() < 3) {
+    return 1.0e6;
+  }
+
+  HullInscribedCircle circle(souter.vertices, outer_hull);
+
+  // Does every vertex in inner fall inside the outer shadow?
+  double error = 0.0;
+  int errors = 0;
+  for (const vec2 &iv : sinner.vertices) {
+    if (circle.DefinitelyInside(iv))
+      continue;
+
+    if (!InHull(souter, outer_hull, iv)) {
+      // slow :(
+      error += DistanceToHull(souter.vertices, outer_hull, iv);
+      errors++;
+    }
+  }
+
+  if (errors > 0) {
+    if (error == 0.0) {
+      [[unlikely]]
+      return std::numeric_limits<double>::min() * errors;
+    }
+    return error;
+  } else {
+    double clearance = HullClearance(souter.vertices, outer_hull,
+                                     sinner.vertices, inner_hull);
+    return std::min(-clearance, 0.0);
   }
 }
 
