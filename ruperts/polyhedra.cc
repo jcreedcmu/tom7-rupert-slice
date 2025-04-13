@@ -733,7 +733,7 @@ std::vector<int> GrahamScan(const std::vector<vec2> &vertices) {
 // Some changes:
 //  - Uses yocto library for more stuff
 //  - Uses vertex indices so it can be run directly on Polyhedron/Mesh2D.
-//  - Fixes some bugs relating to exactly equal or input points
+//  - Fixes some bugs relating to exactly equal or colinear input points
 //  - Some algorithmic improvements (e.g. left and right sets in the recursive
 //    calls must be disjoint).
 
@@ -1206,7 +1206,6 @@ double FullLossContainsOrigin(
   }
 
   std::vector<int> outer_hull = QuickHull(souter.vertices);
-  std::vector<int> inner_hull = QuickHull(sinner.vertices);
 
   if (outer_hull.size() < 3) {
     return 1.0e6;
@@ -1235,6 +1234,7 @@ double FullLossContainsOrigin(
     }
     return error;
   } else {
+    std::vector<int> inner_hull = QuickHull(sinner.vertices);
     double clearance = HullClearance(souter.vertices, outer_hull,
                                      sinner.vertices, inner_hull);
     return std::min(-clearance, 0.0);

@@ -37,6 +37,9 @@ struct BigQuat {
   BigRat x = BigRat(0), y = BigRat(0), z = BigRat(0), w = BigRat(1);
 };
 
+BigQuat MakeBigQuat(const quat4 &smallquat);
+BigQuat ApproxBigQuat(const quat4 &smallquat, int64_t max_denom);
+
 struct BigPoly {
   std::vector<BigVec3> vertices;
   const Faces *faces = nullptr;
@@ -242,8 +245,6 @@ BigMesh2D Translate(const BigVec2 &t, const BigMesh2D &m);
 // need to compute the discarded z coordinates.
 BigMesh2D RotateAndProject(const BigFrame &f, const BigPoly &poly);
 
-std::vector<int> BigHull(const std::vector<BigVec2> &bigvs);
-
 Polyhedron SmallPoly(const BigPoly &big);
 Mesh2D SmallMesh(const BigMesh2D &big);
 
@@ -304,6 +305,9 @@ std::pair<int, BigRat> GetClosestPoint(const std::vector<BigVec2> &vertices,
 
 // Get the convex hull. This is intended to be exact.
 std::vector<int> BigQuickHull(const std::vector<BigVec2> &vertices);
+// Fast(er), but approximate since it uses the double-based
+// hull computation.
+std::vector<int> BigHull(const std::vector<BigVec2> &bigvs);
 
 // Check if the point is strictly within the convex hull. Either hull
 // orientation works, but it must be a convex polygon (not just a

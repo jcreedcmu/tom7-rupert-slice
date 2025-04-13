@@ -4,6 +4,7 @@
 
 #include <vector>
 
+#include "mesh.h"
 #include "polyhedra.h"
 #include "yocto_matht.h"
 

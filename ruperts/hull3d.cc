@@ -8,6 +8,7 @@
 
 #include "hull3d.h"
 
+#include <tuple>
 #include <vector>
 #include <algorithm>
 #include <unordered_set>
@@ -1938,6 +1939,34 @@ std::vector<int> Hull3D::HullPoints(const std::vector<vec3> &pts) {
   std::vector<int> hull(hull_set.begin(), hull_set.end());
   std::sort(hull.begin(), hull.end());
   return hull;
+}
+
+std::vector<std::tuple<int, int, int>>
+Hull3D::HullFaces(const std::vector<vec3> &pts) {
+  std::vector<ch_vec3> ch_pts;
+  ch_pts.reserve(pts.size());
+  for (const vec3 &v : pts) {
+    ch_vec3 p;
+    p.x = v.x;
+    p.y = v.y;
+    p.z = v.z;
+    ch_pts.push_back(p);
+  }
+
+  int *out_faces = nullptr;
+  int num_faces = 0;
+  convhull_3d_build(ch_pts.data(), ch_pts.size(), &out_faces, &num_faces);
+
+  printf("Got %d faces.\n", num_faces);
+  std::vector<std::tuple<int, int, int>> hull_faces;
+  for (int f = 0; f < num_faces; f++) {
+    // Triangular faces.
+    hull_faces.emplace_back(out_faces[f * 3 + 0],
+                            out_faces[f * 3 + 1],
+                            out_faces[f * 3 + 2]);
+  }
+
+  return hull_faces;
 }
 
 std::vector<Hull3D::vec3> Hull3D::ReduceToHull(const std::vector<vec3> &v) {

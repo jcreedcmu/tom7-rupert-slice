@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <format>
@@ -23,12 +24,16 @@
 #include "arcfour.h"
 #include "atomic-util.h"
 #include "base/stringprintf.h"
+#include "big-csg.h"
 #include "bounds.h"
 #include "image.h"
+#include "mesh.h"
+#include "nd-solutions.h"
 #include "opt/opt.h"
 #include "periodically.h"
 #include "polyhedra.h"
 #include "randutil.h"
+#include "rendering.h"
 #include "solutions.h"
 #include "status-bar.h"
 #include "threadutil.h"
@@ -36,7 +41,7 @@
 #include "util.h"
 #include "yocto_matht.h"
 
-DECLARE_COUNTERS(solve_attempts, improve_attempts, hard, noperts, prisms);
+DECLARE_COUNTERS(solve_attempts, solved, hard, noperts, footballs);
 
 static StatusBar *status = nullptr;
 
@@ -59,16 +64,15 @@ static std::string ConfigString(
 // Return the number of iterations taken, or nullopt if we exceeded
 // the limit. If solved and the arguments are non-null, sets the outer
 // frame and inner frame to some solution.
-static constexpr int NOPERT_ITERS = 200000;
-static constexpr int MIN_VERBOSE_ITERS = 5000;
-static constexpr bool SAVE_HARD = false;
-static std::optional<int> DoSolve(int thread_idx,
-                                  // Just used for debug print.
-                                  double theta, double phi,
-                                  double stretch,
-                                  ArcFour *rc, const Polyhedron &poly,
-                                  frame3 *outer_frame_out,
-                                  frame3 *inner_frame_out) {
+static constexpr int NOPERT_ITERS = 100000;
+static constexpr int MIN_VERBOSE_ITERS = 10000;
+
+// Returns best solution, iters, and clearance.
+static std::optional<std::tuple<frame3, frame3, int64_t, double>>
+DoSolve(int thread_idx,
+        // Just used for debug print.
+        double theta, double phi, double stretch,
+        ArcFour *rc, const Polyhedron &poly) {
   CHECK(!poly.faces->v.empty());
 
   for (int iter = 0; iter < NOPERT_ITERS; iter++) {
@@ -132,11 +136,11 @@ static std::optional<int> DoSolve(int thread_idx,
           const std::array<double, D> &args) {
         solve_attempts++;
         // All snub footballs include the origin.
-        return LossFunctionContainsOrigin(
+        return FullLossContainsOrigin(
             poly, OuterFrame(args), InnerFrame(args));
       };
 
-    constexpr double Q = 0.15;
+    constexpr double Q = 0.20;
 
     const std::array<double, D> lb =
       {-Q, -Q, -Q, -Q,
@@ -149,13 +153,11 @@ static std::optional<int> DoSolve(int thread_idx,
     const auto &[args, error] =
       Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 1, seed);
 
-    if (error == 0.0) {
-      if (outer_frame_out != nullptr) {
-        *outer_frame_out = OuterFrame(args);
-      }
-      if (inner_frame_out != nullptr) {
-        *inner_frame_out = InnerFrame(args);
-      }
+    if (error <= 0.0) {
+
+      // XXX would be best to improve the solution here, especially
+      // since the previous optimization had limits on the
+      // angle
 
       if (iter > MIN_VERBOSE_ITERS) {
         status->Printf("%s " AYELLOW("solved") " after "
@@ -163,7 +165,10 @@ static std::optional<int> DoSolve(int thread_idx,
                        ConfigString(theta, phi, stretch).c_str(),
                        iter);
       }
-      return {iter};
+      return std::make_tuple(OuterFrame(args),
+                             InnerFrame(args),
+                             iter,
+                             -error);
     }
   }
 
@@ -196,52 +201,39 @@ static Polyhedron Football(double theta, double phi, double stretch) {
 }
 
 // num_points is the number on each side.
-std::optional<double> ComputeMinimumClearance(
+static std::optional<std::tuple<frame3, frame3, double>>
+ComputeMinimumClearance(
     int thread_idx,
     ArcFour *rc,
-    double theta, double phi, double stretch,
-    int num_improve_opts) {
-  Polyhedron poly = NPrism(num_points, depth);
+    double theta, double phi, double stretch) {
+  Polyhedron poly = Football(theta, phi, stretch);
 
-  frame3 outer, inner;
-  std::optional<int> iters = DoSolve(thread_idx,
-                                     num_points, depth,
-                                     rc, poly, &outer, &inner);
-  if (!iters.has_value()) {
-    SolutionDB db;
-    status->Printf(AGREEN("Nopert!!") " %d-prism, d=%.11g.\n");
-    db.AddNopert(poly, SolutionDB::NOPERT_METHOD_CHURRO);
+  const auto result = DoSolve(thread_idx,
+                              theta, phi, stretch,
+                              rc, poly);
+  delete poly.faces;
+
+  if (!result.has_value()) {
     noperts++;
-    prisms++;
-    if (noperts.Read() > 10) {
-      status->Printf("Too many noperts! Increase the threshold?");
-      exit(-1);
-    }
     return std::nullopt;
 
   } else {
-    const auto &[best_outer, best_inner, best_error] =
-      DoImprove(thread_idx, num_points, depth, rc, poly,
-                outer, inner, num_improve_opts);
-    prisms++;
-
-    if (best_error < 0.0) {
-      return {-best_error};
-    } else {
-      return std::nullopt;
-    }
+    solved++;
+    const auto &[outer, inner, iters, clearance] = result.value();
+    return {std::make_tuple(outer, inner, clearance)};
   }
 }
 
-static void DoChurro(int64_t num_points) {
-  std::string filename =
-    std::format("churro{}.png", num_points);
-  if (Util::ExistsFile(filename))
-    return;
-
+static void DoFootball() {
   solve_attempts.Reset();
-  improve_attempts.Reset();
-  prisms.Reset();
+  solved.Reset();
+  footballs.Reset();
+
+  NDSolutions<3> sols("football.nds");
+  if (sols.Size() > 0) {
+    status->Printf("Continuing from " AWHITE("%lld") " sols.",
+                   sols.Size());
+  }
 
   // Keep hard, noperts
 
@@ -261,37 +253,53 @@ static void DoChurro(int64_t num_points) {
 
   Timer run_timer;
   Periodically status_per(1.0);
-  const int64_t total_prisms = 75000.0 / (num_points / 20.0);
-  const int num_improve_opts =
-    num_points > 50 ? (num_points > 100 ? 10 : 25) : 100;
+  Periodically save_per(600.0, false);
 
-  auto MaybeStatus = [&]() {
+  const int64_t THETA_SAMPLES = 100;
+  const int64_t PHI_SAMPLES = 100;
+  const int64_t STRETCH_SAMPLES = 2000;
+  const int64_t TOTAL_SAMPLES =
+    THETA_SAMPLES * PHI_SAMPLES * STRETCH_SAMPLES;
+
+  constexpr double MIN_THETA = 0.0;
+  constexpr double MAX_THETA = std::numbers::pi / 2.0;
+  constexpr double MIN_PHI = 0.0;
+  constexpr double MAX_PHI = std::numbers::pi / 2.0;
+  constexpr double MIN_STRETCH = 1.0;
+  constexpr double MAX_STRETCH = 1.05;
+
+  auto MaybeStatus = [&](double theta, double phi, double stretch) {
       if (status_per.ShouldRun()) {
         MutexLock ml(&m);
         double total_time = run_timer.Seconds();
-        const int64_t p = prisms.Read();
+        const int64_t p = footballs.Read();
         double pps = p / total_time;
 
         ANSI::ProgressBarOptions options;
         options.include_frac = false;
         options.include_percent = true;
 
-        std::string timing = std::format("{:.4f} prisms/s", pps);
+        std::string timing = std::format(
+            "{:.4f} footballs/s  "
+            AGREY("|") "  {}",
+            pps,
+            ConfigString(theta, phi, stretch));
+
+        const double save_in = save_per.SecondsLeft();
 
         std::string msg =
           StringPrintf(
-              AYELLOW("%lld") AWHITE("⋮") "  |  "
               APURPLE("%s") AWHITE("s") " "
-              ABLUE("%s") AWHITE("i") " "
-              ARED("%lld") AWHITE("⛔") " ",
-              num_points,
+              AGREEN("%s") AWHITE("✔") " "
+              ARED("%lld") AWHITE("⛔") " "
+              "(save in %s)",
               FormatNum(solve_attempts.Read()).c_str(),
-              FormatNum(improve_attempts.Read()).c_str(),
-              noperts.Read());
-
+              FormatNum(solved.Read()).c_str(),
+              noperts.Read(),
+              ANSI::Time(save_in).c_str());
 
         std::string bar =
-          ANSI::ProgressBar(p, total_prisms,
+          ANSI::ProgressBar(p, TOTAL_SAMPLES,
                             msg, total_time, options);
 
         status->Statusf(
@@ -302,106 +310,219 @@ static void DoChurro(int64_t num_points) {
       }
     };
 
-  int64_t next_work_idx = 0;
-
-  static constexpr double MIN_DEPTH = 1.0e-6;
-  const double MAX_DEPTH =
-    num_points >= 100 ? 2.2 : 8.0;
-  const double DEPTH_SPAN = MAX_DEPTH - MIN_DEPTH;
-
-  auto IdxToDepth = [DEPTH_SPAN, total_prisms](int64_t work_idx) {
-      return MIN_DEPTH + ((work_idx * DEPTH_SPAN) / (double)total_prisms);
+  auto MaybeSave = [&]() {
+      save_per.RunIf([&]() {
+          sols.Save();
+          status->Printf("Saved " AWHITE("%lld") "\n",
+                         sols.Size());
+        });
     };
 
-  static constexpr double NO_SOLUTION = -1.0;
-  std::vector<double> results(total_prisms, NO_SOLUTION);
+  #if 0
+  for (int ti = 0; ti < THETA_SAMPLES; ti++) {
+    double tf = ti / (double)THETA_SAMPLES;
+    double theta = MIN_THETA + (tf * (MAX_THETA - MIN_THETA));
+
+    for (int pi = 0; pi < PHI_SAMPLES; pi++) {
+      double pf = pi / (double)PHI_SAMPLES;
+      double phi = MIN_PHI + (pf * (MAX_PHI - MIN_PHI));
+
+      for (int si = 0; si < STRETCH_SAMPLES; si++) {
+        double sf = si / (double)STRETCH_SAMPLES;
+        double stretch = MIN_STRETCH + (sf * (MAX_STRETCH - MIN_STRETCH));
+
+
+      }
+    }
+  }
+  #endif
+
+  auto Decode = [](int64_t work_idx) {
+      int64_t ti = work_idx % THETA_SAMPLES;
+      work_idx /= THETA_SAMPLES;
+
+      int64_t pi = work_idx % PHI_SAMPLES;
+      work_idx /= PHI_SAMPLES;
+
+      CHECK(work_idx < STRETCH_SAMPLES);
+      int64_t si = work_idx;
+
+      double tf = ti / (double)THETA_SAMPLES;
+      double theta = MIN_THETA + (tf * (MAX_THETA - MIN_THETA));
+
+      double pf = pi / (double)PHI_SAMPLES;
+      double phi = MIN_PHI + (pf * (MAX_PHI - MIN_PHI));
+
+      // stretch more at the beginning.
+      double sf = (1.0 - si / (double)STRETCH_SAMPLES);
+      double stretch = MIN_STRETCH + (sf * (MAX_STRETCH - MIN_STRETCH));
+
+      return std::make_tuple(theta, phi, stretch);
+    };
+
+  static constexpr double UNSOLVED = -1.0;
+
+  constexpr double CLOSE = 1.0e-6;
+  // Binary search to find the next work index
+  // that we have to do! The boundary is mostly
+  // monotonic but might be a little ragged
+  // because of multithreading. So we just try
+  // to get close and then do a linear scan (which
+  // could still miss samples if we get unlucky!).
+  // We don't really care about duplicates or a
+  // few missing samples, though; this is stochastic.
+  int64_t next_work_idx = [&](){
+    // all work below this is done
+    int64_t lb = 0;
+    // all work here and beyond is not done.
+    int64_t ub = TOTAL_SAMPLES;
+    for (;;) {
+      status->Printf("[%lld, %lld]\n", lb, ub);
+      CHECK(ub >= lb);
+      if (ub - lb < 1000) {
+        while (lb < ub) {
+          const auto &[theta, phi, stretch] = Decode(lb);
+          double dist = sols.Distance({theta, phi, stretch});
+          if (dist > CLOSE)
+            break;
+          lb++;
+        }
+        return lb;
+      }
+
+      int64_t midpoint = (lb + ub) >> 1;
+
+      const auto &[theta, phi, stretch] = Decode(midpoint);
+      double dist = sols.Distance({theta, phi, stretch});
+
+      if (dist < CLOSE) {
+        lb = midpoint + 1;
+      } else {
+        ub = midpoint;
+      }
+    }
+    }();
+
+  status->Printf("Starting at idx %lld/%lld\n",
+                 next_work_idx, TOTAL_SAMPLES);
 
   ParallelFan(
       NUM_THREADS,
       [&](int thread_idx) {
-        ArcFour rc(std::format("adv.{}.{}.{}", thread_idx,
-                               num_points, time(nullptr)));
+        ArcFour rc(std::format("football.{}.{}", thread_idx,
+                               time(nullptr)));
         for (;;) {
           int64_t work_idx = 0;
           {
             MutexLock ml(&m);
-            if (next_work_idx == total_prisms)
+            if (next_work_idx == TOTAL_SAMPLES)
               return;
             work_idx = next_work_idx;
             next_work_idx++;
           }
 
-          const double depth = IdxToDepth(work_idx);
+          const auto &[theta, phi, stretch] = Decode(work_idx);
 
-          std::optional<double> clearance =
-            ComputeMinimumClearance(thread_idx, &rc, num_points, depth,
-                                    num_improve_opts);
+          const auto &oresult =
+            ComputeMinimumClearance(thread_idx, &rc,
+                                    theta, phi, stretch);
+          footballs++;
 
-          MaybeStatus();
-
-          if (clearance.has_value()) {
-            MutexLock ml(&m);
-            results[work_idx] = clearance.value();
+          if (oresult.has_value()) {
+            const auto &[outer, inner, clearance] = oresult.value();
+            sols.Add({theta, phi, stretch}, clearance, outer, inner);
+          } else {
+            sols.Add({theta, phi, stretch}, UNSOLVED, frame3(), frame3());
           }
+
+          MaybeStatus(theta, phi, stretch);
+          MaybeSave();
         }
       });
 
-  status->Printf("[" AWHITE("%d") "] Done in %s.\n", num_points,
+  status->Printf("Done in %s.\n",
                  ANSI::Time(run_timer.Seconds()).c_str());
+  sols.Save();
+}
 
-  Bounds bounds;
-  // Make sure x axis is included.
-  bounds.Bound(IdxToDepth(0), 0.0);
-  for (int i = 0; i < total_prisms; i++) {
-    double d = IdxToDepth(i);
-    if (results[i] >= 0.0) {
-      bounds.Bound(d, results[i]);
+static void Plot() {
+  NDSolutions<3> sols("football.nds");
+
+  printf("Number of rows: %lld\n", sols.Size());
+
+  #if 0
+  for (int axis = 0; axis < 3; axis++) {
+    sols.Plot1D(axis, 1920 * 2, 1080 * 2,
+                std::format("football-axis-{}.png", axis));
+  }
+  #endif
+
+  sols.Plot1DColor2(2, 0, 1, 1920 * 2, 1080 * 2,
+                    std::format("football-axis-{}.png", 2));
+
+  sols.Plot2D(2, 0, 1920 * 2, 1080 * 2,
+              "football-2D-20.png");
+  sols.Plot2D(2, 1, 1920 * 2, 1080 * 2,
+              "football-2D-21.png");
+}
+
+static void STL() {
+  Polyhedron poly = Football(0.0, 0.0, 1.0);
+  SaveAsSTL(poly, "football001.stl");
+
+  Polyhedron poly2 = Football(0.1, 0.1, 1.5);
+  SaveAsSTL(poly2, "football115.stl");
+
+  Polyhedron poly3 = Football(std::numbers::pi / 4.0,
+                              std::numbers::pi / 4.0,
+                              1.5);
+  SaveAsSTL(poly3, "football445.stl");
+}
+
+static void GetSol() {
+  NDSolutions<3> sols("football.nds");
+  size_t size = sols.Size();
+  double best_stretch = 1000000.0;
+  int64_t best_idx = 0;
+  for (int64_t idx = 0; idx < size; idx++) {
+    const auto &[key, score, outer, inner] = sols[idx];
+    if (key[2] < best_stretch) {
+      best_stretch = key[2];
+      best_idx = idx;
     }
   }
-  bounds.AddTwoMarginsFrac(0.02, 0.0);
 
-  constexpr int WIDTH = 3840;
-  constexpr int HEIGHT = 2160;
-  constexpr float PX = 2.0f;
-  constexpr float CIRCLE = 3.0f * PX;
-  constexpr float DOT = 2.0f * PX;
-  ImageRGBA image(WIDTH, HEIGHT);
-  image.Clear32(0x000000FF);
+  const auto &[key, score, outer, inner] = sols[best_idx];
 
-  Bounds::Scaler scaler = bounds.Stretch(WIDTH, HEIGHT).FlipY();;
+  status->Printf("Best stretch %.17g at %lld\n"
+                 "Config: %s\n"
+                 "Clearance %.17g.\n",
+                 best_stretch, best_idx,
+                 ConfigString(key[0], key[1], key[2]).c_str(),
+                 score);
+
+  Polyhedron poly = Football(key[0], key[1], key[2]);
+  Rendering rendering(poly, 1920, 1080);
+  rendering.RenderSolution(poly, outer, inner);
+  rendering.Save("football-sol.png");
+
   {
-    const auto y = scaler.ScaleY(0);
-    image.BlendLine32(0, std::round(y), WIDTH - 1, std::round(y),
-                      0xFF0000AA);
+    Polyhedron opoly = Rotate(poly, outer);
+    Polyhedron ipoly = Rotate(poly, inner);
+    Mesh2D sinner = Shadow(ipoly);
+    std::vector<int> hull = QuickHull(sinner.vertices);
+
+    std::vector<vec2> polygon;
+    polygon.reserve(hull.size());
+    for (int i : hull) polygon.push_back(sinner.vertices[i]);
+    TriangularMesh3D residue = BigMakeHole(opoly, polygon);
+    OrientMesh(&residue);
+
+    std::string filename = "football-residue.stl";
+    SaveAsSTL(residue, filename);
+    status->Printf("Wrote %s", filename.c_str());
   }
 
-  for (double x = 0.0; x < std::round(MAX_DEPTH); x += 0.25) {
-    double xx = scaler.ScaleX(x);
-    image.BlendLine32(std::round(xx), 0, std::round(xx), HEIGHT - 1,
-                      0x00770099);
-  }
-
-  for (int x = (int)std::round(MIN_DEPTH); x < std::round(MAX_DEPTH); x++) {
-    double xx = scaler.ScaleX(x);
-    image.BlendLine32(std::round(xx), 0, std::round(xx), HEIGHT - 1,
-                      0x33FF33AA);
-  }
-
-  for (int i = 0; i < total_prisms; i++) {
-    double d = IdxToDepth(i);
-    if (results[i] < 0.0) {
-      const auto &[x, y] = scaler.Scale(d, 0.0);
-      image.BlendThickCircleAA32(
-          std::round(x), std::round(y) + 2 * PX, CIRCLE, PX, 0xFF000099);
-    } else {
-      const auto &[x, y] = scaler.Scale(d, results[i]);
-      image.BlendFilledCircleAA32(
-          std::round(x), std::round(y), DOT, 0xFFFFFF99);
-    }
-    // image.BlendPixel32(std::round(x), std::round(y), 0xFFFFFF99);
-  }
-
-  image.Save(filename);
 }
 
 int main(int argc, char **argv) {
@@ -409,11 +530,13 @@ int main(int argc, char **argv) {
 
   status = new StatusBar(2);
 
-  // DoChurro(51);
-  for (int n = 100; n < 200; n += 10) {
-    DoChurro(n);
-    DoChurro(n + 1);
-  }
+  // STL();
+
+  GetSol();
+
+  Plot();
+
+  // DoFootball();
 
   return 0;
 }

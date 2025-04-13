@@ -323,7 +323,7 @@ static Polyhedron NPrism(int64_t num_points, double depth) {
 }
 
 // num_points is the number on each side.
-std::optional<double> ComputeMinimumClearance(
+std::optional<std::tuple<frame3, frame3, double>> ComputeMinimumClearance(
     int thread_idx,
     ArcFour *rc,
     int64_t num_points, double depth,
@@ -340,6 +340,8 @@ std::optional<double> ComputeMinimumClearance(
     db.AddNopert(poly, SolutionDB::NOPERT_METHOD_CHURRO);
     noperts++;
 
+    delete poly.faces;
+
     if (noperts.Read() > 10) {
       status->Printf("Too many noperts! Increase the threshold?");
       exit(-1);
@@ -351,8 +353,10 @@ std::optional<double> ComputeMinimumClearance(
       DoImprove(thread_idx, num_points, depth, rc, poly,
                 outer, inner, num_improve_opts);
 
+    delete poly.faces;
+
     if (best_error < 0.0) {
-      return {-best_error};
+      return std::make_tuple(best_outer, best_inner, -best_error);
     } else {
       return std::nullopt;
     }
@@ -476,15 +480,16 @@ static void DoChurro(int64_t num_points) {
             continue;
           }
 
-          std::optional<double> clearance =
+          const auto &oresult =
             ComputeMinimumClearance(thread_idx, &rc, num_points, depth,
                                     num_improve_opts);
           prisms++;
 
           MaybeStatus();
 
-          if (clearance.has_value()) {
-            sols.Add({depth}, clearance.value());
+          if (oresult.has_value()) {
+            const auto &[outer, inner, clearance] = oresult.value();
+            sols.Add({depth}, clearance, outer, inner);
           }
         }
       });

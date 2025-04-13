@@ -553,7 +553,6 @@ std::pair<vec3, double> SmallestSphere::Smallest(
 
     // Points that are closer than this are considered duplicates.
     static constexpr double distance_threshold = 1.0e-10;
-    static constexpr double flatness_threshold = 1.0e-10;
     auto TooClose = [](const vec3 &a, const vec3 &b) -> bool {
         // PERF avoid square roots
         return distance(a, b) < distance_threshold;

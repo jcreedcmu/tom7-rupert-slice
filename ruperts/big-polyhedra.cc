@@ -90,6 +90,19 @@ std::string PlainQuatString(const BigQuat &q) {
       q.w.ToString().c_str(), q.w.ToDouble());
 }
 
+BigQuat MakeBigQuat(const quat4 &smallquat) {
+  return BigQuat(BigRat::FromDouble(smallquat.x),
+                 BigRat::FromDouble(smallquat.y),
+                 BigRat::FromDouble(smallquat.z),
+                 BigRat::FromDouble(smallquat.w));
+}
+
+BigQuat ApproxBigQuat(const quat4 &smallquat, int64_t max_denom) {
+  return BigQuat(BigRat::ApproxDouble(smallquat.x, max_denom),
+                 BigRat::ApproxDouble(smallquat.y, max_denom),
+                 BigRat::ApproxDouble(smallquat.z, max_denom),
+                 BigRat::ApproxDouble(smallquat.w, max_denom));
+}
 
 BigQuat Normalize(const BigQuat &q, int digits) {
   printf("Quat: %s\n", QuatString(q).c_str());
