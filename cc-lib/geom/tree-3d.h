@@ -1,6 +1,6 @@
 
-#ifndef _CC_LIB_GEOM_TREE_2D_H
-#define _CC_LIB_GEOM_TREE_2D_H
+#ifndef _CC_LIB_GEOM_TREE_3D_H
+#define _CC_LIB_GEOM_TREE_3D_H
 
 #include <cstdio>
 #include <iostream>
@@ -13,19 +13,19 @@
 
 #include "base/logging.h"
 
-// Maps 2D points to values of type T.
+// Maps 3D points to values of type T.
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
-struct Tree2D {
-  using Pos = std::pair<Num, Num>;
+struct Tree3D {
+  using Pos = std::tuple<Num, Num, Num>;
 
-  Tree2D();
+  Tree3D();
 
-  void Insert(Num x, Num y, T t);
+  void Insert(Num x, Num y, Num z, T t);
   void Insert(Pos pos, T t);
 
   // Returns true if a matching point was found (and thus removed).
-  bool Remove(Num x, Num y);
+  bool Remove(Num x, Num y, Num z);
   bool Remove(Pos pos);
 
   size_t Size() const { return count; }
@@ -42,44 +42,67 @@ struct Tree2D {
   // Aborts if the tree is empty, so check first.
   std::tuple<Pos, T, double>
   Closest(Pos pos) const;
+  std::tuple<Pos, T, double>
+  Closest(Num x, Num y, Num z) const;
 
   void DebugPrint() const;
 
  private:
+  enum class Axis { X, Y, Z, };
   static constexpr size_t MAX_LEAF = 8;
   using Leaf = std::vector<std::pair<Pos, T>>;
   struct Split {
-    // Whether the split axis is horizontal or vertical.
-    // A horizontal axis splits points by their y coordinates.
-    bool axis_horiz = false;
+    // Which axis we are splitting on. An X split means
+    // separating points on either side of the YZ plane, i.e.,
+    // by the value of their x coordinates only.
+    Axis axis = Axis::X;
     // The location of the split.
     Num value = 0;
     std::unique_ptr<std::variant<Leaf, Split>> lesseq, greater;
   };
   using Node = std::variant<Leaf, Split>;
 
-  static inline bool Classify(Pos pos, bool axis_horiz, double value) {
-    const auto &[x, y] = pos;
-    if (axis_horiz) {
-      return y <= value;
-    } else {
-      return x <= value;
+  static inline bool Classify(Pos pos, Axis axis, double value) {
+    const auto &[x, y, z] = pos;
+    switch (axis) {
+    case Axis::X: return x <= value;
+    case Axis::Y: return y <= value;
+    case Axis::Z: return z <= value;
     }
   }
 
   static inline double SqDist(Pos a, Pos b) {
-    const auto &[ax, ay] = a;
-    const auto &[bx, by] = b;
+    const auto &[ax, ay, az] = a;
+    const auto &[bx, by, bz] = b;
     double dx = ax - bx;
     double dy = ay - by;
-    return dx * dx + dy * dy;
+    double dz = az - bz;
+    return dx * dx + dy * dy + dz * dz;
   }
 
   static inline double Dist(Pos a, Pos b) {
     return sqrt(SqDist(a, b));
   }
 
-  void InsertTo(Node *node, bool horiz, Pos pos, T t);
+  void InsertTo(Node *node, Axis axis, Pos pos, T t);
+
+  static const char *AxisName(Axis axis) {
+    switch (axis) {
+    case Axis::X: return "X";
+    case Axis::Y: return "Y";
+    case Axis::Z: return "Z";
+    default: return "?";
+    }
+  }
+
+  static inline Axis NextAxis(Axis axis) {
+    switch (axis) {
+    default:
+    case Axis::X: return Axis::Y;
+    case Axis::Y: return Axis::Z;
+    case Axis::Z: return Axis::X;
+    }
+  }
 
   size_t count = 0;
   std::unique_ptr<Node> root;
@@ -90,36 +113,36 @@ struct Tree2D {
 
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
-Tree2D<Num, T>::Tree2D() {
+Tree3D<Num, T>::Tree3D() {
   // An empty leaf.
   root = std::make_unique<Node>(std::in_place_type<Leaf>);
 }
 
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
-void Tree2D<Num, T>::Insert(Pos pos, T t) {
+void Tree3D<Num, T>::Insert(Pos pos, T t) {
   // Insertion always increases the size by one; there can be multiple
   // items at the same point.
   count++;
   // Arbitrary preference for first split we create.
-  InsertTo(root.get(), false, pos, t);
+  InsertTo(root.get(), Axis::X, pos, t);
 }
 
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
-void Tree2D<Num, T>::Insert(Num x, Num y, T t) {
-  Insert(std::make_pair(x, y), t);
+void Tree3D<Num, T>::Insert(Num x, Num y, Num z, T t) {
+  Insert(std::make_tuple(x, y, z), t);
 }
 
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
-bool Tree2D<Num, T>::Remove(Num x, Num y) {
-  return Remove(std::make_pair(x, y));
+bool Tree3D<Num, T>::Remove(Num x, Num y, Num z) {
+  return Remove(std::make_tuple(x, y, z));
 }
 
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
-bool Tree2D<Num, T>::Remove(Pos pos) {
+bool Tree3D<Num, T>::Remove(Pos pos) {
   // This is removing without a radius, which means we can find the
   // exact node that has it. But we want to be able to replace that
   // node. So we have a reference to the node.
@@ -132,7 +155,7 @@ bool Tree2D<Num, T>::Remove(Pos pos) {
       std::unique_ptr<Node> &cursor) {
       CHECK(cursor.get() != nullptr);
       if (Split *split = std::get_if<Split>(cursor.get())) {
-        bool lesseq = Classify(pos, split->axis_horiz, split->value);
+        bool lesseq = Classify(pos, split->axis, split->value);
         if (lesseq) {
           if (split->lesseq.get() == nullptr) {
             // Then the point cannot exist.
@@ -192,7 +215,7 @@ bool Tree2D<Num, T>::Remove(Pos pos) {
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
 template<class F>
-void Tree2D<Num, T>::App(const F &f) const {
+void Tree3D<Num, T>::App(const F &f) const {
   std::vector<Node *> q = {root.get()};
   while (!q.empty()) {
     Node *node = q.back();
@@ -214,9 +237,9 @@ void Tree2D<Num, T>::App(const F &f) const {
 
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
-std::vector<std::tuple<typename Tree2D<Num, T>::Pos, T, double>>
-Tree2D<Num, T>::LookUp(Pos pos, double radius) const {
-  const auto &[x, y] = pos;
+std::vector<std::tuple<typename Tree3D<Num, T>::Pos, T, double>>
+Tree3D<Num, T>::LookUp(Pos pos, double radius) const {
+  const auto &[x, y, z] = pos;
 
   // PERF: q should have reduced radius (distance to axis).
   // PERF: We can start by using code from Closest below.
@@ -228,25 +251,19 @@ Tree2D<Num, T>::LookUp(Pos pos, double radius) const {
 
     if (Split *split = std::get_if<Split>(node)) {
       // Project the lookup point to the split axis.
-      const Pos axispt =
-        split->axis_horiz ? std::make_pair(x, split->value) :
-        std::make_pair(split->value, y);
+      const Pos axispt = [&]{
+          switch (split->axis) {
+          case Axis::X : return std::make_tuple(split->value, y, z);
+          case Axis::Y : return std::make_tuple(x, split->value, z);
+          case Axis::Z : return std::make_tuple(x, y, split->value);
+          }
+        }();
 
       // If it is within the radius, we need to check both.
       // PERF the distance is a straight line!
       const double axisdist = Dist(pos, axispt);
       const bool both = axisdist <= radius;
-      const bool lesseq = Classify(pos, split->axis_horiz, split->value);
-
-      /*
-      printf("Find (%d,%d). Split %s axis %d which is %.3f away.\n"
-             "  point is %s, search %s\n",
-             x, y,
-             split->axis_horiz ? "--" : "|",
-             split->axis, axisdist,
-             lesseq ? "<=" : ">",
-             both ? "both" : (lesseq ? "less" : "greater"));
-      */
+      const bool lesseq = Classify(pos, split->axis, split->value);
 
       if (both || lesseq) {
         if (split->lesseq.get() != nullptr) {
@@ -280,13 +297,13 @@ Tree2D<Num, T>::LookUp(Pos pos, double radius) const {
 
 template <class Num, class T>
 requires std::is_arithmetic_v<Num>
-void Tree2D<Num, T>::InsertTo(Node *node, bool axis_horiz, Pos pos, T t) {
+void Tree3D<Num, T>::InsertTo(Node *node, Axis axis, Pos pos, T t) {
   for (;;) {
     CHECK(node != nullptr);
     if (Split *split = std::get_if<Split>(node)) {
-      // Next split should be the other axis.
-      axis_horiz = !split->axis_horiz;
-      bool lesseq = Classify(pos, split->axis_horiz, split->value);
+      // Next split should use the next axis.
+      axis = NextAxis(split->axis);
+      bool lesseq = Classify(pos, split->axis, split->value);
       // Leaves are created lazily, so add an empty one if
       // null (but do the actual insertion on the next pass).
       if (lesseq) {
@@ -315,21 +332,25 @@ void Tree2D<Num, T>::InsertTo(Node *node, bool axis_horiz, Pos pos, T t) {
         // PERF: Median is likely a better choice.
         double avg = 0.0;
         for (const auto &[pos, t_] : old) {
-          const auto [x, y] = pos;
-          avg += axis_horiz ? y : x;
+          const auto [x, y, z] = pos;
+          switch (axis) {
+          case Axis::X: avg += x; break;
+          case Axis::Y: avg += y; break;
+          case Axis::Z: avg += z; break;
+          }
         }
         avg /= num;
 
         CHECK(!std::holds_alternative<Split>(*node));
 
         // Replace contents of the node with a Split.
-        node->template emplace<Split>(axis_horiz, avg, nullptr, nullptr);
+        node->template emplace<Split>(axis, avg, nullptr, nullptr);
 
         CHECK(std::holds_alternative<Split>(*node));
 
         // Now insert the old contents.
         for (const auto &[pos, t] : old) {
-          InsertTo(node, axis_horiz, pos, t);
+          InsertTo(node, axis, pos, t);
         }
       }
       // Inserted, so we are done.
@@ -340,13 +361,13 @@ void Tree2D<Num, T>::InsertTo(Node *node, bool axis_horiz, Pos pos, T t) {
 
 template <class Num, class T>
 requires std::is_arithmetic_v<Num>
-void Tree2D<Num, T>::DebugPrint() const {
+void Tree3D<Num, T>::DebugPrint() const {
   std::function<void(const Node*, int)> Rec =
     [&Rec](const Node *node, int pad) {
       std::string p(pad, ' ');
       if (const Split *split = std::get_if<Split>(node)) {
         std::cout << p
-                  << (split->axis_horiz ? "HORIZ" : "VERT") << " @"
+                  << AxisName(split->axis) << " @"
                   << split->value << "\n";
         if (split->lesseq.get() != nullptr) {
           std::cout << p << "LESSEQ:\n";
@@ -361,8 +382,9 @@ void Tree2D<Num, T>::DebugPrint() const {
         const Leaf *leaf = std::get_if<Leaf>(node);
         CHECK(leaf != nullptr);
         for (const auto &[pos, t] : *leaf) {
-          const auto &[x, y] = pos;
-          std::cout << p << "(" << x << "," << y << "): " << t << "\n";
+          const auto &[x, y, z] = pos;
+          std::cout << p << "(" << x << "," << y << "," << z
+                    << "): " << t << "\n";
         }
       }
     };
@@ -370,12 +392,19 @@ void Tree2D<Num, T>::DebugPrint() const {
   Rec(root.get(), 0);
 }
 
+template <class Num, class T>
+requires std::is_arithmetic_v<Num>
+std::tuple<typename Tree3D<Num, T>::Pos, T, double>
+Tree3D<Num, T>::Closest(Num x, Num y, Num z) const {
+  return Closest(std::make_tuple(x, y, z));
+}
+
 // Aborts if the tree is empty, so check first.
 template <class Num, class T>
 requires std::is_arithmetic_v<Num>
-std::tuple<typename Tree2D<Num, T>::Pos, T, double>
-Tree2D<Num, T>::Closest(Pos pos) const {
-  const auto &[x, y] = pos;
+std::tuple<typename Tree3D<Num, T>::Pos, T, double>
+Tree3D<Num, T>::Closest(Pos pos) const {
+  const auto &[x, y, z] = pos;
 
   CHECK(count != 0);
 
@@ -405,13 +434,19 @@ Tree2D<Num, T>::Closest(Pos pos) const {
     if (const Split *split = std::get_if<Split>(node)) {
       // Get the minimum distance between the lookup point and
       // the split axis.
-      double sdist = split->axis_horiz ? split->value - y : split->value - x;
+      double sdist = [&]{
+          switch (split->axis) {
+          case Axis::X: return split->value - x;
+          case Axis::Y: return split->value - y;
+          case Axis::Z: return split->value - z;
+          }
+        }();
       double sq_dist = sdist * sdist;
 
       // We always search the one we're in. But we can also search
       // the other one if it is within our search radius.
       const bool both = best == nullptr || sq_dist <= best_sq_dist;
-      const bool lesseq = Classify(pos, split->axis_horiz, split->value);
+      const bool lesseq = Classify(pos, split->axis, split->value);
 
       // Since we pop from the end, put the node we're in on the queue
       // last, so that it's searched first.
