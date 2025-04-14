@@ -1010,6 +1010,18 @@ BigPoly BigCube(int digits) {
   };
 }
 
+BigPoly BigTetra(int digits_unused) {
+  std::vector<BigVec3> vertices{
+    BigVec3{BigRat(1), BigRat(1), BigRat(1)},
+    BigVec3{BigRat(1), BigRat(-1), BigRat(-1)},
+    BigVec3{BigRat(-1), BigRat(1), BigRat(-1)},
+    BigVec3{BigRat(-1), BigRat(-1), BigRat(1)},
+  };
+
+  return MakeBigPolyFromVertices(std::move(vertices), "tetrahedron");
+}
+
+
 // Is pt strictly within the triangle a-b-c? Works with both winding orders.
 bool InTriangle(const BigVec2 &a, const BigVec2 &b, const BigVec2 &c,
                 const BigVec2 &pt) {

@@ -1947,8 +1947,13 @@ inline frame<T, 3> frame_fromz(const vec<T, 3>& o, const vec<T, 3>& v) {
     auto y    = vec<T, 3>{b, sign + z.y * z.y * a, -z.y};
     return {x, y, z, o};
   } else if constexpr (std::is_same_v<T, double>) {
-    // TODO: double
-    return {};
+    auto z    = normalize(v);
+    auto sign = copysign(1.0, z.z);
+    auto a    = -1.0 / (sign + z.z);
+    auto b    = z.x * z.y * a;
+    auto x    = vec<T, 3>{1.0 + sign * z.x * z.x * a, sign * b, -sign * z.x};
+    auto y    = vec<T, 3>{b, sign + z.y * z.y * a, -z.y};
+    return {x, y, z, o};
   }
 }
 template <typename T>

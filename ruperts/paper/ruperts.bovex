@@ -838,8 +838,9 @@ can’t tile the plane, but you can fold them over and start making a
 polyhedron (3D shape). This tells us that a Platonic solid must have
 faces that are pentagons, squares, or triangles. The pentagon is
 pretty big so there’s only one way to put them together. Same for the
-cube. The triangle has three ways, but it’s not too hard to see that
-you are limited to these three if you try to work it out.
+square, which makes a cube. The triangle has three ways, but it’s not
+too hard to see that you are limited to these three if you try to work
+it out.
 
 These solids are named after Plato, but it’s obvious to me that any
 clear thinker would eventually discover these; if there are aliens

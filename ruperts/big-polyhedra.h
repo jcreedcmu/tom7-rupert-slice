@@ -259,6 +259,7 @@ BigPoly BigSdode(int digits);
 BigPoly BigTriac(int digits);
 // Some are exact, but we take an (ignored) digits argument anyway.
 BigPoly BigCube(int digits);
+BigPoly BigTetra(int digits);
 
 // Point-in-polygon test using the winding number algorithm.
 // Takes a vertex buffer and indices into that set.
