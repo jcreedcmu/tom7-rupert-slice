@@ -17,6 +17,8 @@
 #include "atomic-util.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
+#include "big-polyhedra.h"
+#include "bignum/big.h"
 #include "color-util.h"
 #include "geom/tree-3d.h"
 #include "hashing.h"
@@ -27,12 +29,22 @@
 #include "status-bar.h"
 #include "threadutil.h"
 #include "util.h"
-#include "yocto_matht.h"
 #include "vector-util.h"
+#include "yocto_matht.h"
 
 using vec3 = yocto::vec<double, 3>;
 
 DECLARE_COUNTERS(too_close);
+
+// TODO Normalizing a hull:
+// Since the snub cube is vertex transitive, it does
+// not matter where we start. The path traced out is
+// ...
+
+// TODO:
+// - Extract a single patch and compute bounds on
+//   the parameters (quaternion parameters?)
+// -
 
 struct Hulls {
   size_t Num() { return canonical.size(); }
@@ -97,10 +109,243 @@ inline vec3 QuaternionToSpherePoint(const quat4 &q) {
   return transform_point(rotation_frame(normalize(q)), vec3{0, 0, 1});
 }
 
+inline bool AllZero(const BigVec3 &v) {
+  return BigRat::IsZero(v.x) && BigRat::IsZero(v.y) && BigRat::IsZero(v.z);
+}
+
+struct Boundaries {
+  uint64_t GetCode(const BigVec3 &v) {
+    uint64_t code = 0;
+    for (int i = 0; i < planes.size(); i++) {
+      const BigVec3 &normal = planes[i];
+      BigRat d = dot(v, normal);
+      int sign = BigRat::Sign(d);
+      CHECK(sign != 0) << "Points exactly on the boundary are not "
+        "handled.";
+      if (sign > 0) {
+        code |= uint64_t{1} << i;
+      }
+    }
+    return code;
+  }
+
+  explicit Boundaries(const BigPoly &poly) : poly(poly) {
+    // Now, the boundaries are planes parallel to faces that pass
+    // through the origin. First we find all of these planes
+    // and give them ids. These planes need an orientation, too,
+    // so a normal vector is a good representation. We can't make
+    // this unit length, however.
+    //
+    // We could actually use integer vectors here! Scale by
+    // multiplying by all the denominators, then divide by the GCD.
+    // This representation is canonical up to sign flips.
+
+    auto AlreadyHave = [&](const BigVec3 &n) {
+        for (const BigVec3 &m : planes) {
+          if (AllZero(cross(n, m))) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+    for (const std::vector<int> &face : poly.faces->v) {
+      CHECK(face.size() >= 3);
+      const BigVec3 &a = poly.vertices[face[0]];
+      const BigVec3 &b = poly.vertices[face[1]];
+      const BigVec3 &c = poly.vertices[face[2]];
+      BigVec3 normal = ScaleToMakeIntegral(cross(c - a, b - a));
+      printf("Normal: %s\n", VecString(normal).c_str());
+      if (!AlreadyHave(normal)) {
+        planes.push_back(normal);
+      }
+    }
+
+    printf("There are %d distinct planes.\n",
+           (int)planes.size());
+
+    // You can switch to a larger word size for more complex
+    // polyhedra.
+    CHECK(planes.size() <= 64);
+  }
+
+  std::vector<BigVec3> planes;
+  BigPoly poly;
+};
+
+static void GeneratePatch(
+    const Boundaries &boundaries, const BigQuat &pt) {
+  const BigPoly &poly = boundaries.poly;
+  // Here we use exact math. The poly approximates the snub cube
+  // (but we still think it is an actual counterexample) and the quat
+  // came from a double sample but now exact (it is NOT unit length,
+  // however).
+
+  // The patch is the contiguous region around the point p that
+  // has the same hull topologically.
+
+  // First, recompute that hull.
+  BigFrame frame = NonUnitRotationFrame(pt);
+  BigMesh2D shadow = Shadow(Rotate(frame, poly));
+  std::vector<int> hull = BigQuickHull(shadow.vertices);
+
+  // Now, the boundaries are planes parallel to faces that pass
+  // through the origin.
+
+
+
+}
+
+static vec3 RandomPointOnSphere(ArcFour *rc) {
+  const quat4 small_quat = normalize(RandomQuaternion(rc));
+  return QuaternionToSpherePoint(small_quat);
+}
+
+static void BigSnubHulls() {
+  BigPoly scube = BigScube(50);
+  Boundaries boundaries(scube);
+
+  Polyhedron cube = SnubCube();
+
+  Periodically status_per(1.0);
+  constexpr int64_t ITERS = 100'000;
+  StatusBar status(1);
+
+  std::mutex m;
+  int64_t next_work_idx = 0;
+  constexpr int NUM_THREADS = 8;
+
+  // Parallel.
+  std::vector<BigVec3> samples;
+  std::vector<uint64_t> codes;
+
+  auto RandomCoord = [](ArcFour *rc) -> BigRat {
+      // Between 3 and 10 or -10 and -3.
+      // uint64_t n = 300000000 + RandTo(rc, 700000000);
+      uint64_t n = RandTo(rc, 2000000000);
+      //                       100000000
+      return (rc->Byte() & 1) ?
+        BigRat(n, 100000000) :
+        BigRat(-n, 100000000);
+    };
+
+  auto RandomVec = [&](ArcFour *rc) {
+      for (;;) {
+        BigRat x = RandomCoord(rc);
+        BigRat y = RandomCoord(rc);
+        BigRat z = RandomCoord(rc);
+
+        if (x * x + y * y + z * z >
+            BigRat(9))
+          return BigVec3(x, y, z);
+      }
+    };
+
+  ParallelFan(
+      NUM_THREADS,
+      [&](int thread_idx) {
+        ArcFour rc(std::format("snubhulls.{}.{}", thread_idx,
+                               time(nullptr)));
+        for (;;) {
+          int64_t work_idx = 0;
+          {
+            MutexLock ml(&m);
+            if (next_work_idx == ITERS)
+              return;
+            work_idx = next_work_idx;
+            next_work_idx++;
+          }
+
+          BigVec3 sample_point = RandomVec(&rc);
+
+          CHECK(!AllZero(sample_point));
+
+          uint64_t code = boundaries.GetCode(sample_point);
+
+          {
+            MutexLock ml(&m);
+            CHECK(codes.size() == samples.size());
+            codes.push_back(code);
+            samples.push_back(sample_point);
+          }
+          status_per.RunIf([&]{
+              status.Progressf(work_idx, ITERS,
+                               "%lld/%lld",
+                               work_idx, ITERS);
+            });
+        }
+      });
+
+  for (const BigVec3 &v : samples) {
+    CHECK(!AllZero(v));
+  }
+
+  CHECK(codes.size() == samples.size());
+
+  ArcFour rc("color");
+  std::unordered_map<uint64_t, uint32_t> colored_codes;
+  for (uint64_t code : codes) {
+    if (!colored_codes.contains(code)) {
+      colored_codes[code] =
+        ColorUtil::HSVAToRGBA32(
+            RandDouble(&rc),
+            0.5 + RandDouble(&rc) * 0.5,
+            0.5 + RandDouble(&rc) * 0.5,
+            1.0);
+    }
+  }
+
+  printf("\n\n\n");
+
+  printf("There are %lld distinct codes in this sample.\n",
+         (int64_t)colored_codes.size());
+
+  for (const auto &[code, color] : colored_codes) {
+    printf("%s▉" ANSI_RESET ": %s\n",
+           ANSI::ForegroundRGB32(color).c_str(),
+           std::format("{:b}", code).c_str());
+  }
+
+  // As point cloud.
+  if (true) {
+    std::string outply =
+      std::format(
+          "ply\n"
+          "format ascii 1.0\n"
+          "element vertex {}\n"
+          "property float x\n"
+          "property float y\n"
+          "property float z\n"
+          "property uchar red\n"
+          "property uchar green\n"
+          "property uchar blue\n"
+          "end_header\n", samples.size());
+
+    for (size_t i = 0; i < samples.size(); i++) {
+      CHECK(i < samples.size());
+      const vec3 v = normalize(SmallVec(samples[i])) * 100.0;
+      uint32_t color = colored_codes[codes[i]];
+
+      const auto &[r, g, b, _] = ColorUtil::Unpack32(color);
+      AppendFormat(&outply,
+                   "{} {} {} {} {} {}\n",
+                   v.x, v.y, v.z,
+                   r, g, b);
+    }
+
+    std::string filename = "bigsnubcloud.ply";
+    Util::WriteFile(filename, outply);
+    printf("Wrote %lld bytes to %s.\n",
+           outply.size(),
+           filename.c_str());
+  }
+}
+
 // Visualize a sample of the distinct convex hulls.
 // By distinct convex hull, we mean a specific set of
 // points on the hull.
 static void SnubHulls() {
+
   Polyhedron cube = SnubCube();
 
   Periodically status_per(1.0);
@@ -115,6 +360,8 @@ static void SnubHulls() {
   // Parallel.
   std::vector<vec3> samples;
   std::vector<size_t> ids;
+  // An orientation from each region.
+  std::unordered_map<size_t, quat4> examples;
 
   Tree3D<double, bool> tree;
   static constexpr double TOO_CLOSE = 1.0e-3;
@@ -134,21 +381,20 @@ static void SnubHulls() {
             next_work_idx++;
           }
 
-          const quat4 small_quat = normalize(RandomQuaternion(&rc));
-          // the camera point
-          vec3 sphere_point(100.0 * QuaternionToSpherePoint(small_quat));
+          vec3 sphere_point = RandomPointOnSphere(&rc);
 
           if (AllZero(sphere_point))
             continue;
 
           {
             MutexLock ml(&m);
-
+            vec3 sphere_point100 = sphere_point * 100.0;
 
             if (!tree.Empty()) {
-              const auto &[pos_, value_, dist] = tree.Closest(sphere_point.x,
-                                                              sphere_point.y,
-                                                              sphere_point.z);
+              const auto &[pos_, value_, dist] =
+                tree.Closest(sphere_point100.x,
+                             sphere_point100.y,
+                             sphere_point100.z);
               if (dist < TOO_CLOSE) {
                 too_close++;
                 continue;
@@ -156,9 +402,9 @@ static void SnubHulls() {
             }
 
             // Reserve it.
-            tree.Insert(sphere_point.x,
-                        sphere_point.y,
-                        sphere_point.z,
+            tree.Insert(sphere_point100.x,
+                        sphere_point100.y,
+                        sphere_point100.z,
                         true);
           }
 
@@ -174,6 +420,10 @@ static void SnubHulls() {
             CHECK(ids.size() == samples.size());
             ids.push_back(id);
             samples.push_back(sphere_point);
+            if (!examples.contains(id)) {
+              const auto &[rot, trans] = UnpackFrame(frame);
+              examples[id] = normalize(rot);
+            }
           }
           status_per.RunIf([&]{
               status.Progressf(work_idx, ITERS,
@@ -240,7 +490,7 @@ static void SnubHulls() {
 
     for (size_t i = 0; i < samples.size(); i++) {
       CHECK(i < samples.size());
-      const vec3 &v = samples[i];
+      const vec3 v = samples[i] * 100.0;
       const int id = ids[i];
       CHECK(id < colors.size());
       uint32_t color32 = colors[id];
@@ -264,7 +514,8 @@ static void SnubHulls() {
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  SnubHulls();
+  BigSnubHulls();
+  // SnubHulls();
 
   return 0;
 }

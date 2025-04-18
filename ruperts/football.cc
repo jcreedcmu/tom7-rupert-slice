@@ -16,6 +16,7 @@
 #include <numbers>
 #include <optional>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -25,8 +26,9 @@
 #include "atomic-util.h"
 #include "base/stringprintf.h"
 #include "big-csg.h"
-#include "bounds.h"
-#include "image.h"
+#include "big-polyhedra.h"
+#include "bignum/big.h"
+#include "geom/tree-3d.h"
 #include "mesh.h"
 #include "nd-solutions.h"
 #include "opt/opt.h"
@@ -34,7 +36,6 @@
 #include "polyhedra.h"
 #include "randutil.h"
 #include "rendering.h"
-#include "solutions.h"
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
@@ -43,7 +44,12 @@
 
 DECLARE_COUNTERS(solve_attempts, solved, hard, noperts, footballs);
 
+static constexpr int NUM_THREADS = 16;
+static constexpr int ADDL_STATUS_LINES = 3;
+
 static StatusBar *status = nullptr;
+static std::mutex thread_status_m;
+static std::array<std::string, NUM_THREADS> thread_status;
 
 using vec2 = yocto::vec<double, 2>;
 using vec3 = yocto::vec<double, 3>;
@@ -64,8 +70,10 @@ static std::string ConfigString(
 // Return the number of iterations taken, or nullopt if we exceeded
 // the limit. If solved and the arguments are non-null, sets the outer
 // frame and inner frame to some solution.
-static constexpr int NOPERT_ITERS = 100000;
-static constexpr int MIN_VERBOSE_ITERS = 10000;
+// static constexpr int NOPERT_ITERS = 100000;
+// This is about 30 minutes of optimization.
+static constexpr int NOPERT_ITERS = 10000;
+static constexpr int MIN_VERBOSE_ITERS = 2000;
 
 // Returns best solution, iters, and clearance.
 static std::optional<std::tuple<frame3, frame3, int64_t, double>>
@@ -74,16 +82,31 @@ DoSolve(int thread_idx,
         double theta, double phi, double stretch,
         ArcFour *rc, const Polyhedron &poly) {
   CHECK(!poly.faces->v.empty());
+  Timer solve_timer;
+  {
+    MutexLock ml(&thread_status_m);
+    thread_status[thread_idx] =
+      std::format("[" AYELLOW("{}") "] {}",
+                  thread_idx,
+                  ConfigString(theta, phi, stretch));
+  }
 
   for (int iter = 0; iter < NOPERT_ITERS; iter++) {
 
-    if (iter > 0 && (iter % 5000) == 0) {
-      status->Printf("[" AYELLOW("%d") "] %s "
-                     AFGCOLOR(190, 220, 190, "not solved")
-                     " yet; " AWHITE("%d") " iters...\n",
-                     thread_idx, ConfigString(theta, phi, stretch).c_str());
+    if (iter > 0 && (iter % 1000) == 0) {
+      MutexLock ml(&thread_status_m);
+      thread_status[thread_idx] =
+        std::format("[" AYELLOW("{}") "] {} "
+                    "{}"
+                    ": " AWHITE("{}") " it " AGREY("({:.1f}%)") " {}",
+                    thread_idx,
+                    ConfigString(theta, phi, stretch),
+                    (iter >= 20000) ? ARED("hard") : AORANGE("run"),
+                    iter,
+                    (100.0 * iter) / (double)NOPERT_ITERS,
+                    ANSI::Time(solve_timer.Seconds()));
 
-      if (iter == 20000) {
+      if (iter == 2000) {
         hard++;
       }
     }
@@ -161,9 +184,10 @@ DoSolve(int thread_idx,
 
       if (iter > MIN_VERBOSE_ITERS) {
         status->Printf("%s " AYELLOW("solved") " after "
-                       AWHITE("%d") " iters.\n",
+                       AWHITE("%d") " iters (%s).\n",
                        ConfigString(theta, phi, stretch).c_str(),
-                       iter);
+                       iter,
+                       ANSI::Time(solve_timer.Seconds()).c_str());
       }
       return std::make_tuple(OuterFrame(args),
                              InnerFrame(args),
@@ -200,6 +224,30 @@ static Polyhedron Football(double theta, double phi, double stretch) {
   return poly;
 }
 
+static BigPoly BigFootball(double theta, double phi, double stretch,
+                           int digits) {
+
+  BigPoly poly = BigScube(digits);
+  // Stretch
+  BigVec3 axis_dir = BigVec3{
+    BigRat::FromDouble(sin(theta) * yocto::cos(phi)),
+    BigRat::FromDouble(sin(theta) * yocto::sin(phi)),
+    BigRat::FromDouble(cos(theta)),
+  };
+
+  BigVec3 stretch_axis =
+    (BigRat::FromDouble(stretch) - BigRat(1)) * axis_dir;
+
+  for (BigVec3 &v : poly.vertices) {
+    // Project point onto axis.
+    BigRat proj = dot(v, axis_dir);
+    BigVec3 parallel_change = stretch_axis * proj;
+    v = v + parallel_change;
+  }
+
+  return poly;
+}
+
 // num_points is the number on each side.
 static std::optional<std::tuple<frame3, frame3, double>>
 ComputeMinimumClearance(
@@ -224,6 +272,25 @@ ComputeMinimumClearance(
   }
 }
 
+Tree3D<double, bool> GetDoneTree(NDSolutions<3> &sols) {
+  ArcFour rc("getdone");
+  std::vector<std::tuple<double, double, double>> done_xyz;
+  for (int64_t i = 0; i < sols.Size(); i++) {
+    const auto &[pos, clearance, outer, inner] = sols[i];
+    done_xyz.emplace_back(pos[0], pos[1], pos[2]);
+  }
+
+  // Insert in a random order, because Tree3D doesn't
+  // rebalance yet.
+  Shuffle(&rc, &done_xyz);
+  Tree3D<double, bool> done;
+  for (const auto &[x, y, z] : done_xyz) {
+    done.Insert(x, y, z, true);
+  }
+
+  return done;
+}
+
 static void DoFootball() {
   solve_attempts.Reset();
   solved.Reset();
@@ -244,8 +311,6 @@ static void DoFootball() {
   // and when it is very long we have a "churro" (which goes through
   // another way) and we want to see where the crossover point is.
 
-  static constexpr int NUM_THREADS = 16;
-
   // Each trial is independent. We're mostly interested in the minimum
   // clearance at each depth. For a given depth we find solutions and
   // then minimize their clearance.
@@ -257,7 +322,9 @@ static void DoFootball() {
 
   const int64_t THETA_SAMPLES = 100;
   const int64_t PHI_SAMPLES = 100;
-  const int64_t STRETCH_SAMPLES = 2000;
+  const int64_t STRETCH_SAMPLES =
+    140;
+    // 2000;
   const int64_t TOTAL_SAMPLES =
     THETA_SAMPLES * PHI_SAMPLES * STRETCH_SAMPLES;
 
@@ -266,9 +333,11 @@ static void DoFootball() {
   constexpr double MIN_PHI = 0.0;
   constexpr double MAX_PHI = std::numbers::pi / 2.0;
   constexpr double MIN_STRETCH = 1.0;
-  constexpr double MAX_STRETCH = 1.05;
+  // constexpr double MAX_STRETCH = 1.05;
+  constexpr double MAX_STRETCH = 1.00035;
 
-  auto MaybeStatus = [&](double theta, double phi, double stretch) {
+  auto MaybeStatus = [&](int64_t num_left,
+                         double theta, double phi, double stretch) {
       if (status_per.ShouldRun()) {
         MutexLock ml(&m);
         double total_time = run_timer.Seconds();
@@ -280,33 +349,42 @@ static void DoFootball() {
         options.include_percent = true;
 
         std::string timing = std::format(
-            "{:.4f} footballs/s  "
-            AGREY("|") "  {}",
+            AWHITE("{:.4f}") " footballs/s  "
+            AGREY("|") "  " AWHITE("{}") " remain",
             pps,
-            ConfigString(theta, phi, stretch));
+            num_left);
 
         const double save_in = save_per.SecondsLeft();
 
         std::string msg =
-          StringPrintf(
-              APURPLE("%s") AWHITE("s") " "
-              AGREEN("%s") AWHITE("✔") " "
-              ARED("%lld") AWHITE("⛔") " "
-              "(save in %s)",
-              FormatNum(solve_attempts.Read()).c_str(),
-              FormatNum(solved.Read()).c_str(),
+          std::format(
+              APURPLE("{}") AWHITE("s") " "
+              AGREEN("{}") AWHITE("✔") " "
+              AORANGE("{}") AWHITE("⚡") " "
+              ARED("{}") AWHITE("⛔") " "
+              "(save in {})",
+              FormatNum(solve_attempts.Read()),
+              FormatNum(solved.Read()),
+              FormatNum(hard.Read()),
               noperts.Read(),
-              ANSI::Time(save_in).c_str());
+              ANSI::Time(save_in));
 
         std::string bar =
-          ANSI::ProgressBar(p, TOTAL_SAMPLES,
+          ANSI::ProgressBar(TOTAL_SAMPLES - num_left, TOTAL_SAMPLES,
                             msg, total_time, options);
 
-        status->Statusf(
-            "%s\n"
-            "%s\n",
-            timing.c_str(),
-            bar.c_str());
+        std::vector<std::string> status_lines;
+        status_lines.reserve(NUM_THREADS + ADDL_STATUS_LINES);
+        status_lines.push_back(
+            ANSI_GREY
+            "——————————————————————————————————————————————————————————"
+            ANSI_RESET);
+        for (int i = 0; i < NUM_THREADS; i++) {
+          status_lines.push_back(thread_status[i]);
+        }
+        status_lines.push_back(std::move(timing));
+        status_lines.push_back(std::move(bar));
+        status->EmitStatus(status_lines);
       }
     };
 
@@ -317,25 +395,6 @@ static void DoFootball() {
                          sols.Size());
         });
     };
-
-  #if 0
-  for (int ti = 0; ti < THETA_SAMPLES; ti++) {
-    double tf = ti / (double)THETA_SAMPLES;
-    double theta = MIN_THETA + (tf * (MAX_THETA - MIN_THETA));
-
-    for (int pi = 0; pi < PHI_SAMPLES; pi++) {
-      double pf = pi / (double)PHI_SAMPLES;
-      double phi = MIN_PHI + (pf * (MAX_PHI - MIN_PHI));
-
-      for (int si = 0; si < STRETCH_SAMPLES; si++) {
-        double sf = si / (double)STRETCH_SAMPLES;
-        double stretch = MIN_STRETCH + (sf * (MAX_STRETCH - MIN_STRETCH));
-
-
-      }
-    }
-  }
-  #endif
 
   auto Decode = [](int64_t work_idx) {
       int64_t ti = work_idx % THETA_SAMPLES;
@@ -362,63 +421,69 @@ static void DoFootball() {
 
   static constexpr double UNSOLVED = -1.0;
 
+  Tree3D<double, bool> done_tree = GetDoneTree(sols);
+
   constexpr double CLOSE = 1.0e-6;
-  // Binary search to find the next work index
-  // that we have to do! The boundary is mostly
-  // monotonic but might be a little ragged
-  // because of multithreading. So we just try
-  // to get close and then do a linear scan (which
-  // could still miss samples if we get unlucky!).
-  // We don't really care about duplicates or a
-  // few missing samples, though; this is stochastic.
-  int64_t next_work_idx = [&](){
-    // all work below this is done
-    int64_t lb = 0;
-    // all work here and beyond is not done.
-    int64_t ub = TOTAL_SAMPLES;
-    for (;;) {
-      status->Printf("[%lld, %lld]\n", lb, ub);
-      CHECK(ub >= lb);
-      if (ub - lb < 1000) {
-        while (lb < ub) {
-          const auto &[theta, phi, stretch] = Decode(lb);
-          double dist = sols.Distance({theta, phi, stretch});
-          if (dist > CLOSE)
-            break;
-          lb++;
-        }
-        return lb;
-      }
 
-      int64_t midpoint = (lb + ub) >> 1;
-
-      const auto &[theta, phi, stretch] = Decode(midpoint);
-      double dist = sols.Distance({theta, phi, stretch});
-
+  // Collect all the work indices in memory. When running fresh, we
+  // can just do these in sequence, but the process takes a long time
+  // and it is nice to see samples from all throughout. Everything
+  // has to fit in memory, anyway.
+  std::vector<int64_t> work;
+  for (int64_t work_idx = 0; work_idx < TOTAL_SAMPLES; work_idx++) {
+    const auto &[theta, phi, stretch] = Decode(work_idx);
+    if (!done_tree.Empty()) {
+      const auto &[pos_, data_, dist] =
+        done_tree.Closest(theta, phi, stretch);
+      // Essentially looking for exact hits here.
       if (dist < CLOSE) {
-        lb = midpoint + 1;
-      } else {
-        ub = midpoint;
+        // Done, then.
+        continue;
       }
     }
-    }();
+    work.push_back(work_idx);
+  }
 
-  status->Printf("Starting at idx %lld/%lld\n",
-                 next_work_idx, TOTAL_SAMPLES);
+  // Get a picture of the full space by running these in random
+  // order. It's just numbers; there are no memory locality downsides.
+  {
+    ArcFour rc("shuffle");
+    Shuffle(&rc, &work);
+  }
 
   ParallelFan(
-      NUM_THREADS,
+      NUM_THREADS + 1,
       [&](int thread_idx) {
+        if (thread_idx == NUM_THREADS) {
+          for(;;) {
+            using namespace std::chrono_literals;
+            std::this_thread::sleep_for(1s);
+
+            int64_t num_left = 0;
+            {
+              MutexLock ml(&m);
+              if (work.empty())
+                return;
+              num_left = work.size();
+            }
+            MaybeStatus(num_left, 0, 0, 0);
+          }
+
+          return;
+        }
+
         ArcFour rc(std::format("football.{}.{}", thread_idx,
                                time(nullptr)));
         for (;;) {
           int64_t work_idx = 0;
+          int64_t num_left = 0;
           {
             MutexLock ml(&m);
-            if (next_work_idx == TOTAL_SAMPLES)
+            if (work.empty())
               return;
-            work_idx = next_work_idx;
-            next_work_idx++;
+            work_idx = work.back();
+            work.pop_back();
+            num_left = work.size();
           }
 
           const auto &[theta, phi, stretch] = Decode(work_idx);
@@ -435,7 +500,7 @@ static void DoFootball() {
             sols.Add({theta, phi, stretch}, UNSOLVED, frame3(), frame3());
           }
 
-          MaybeStatus(theta, phi, stretch);
+          MaybeStatus(num_left, theta, phi, stretch);
           MaybeSave();
         }
       });
@@ -480,25 +545,69 @@ static void STL() {
 }
 
 static void GetSol() {
+  StatusBar status(1);
   NDSolutions<3> sols("football.nds");
   size_t size = sols.Size();
   double best_stretch = 1000000.0;
+  CHECK(sols.Size() > 0);
   int64_t best_idx = 0;
-  for (int64_t idx = 0; idx < size; idx++) {
-    const auto &[key, score, outer, inner] = sols[idx];
-    if (key[2] < best_stretch) {
-      best_stretch = key[2];
-      best_idx = idx;
-    }
-  }
+  int64_t valid = 0, invalid = 0;
+  Timer findbest_timer;
+  Periodically findbest_per(1.0);
+  std::mutex m;
+  auto vec = sols.GetVec();
+  ParallelAppi(
+      vec,
+      [&](int64_t idx, const auto &sol) {
+        double best = ReadWithLock(&m, &best_stretch);
+        const auto &[key, score, outer, inner] = sol;
+
+        if (score >= 0.0 && key[2] < best) {
+          // Must be valid.
+          const auto &[theta, phi, stretch] = key;
+          BigPoly football = BigFootball(theta, phi, stretch, 100);
+          bool is_valid = ValidateSolution(football, outer, inner, 100);
+
+          {
+            MutexLock ml(&m);
+            if (is_valid) {
+              best_stretch = key[2];
+              best_idx = idx;
+              valid++;
+            } else {
+              invalid++;
+            }
+
+            findbest_per.RunIf([&]() {
+                status.Progressf(idx, size, "Finding best. "
+                                  ARED("%lld") "+" AGREEN("%lld"),
+                                  invalid, valid);
+              });
+          }
+        }
+      }, 8);
+
+  status.Statusf("Done.\n");
+
+  CHECK(valid > 0);
+  status.Printf("Took %s. Saw " ARED("%lld") " invalid solutions\n"
+                 "(and " AWHITE("%lld") " valid improving solutions)\n"
+                 "on the way.\n",
+                 ANSI::Time(findbest_timer.Seconds()).c_str(),
+                 invalid, valid);
 
   const auto &[key, score, outer, inner] = sols[best_idx];
 
-  status->Printf("Best stretch %.17g at %lld\n"
+  const auto &[theta, phi, stretch] = key;
+  BigPoly football = BigFootball(theta, phi, stretch, 100);
+  CHECK(ValidateSolution(football, outer, inner, 100));
+  status.Printf("Solution " AGREEN("OK") "!\n");
+
+  status.Printf("Best stretch %.17g at %lld\n"
                  "Config: %s\n"
                  "Clearance %.17g.\n",
                  best_stretch, best_idx,
-                 ConfigString(key[0], key[1], key[2]).c_str(),
+                 ConfigString(theta, phi, stretch).c_str(),
                  score);
 
   Polyhedron poly = Football(key[0], key[1], key[2]);
@@ -520,7 +629,7 @@ static void GetSol() {
 
     std::string filename = "football-residue.stl";
     SaveAsSTL(residue, filename);
-    status->Printf("Wrote %s", filename.c_str());
+    status.Printf("Wrote %s", filename.c_str());
   }
 
 }
@@ -528,13 +637,17 @@ static void GetSol() {
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  status = new StatusBar(2);
+  {
+    MutexLock ml(&thread_status_m);
+    for (int i = 0; i < NUM_THREADS; i++)
+      thread_status[i] = "start";
+  }
+  status = new StatusBar(NUM_THREADS + ADDL_STATUS_LINES);
 
   // STL();
 
-  GetSol();
-
   Plot();
+  GetSol();
 
   // DoFootball();
 

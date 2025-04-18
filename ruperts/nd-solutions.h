@@ -69,6 +69,10 @@ struct NDSolutions {
   std::tuple<std::array<double, N>, double, frame3, frame3>
   operator[] (size_t idx);
 
+  // Get the entire vector (as a copy), which may be quite big!
+  std::vector<std::tuple<std::array<double, N>, double, frame3, frame3>>
+  GetVec();
+
  private:
   static constexpr size_t ROW_SIZE = N + 1 + 12 + 12;
   static double ReadDouble(const uint8_t *bytes) {
@@ -96,6 +100,32 @@ struct NDSolutions {
     return sum;
   }
 
+  static std::tuple<std::array<double, N>, double, frame3, frame3>
+  DecodeRow(const std::array<double, ROW_SIZE> &row) {
+    int idx = 0;
+    auto ReadFrame = [&row, &idx](frame3 &f) {
+        for (int y = 0; y < 4; y++) {
+          vec3 &v = f[y];
+          for (int x = 0; x < 3; x++) {
+            v[x] = row[idx++];
+          }
+        }
+      };
+
+    std::array<double, N> key;
+    double score;
+    frame3 outer, inner;
+    for (int i = 0; i < N; i++) {
+      key[i] = row[idx++];
+    }
+    score = row[idx++];
+    ReadFrame(outer);
+    ReadFrame(inner);
+    CHECK(idx == ROW_SIZE);
+    return std::make_tuple(key, score, outer, inner);
+  }
+
+
   static constexpr char MAGIC[] = "NdS1";
 
   std::mutex m;
@@ -106,6 +136,22 @@ struct NDSolutions {
 
 
 // Template implementations follow.
+
+template<size_t N>
+auto NDSolutions<N>::GetVec() ->
+std::vector<std::tuple<std::array<double, N>, double, frame3, frame3>> {
+  std::vector<
+    std::tuple<std::array<double, N>, double, frame3, frame3>> ret;
+  ret.resize(data.size());
+  MutexLock ml(&m);
+
+  for (size_t i = 0; i < data.size(); i++) {
+    ret[i] = DecodeRow(data[i]);
+  }
+
+  return ret;
+}
+
 
 template<size_t N>
 void NDSolutions<N>::Save() {
@@ -492,30 +538,9 @@ template<size_t N>
 auto NDSolutions<N>::operator[] (size_t row_idx) ->
   std::tuple<std::array<double, N>, double, frame3, frame3> {
   MutexLock ml(&m);
-  CHECK(row_idx >= 0 && data.size());
+  CHECK(row_idx >= 0 && data.size()) << row_idx << " vs " << data.size();
   const auto &row = data[row_idx];
-
-  int idx = 0;
-  auto ReadFrame = [&row, &idx](frame3 &f) {
-      for (int y = 0; y < 4; y++) {
-        vec3 &v = f[y];
-        for (int x = 0; x < 3; x++) {
-          v[x] = row[idx++];
-        }
-      }
-    };
-
-  std::array<double, N> key;
-  double score;
-  frame3 outer, inner;
-  for (int i = 0; i < N; i++) {
-    key[i] = row[idx++];
-  }
-  score = row[idx++];
-  ReadFrame(outer);
-  ReadFrame(inner);
-  CHECK(idx == ROW_SIZE);
-  return std::make_tuple(key, score, outer, inner);
+  return DecodeRow(row);
 }
 
 #endif

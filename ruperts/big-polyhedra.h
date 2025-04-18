@@ -51,6 +51,10 @@ struct BigMesh2D {
   const Faces *faces = nullptr;
 };
 
+// Scale the vector so that it has integer coordinates. The
+// result is a canonical representation of the direction.
+BigVec3 ScaleToMakeIntegral(const BigVec3 &a);
+
 inline BigVec3 operator +(const BigVec3 &a, const BigVec3 &b) {
   return BigVec3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
@@ -231,6 +235,35 @@ inline BigVec2 TransformAndProjectPoint(const BigFrame &f, const BigVec3 &v) {
   return fx + fy + fz + o;
 }
 
+// Small Fixed-size matrices stored in column major format.
+struct BigMat3 {
+  // left column
+  BigVec3 x = {BigRat(1), BigRat(0), BigRat(0)};
+  // middle column
+  BigVec3 y = {BigRat(0), BigRat(1), BigRat(0)};
+  // right column
+  BigVec3 z = {BigRat(0), BigRat(0), BigRat(1)};
+
+  BigVec3 &operator[](int i) {
+    switch (i) {
+    case 0: return x;
+    case 1: return y;
+    case 2: return z;
+    default:
+      LOG(FATAL) << "Index out of bounds.";
+    }
+  }
+  const BigVec3& operator[](int i) const {
+    switch (i) {
+    case 0: return x;
+    case 1: return y;
+    case 2: return z;
+    default:
+      LOG(FATAL) << "Index out of bounds.";
+    }
+  }
+};
+
 // XXX These don't work how I'd expect. Fix or delete.
 BigVec3 RotatePoint(const BigQuat &q, const BigVec3 &v);
 BigPoly Rotate(const BigQuat &q, const BigPoly &poly);
@@ -260,6 +293,13 @@ BigPoly BigTriac(int digits);
 // Some are exact, but we take an (ignored) digits argument anyway.
 BigPoly BigCube(int digits);
 BigPoly BigTetra(int digits);
+
+// Returns true if the solution (doubles) is actually valid (using
+// rational arithmetic with the specified precision).
+bool ValidateSolution(const BigPoly &poly,
+                      const frame3 &outer,
+                      const frame3 &inner,
+                      int digits);
 
 // Point-in-polygon test using the winding number algorithm.
 // Takes a vertex buffer and indices into that set.

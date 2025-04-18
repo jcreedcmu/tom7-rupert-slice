@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -19,6 +20,7 @@
 #include "bignum/big.h"
 #include "point-map.h"
 #include "polyhedra.h"
+#include "util.h"
 #include "yocto_matht.h"
 
 [[maybe_unused]]
@@ -35,25 +37,32 @@ static double IsNear(double a, double b) {
     StringPrintf("%.17g and %.17g, with err %.17g", fv, gv, e);         \
   } while (0)
 
+std::string ColorRat(const char *ansi_color,
+                     const BigRat &r) {
+  std::string s = r.ToString();
+  s = Util::Replace(s, "/", std::format(AWHITE("/") "{}", ansi_color));
+  return std::format("{}{}" ANSI_RESET, ansi_color, s);
+}
 
 std::string VecString(const BigVec2 &v) {
-  return StringPrintf(
-      "(x: " ARED("%s") " ≅ %.17g; "
-      "y: " AGREEN("%s") " ≅ %.17g)",
-      v.x.ToString().c_str(), v.x.ToDouble(),
-      v.y.ToString().c_str(), v.y.ToDouble());
+  return std::format(
+      "(x: {} ≅ {:.17g}; "
+      "y: {} ≅ {:.17g})",
+      ColorRat(ANSI_RED, v.x), v.x.ToDouble(),
+      ColorRat(ANSI_GREEN, v.y), v.y.ToDouble());
 }
 
 std::string VecString(const BigVec3 &v) {
-  return StringPrintf(
-      "(x: " ARED("%s") " ≅ %.17g; "
-      "y: " AGREEN("%s") " ≅ %.17g; "
-      "z: " ABLUE("%s") " ≅ %.17g)",
-      v.x.ToString().c_str(), v.x.ToDouble(),
-      v.y.ToString().c_str(), v.y.ToDouble(),
-      v.z.ToString().c_str(), v.z.ToDouble());
+  return std::format(
+      "(x: {} ≅ {:.17g}; "
+      "y: {} ≅ {:.17g}; "
+      "z: {} ≅ {:.17g})",
+      ColorRat(ANSI_RED, v.x), v.x.ToDouble(),
+      ColorRat(ANSI_GREEN, v.y), v.y.ToDouble(),
+      ColorRat(ANSI_BLUE, v.z), v.y.ToDouble());
 }
 
+// XXX use ColorRat
 std::string QuatString(const BigQuat &q) {
   return StringPrintf(
       "x: " ARED("%s") " ≅ %.17g\n"
@@ -192,7 +201,39 @@ BigFrame NonUnitRotationFrame(const BigQuat &v) {
      one - two_s * (xx + yy)}};
 }
 
+#if 0
+// Converts the rational view position v (nonzero, but not necessarily
+// on the view sphere) into a quaternion that represents a view of the
+// object from that position, with any arbitrary rotation around the
+// view axis. The quaternion is rational.
+//
+// The position may not be *on* the z axis. You should perform a
+// coordinate system transformation (e.g. rotate in xz plane) to
+// avoid this before calling.
+BigQuat QuaternionFromViewPos(const BigVec3 &v) {
+  CHECK(v.x != BigRat(0) || v.y != BigRat(0));
 
+  LOG(FATAL) << "Need to test this.";
+
+  // We use the construction r = (1 + v · k, v × k) where k = (0,0,1).
+  // This quaternion represents the rotation needed to align v with k.
+
+  // dot(v, k) is just vz.
+  const BigRat &dot_vk = v.z;
+
+  // Cross product: v×k = (vy*1 - vz*0, vz*0 - vx*1, vx*0 - vy*0) = (vy, -vx, 0)
+  const BigRat &cross_x = v.y;
+  const BigRat cross_y = -v.x;
+  const BigRat cross_z = BigRat(0);
+
+  // Scalar part of the quaternion: w = 1 + v·k
+  BigRat w = BigRat(1) + dot_vk;
+
+  // Construct the quaternion (x, y, z, w)
+  // Note that the components of the cross product form the vector part (x,y,z)
+  return BigQuat(cross_x, cross_y, cross_z, w);
+}
+#endif
 
 BigMesh2D Shadow(const BigPoly &poly) {
   std::vector<BigVec2> vertices;
@@ -1352,4 +1393,93 @@ BigRat SquaredDistanceToHull(const std::vector<BigVec2> &vertices,
 
   CHECK(min_sqlen.has_value()) << "empty hull?";
   return min_sqlen.value();
+}
+
+#if 0
+std::pair<BigQuat, BigVec3> UnpackFrame(const BigFrame &f) {
+
+  auto Rotation = [](const BigFrame &a) -> BigMat3 {
+      return {a.x, a.y, a.z};
+    };
+
+
+  const BigMat3 m = Rotation(f);
+
+  double w = sqrt(std::max(0.0, 1.0 + m[0][0] + m[1][1] + m[2][2])) * 0.5;
+  double x = sqrt(std::max(0.0, 1.0 + m[0][0] - m[1][1] - m[2][2])) * 0.5;
+  double y = sqrt(std::max(0.0, 1.0 - m[0][0] + m[1][1] - m[2][2])) * 0.5;
+  double z = sqrt(std::max(0.0, 1.0 - m[0][0] - m[1][1] + m[2][2])) * 0.5;
+
+  if (m[1][2] - m[2][1] < 0.0) x = -x;
+  if (m[2][0] - m[0][2] < 0.0) y = -y;
+  if (m[0][1] - m[1][0] < 0.0) z = -z;
+
+  return std::make_pair(normalize(quat4(x, y, z, w)),
+                        yocto::translation(f));
+}
+#endif
+
+bool ValidateSolution(const BigPoly &poly,
+                      const frame3 &outer_frame,
+                      const frame3 &inner_frame,
+                      int digits) {
+
+  const auto &[douter_rot, dotrans] =
+    UnpackFrame(outer_frame);
+  const auto &[dinner_rot, ditrans] =
+    UnpackFrame(inner_frame);
+
+  CHECK(dotrans.x == 0.0 &&
+        dotrans.y == 0.0 &&
+        dotrans.z == 0.0) << "This can be handled, but we expect "
+    "exact zero translation for the outer frame.";
+
+  // z component does not matter, because we project along z.
+  BigVec2 itrans(BigRat::FromDouble(ditrans.x),
+                 BigRat::FromDouble(ditrans.y));
+
+  BigQuat oq(BigRat::FromDouble(douter_rot.x),
+             BigRat::FromDouble(douter_rot.y),
+             BigRat::FromDouble(douter_rot.z),
+             BigRat::FromDouble(douter_rot.w));
+
+  BigQuat iq(BigRat::FromDouble(dinner_rot.x),
+             BigRat::FromDouble(dinner_rot.y),
+             BigRat::FromDouble(dinner_rot.z),
+             BigRat::FromDouble(dinner_rot.w));
+
+  BigFrame big_outer_frame = NonUnitRotationFrame(oq);
+  BigFrame big_inner_frame = NonUnitRotationFrame(iq);
+
+  BigPoly outer = Rotate(big_outer_frame, poly);
+  BigPoly inner = Rotate(big_inner_frame, poly);
+
+  BigMesh2D souter = Shadow(outer);
+  BigMesh2D sinner = Translate(itrans, Shadow(inner));
+
+  for (int i = 0; i < sinner.vertices.size(); i++) {
+    const BigVec2 &v = sinner.vertices[i];
+    const std::optional<std::tuple<int, int, int>> triangle =
+      InMeshExhaustive(souter, v);
+    bool in = triangle.has_value();
+    if (!in) return false;
+  }
+
+  return true;
+}
+
+BigVec3 ScaleToMakeIntegral(const BigVec3 &v) {
+  const auto &[xn, xd] = v.x.Parts();
+  const auto &[yn, yd] = v.y.Parts();
+  const auto &[zn, zd] = v.z.Parts();
+
+  // Multiply each by the denominators.
+  // In the first, for example, xd and 1/xd cancel out.
+  BigInt x = xn * yd * zd;
+  BigInt y = yn * xd * zd;
+  BigInt z = zn * xd * yd;
+
+  // Now we can simplify by the GCD.
+  BigInt d = BigInt::GCD(x, BigInt::GCD(y, z));
+  return BigVec3(BigRat(x, d), BigRat(y, d), BigRat(z, d));
 }

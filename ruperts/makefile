@@ -27,9 +27,9 @@ CC_LIB=../cc-lib
 CODEC=../codec
 SQLITE=../sqlite
 
-# OPT=-O3 -flto=thin
-ASAN=-g -fsanitize=address -fsanitize=undefined
-OPT=-O
+OPT=-O3 -flto=thin
+# ASAN=-g -fsanitize=address -fsanitize=undefined
+# OPT=-O
 
 CXXFLAGS=$(ASAN) $(OPT) $(GMP_CFLAGS) -march=native -Wall -Wno-psabi -Wno-format -Wno-unused-function -Wno-deprecated -Wno-sign-compare -I. -I$(CC_LIB) -I$(CODEC) -I$(SQLITE) --std=c++23
 LFLAGS=$(ASAN) $(GMP_LFLAGS) -flto -lz
@@ -201,3 +201,7 @@ snubhulls.exe : snubhulls.o $(OBJECTS)
 
 clean :
 	rm -f *.o *.exe $(OBJECTS)
+
+ifeq ($(OPT),)
+  $(warning Warning: OPT is completely disabled!)
+endif
