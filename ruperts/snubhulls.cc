@@ -19,15 +19,18 @@
 #include "base/stringprintf.h"
 #include "big-polyhedra.h"
 #include "bignum/big.h"
+#include "bounds.h"
 #include "color-util.h"
 #include "geom/tree-3d.h"
 #include "hashing.h"
 #include "hull3d.h"
+#include "image.h"
 #include "periodically.h"
 #include "polyhedra.h"
 #include "randutil.h"
 #include "status-bar.h"
 #include "threadutil.h"
+#include "timer.h"
 #include "util.h"
 #include "vector-util.h"
 #include "yocto_matht.h"
@@ -114,7 +117,7 @@ inline bool AllZero(const BigVec3 &v) {
 }
 
 struct Boundaries {
-  uint64_t GetCode(const BigVec3 &v) {
+  uint64_t GetCode(const BigVec3 &v) const {
     uint64_t code = 0;
     for (int i = 0; i < planes.size(); i++) {
       const BigVec3 &normal = planes[i];
@@ -173,9 +176,168 @@ struct Boundaries {
   BigPoly poly;
 };
 
-static void GeneratePatch(
-    const Boundaries &boundaries, const BigVec3 &view_pos) {
+static frame3 FrameFromViewPos(const vec3 &v) {
+  return frame_fromz({0, 0, 0}, v);
+}
+
+// Visualize a patch under its parameterization. This is
+// using doubles and samples.
+static void PlotPatch(const Boundaries &boundaries,
+                      const BigVec3 &bigv) {
+  Timer timer;
+  uint64_t code = boundaries.GetCode(bigv);
+  std::string code_string = std::format("{:b}", code);
+  Polyhedron small_poly = SmallPoly(boundaries.poly);
+
+  const vec3 v = normalize(SmallVec(bigv));
+
+  const std::vector<int> hull = [&]() {
+      frame3 frame = FrameFromViewPos(v);
+      Mesh2D shadow = Shadow(Rotate(small_poly, frame));
+      return QuickHull(shadow.vertices);
+    }();
+
+  // Generate vectors that have the same code.
+  const int NUM_SAMPLES = 1000;
+  ArcFour rc("plot");
+
+  Periodically status_per(5.0);
+  std::vector<vec3> samples;
+  samples.reserve(NUM_SAMPLES);
+  while (samples.size() < NUM_SAMPLES) {
+    vec3 s;
+    std::tie(s.x, s.y, s.z) = RandomUnit3D(&rc);
+    BigVec3 bs(BigRat::ApproxDouble(s.x, 1000000),
+               BigRat::ApproxDouble(s.y, 1000000),
+               BigRat::ApproxDouble(s.z, 1000000));
+
+    // Try all the signs. At most one of these will be
+    // in the patch, but this should increase the
+    // efficiency (because knowing that other signs
+    // are *not* in the patch increases the chance
+    // that we are).
+    for (uint8_t b = 0b000; b < 0b1000; b++) {
+      BigVec3 bbs((b & 0b100) ? -bs.x : bs.x,
+                  (b & 0b010) ? -bs.y : bs.y,
+                  (b & 0b001) ? -bs.z : bs.z);
+      uint64_t sample_code = boundaries.GetCode(bbs);
+      if (sample_code == code) {
+        // Sample is in range.
+        samples.push_back(
+            vec3((b & 0b100) ? -s.x : s.x,
+                 (b & 0b010) ? -s.y : s.y,
+                 (b & 0b001) ? -s.z : s.z));
+      }
+    }
+
+    status_per.RunIf([&]() {
+        printf("[%s] Got %d/%d samples.\n",
+               code_string.c_str(), (int)samples.size(),
+               NUM_SAMPLES);
+      });
+  }
+
+  // separate bounds for each parameter. Just using X dimension.
+  Bounds rbounds;
+  Bounds gbounds;
+  Bounds bbounds;
+
+  Bounds bounds;
+  // First pass to compute bounds.
+  for (const vec3 &s : samples) {
+    rbounds.BoundX(s.x);
+    gbounds.BoundX(s.y);
+    bbounds.BoundX(s.z);
+
+    frame3 frame = FrameFromViewPos(s);
+    for (int vidx : hull) {
+      const vec3 &vin = small_poly.vertices[vidx];
+      vec3 vout = transform_point(frame, vin);
+      bounds.Bound(vout.x, vout.y);
+    }
+  }
+  bounds.AddMarginFrac(0.05);
+
+  ImageRGBA img(3840, 2160);
+  img.Clear32(0x000000FF);
+
+  Bounds::Scaler scaler = bounds.ScaleToFit(img.Width(), img.Height()).FlipY();
+
+  const double rspan = rbounds.MaxX() - rbounds.MinX();
+  const double gspan = gbounds.MaxX() - gbounds.MinX();
+  const double bspan = bbounds.MaxX() - bbounds.MinX();
+  auto Color = [&](const vec3 &s) {
+      float r = (s.x - rbounds.MinX()) / rspan;
+      float g = (s.y - gbounds.MinX()) / gspan;
+      float b = (s.z - bbounds.MinX()) / bspan;
+      return ColorUtil::FloatsTo32(r * 0.9 + 0.1,
+                                   g * 0.9 + 0.1,
+                                   b * 0.9 + 0.1,
+                                   1.0);
+    };
+
+  std::vector<vec2> starts;
+
+  for (const vec3 &s : samples) {
+    frame3 frame = FrameFromViewPos(s);
+    uint32_t color = Color(s);
+
+    auto GetOut = [&](int hidx) {
+        const vec3 &vin = small_poly.vertices[hull[hidx]];
+        return transform_point(frame, vin);
+      };
+
+    for (int hullidx = 0; hullidx < hull.size(); hullidx++) {
+      vec3 vout1 = GetOut(hullidx);
+      vec3 vout2 = GetOut((hullidx + 1) % hull.size());
+
+      const auto &[x1, y1] = scaler.Scale(vout1.x, vout1.y);
+      const auto &[x2, y2] = scaler.Scale(vout2.x, vout2.y);
+
+      img.BlendLine32(x1, y1, x2, y2, color & 0xFFFFFF80);
+    }
+
+    vec3 start = GetOut(0);
+    const auto &[x, y] = scaler.Scale(start.x, start.y);
+    starts.emplace_back(x, y);
+  }
+
+  CHECK(samples.size() == starts.size());
+  for (int i = 0; i < samples.size(); i++) {
+    uint32_t color = Color(samples[i]);
+    const vec2 &start = starts[i];
+    img.BlendCircle32(start.x, start.y, 4, color);
+  }
+
+  img.BlendText2x32(8, 16, 0xFFFF77AA,
+                    std::format("{:032b}", code));
+  // Draw scale.
+  double oneu = scaler.ScaleX(1.0);
+  {
+    int Y = 32;
+    int x0 = 8;
+    int x1 = 8 + oneu;
+    img.BlendLine32(x0, Y, x1, Y, 0xFFFF77AA);
+    img.BlendLine32(x0, Y - 4, x0, Y - 1, 0xFFFF77AA);
+    img.BlendLine32(x1, Y - 4, x1, Y - 1, 0xFFFF77AA);
+  }
+
+  std::string filename = std::format("patch-{:b}.png", code);
+  img.Save(filename);
+  printf("Wrote %s in %s\n", filename.c_str(),
+         ANSI::Time(timer.Seconds()).c_str());
+}
+
+#if 0
+// Get the patch that contains v.
+static void GeneratePatch(const Boundaries &boundaries,
+                          const BigVec3 &v) {
   const BigPoly &poly = boundaries.poly;
+
+  uint64_t code = boundaries.GetCode(v);
+
+
+
 
   // Here we use exact math. The poly approximates the snub cube
   // (but we still think it is an actual counterexample) and the quat
@@ -192,10 +354,8 @@ static void GeneratePatch(
 
   // Now, the boundaries are planes parallel to faces that pass
   // through the origin.
-
-
-
 }
+#endif
 
 static vec3 RandomPointOnSphere(ArcFour *rc) {
   const quat4 small_quat = normalize(RandomQuaternion(rc));
@@ -306,6 +466,10 @@ static void BigSnubHulls() {
            ANSI::ForegroundRGB32(color).c_str(),
            std::format("{:b}", code).c_str());
   }
+
+  PlotPatch(boundaries, {BigRat(1), BigRat(1), BigRat(1)});
+  PlotPatch(boundaries, {BigRat(1, 2), BigRat(2, 3), BigRat(3, 8)});
+  PlotPatch(boundaries, {BigRat(111, 233), BigRat(2, 5), BigRat(11, 8)});
 
   // As point cloud.
   if (true) {

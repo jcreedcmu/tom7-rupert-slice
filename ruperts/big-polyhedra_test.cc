@@ -18,7 +18,7 @@
 // To big-overloads?
 // I remember from working with "half" that this has to parse them
 // each time, so maybe we should discourage it.
-BigRat operator"" _r(const char* str, std::size_t len) {
+BigRat operator""_r(const char* str, std::size_t len) {
   std::string_view s(str, len);
   std::size_t pos = s.find('/');
   if (pos == std::string_view::npos) {
@@ -88,98 +88,6 @@ static void TestBigQuickHull() {
   CHECK(hull[2] == 3);
 }
 
-static void TestFrameFromViewPos() {
-  auto CheckRotation = [](const BigVec3 &v) {
-      BigFrame f = FrameFromViewPos(v);
-      CHECK(f.o == BigVec3(BigRat(0), BigRat(0), BigRat(0)));
-      BigFrame fi = InverseRigid(f);
-
-      BigVec3 rot_z = ScaleToMakeIntegral(
-          TransformPoint(fi, BigVec3(BigRat(0), BigRat(0), BigRat(1))));
-
-      BigVec3 v1 = ScaleToMakeIntegral(v);
-      BigVec3 v2 = ScaleToMakeIntegral(rot_z);
-      CHECK(v1 == v2) << "Input: " << VecString(v)
-                      << "Frame: " << FrameString(f)
-                      << "Inverse frame: " << FrameString(fi)
-                      << "\nGot v1: " << VecString(v1)
-                      << "\nAnd v2: " << VecString(v2);
-
-    };
-
-  CheckRotation(BigVec3(BigRat(0), BigRat(1), BigRat(0)));
-  CheckRotation(BigVec3(BigRat(1), BigRat(0), BigRat(0)));
-  CheckRotation(BigVec3(BigRat(1), BigRat(2), BigRat(3)));
-  CheckRotation(BigVec3(BigRat(-1), BigRat(2), BigRat(-3)));
-
-  ArcFour rc("test");
-  for (int i = 0; i < 1000; i++) {
-    auto Int = [&rc]() -> int64_t {
-        return (int64_t)RandTo(&rc, 1'000'000'000) - 500'000'000;
-      };
-    auto Rat = [&]() -> BigRat {
-        int64_t n = Int();
-        int64_t d = Int();
-        if (d == 0) return BigRat(n);
-        return BigRat(n, d);
-      };
-
-    BigVec3 v(Rat(), Rat(), Rat());
-    if (BigRat::IsZero(v.x) && BigRat::IsZero(v.y)) {
-      v.x = BigRat(1);
-    }
-
-    CheckRotation(v);
-  }
-}
-
-
-#if 1
-static void TestQuaternionFromViewPos() {
-  auto CheckRotation = [](const BigVec3 &v) {
-      BigQuat q = QuaternionFromViewPos(v);
-      BigQuat qi = Conjugate(q);
-      BigFrame f = NonUnitRotationFrame(qi);
-
-      BigVec3 rot_z = ScaleToMakeIntegral(
-          TransformPoint(f, BigVec3(BigRat(0), BigRat(0), BigRat(1))));
-
-      BigVec3 v1 = ScaleToMakeIntegral(v);
-      BigVec3 v2 = ScaleToMakeIntegral(rot_z);
-      CHECK(v1 == v2) << "Input: " << VecString(v)
-                      << "\nGot v1: " << VecString(v1)
-                      << "\nAnd v2: " << VecString(v2);
-
-    };
-
-  CheckRotation(BigVec3(BigRat(0), BigRat(1), BigRat(0)));
-  CheckRotation(BigVec3(BigRat(1), BigRat(0), BigRat(0)));
-  CheckRotation(BigVec3(BigRat(1), BigRat(2), BigRat(3)));
-  CheckRotation(BigVec3(BigRat(-1), BigRat(2), BigRat(-3)));
-}
-#endif
-
-#if 0
-static void TestQuaternionFromViewPos() {
-  auto CheckRotation = [](const BigVec3 &v) {
-      BigQuat q = QuaternionFromViewPos(v);
-      BigFrame f = NonUnitRotationFrame(q);
-
-      BigVec3 rot_z = ScaleToMakeIntegral(TransformPoint(f, v));
-
-      CHECK(rot_z == BigVec3(BigRat(0), BigRat(0), BigRat(1))) <<
-        "Input: " << VecString(v) <<
-        "\nGot: " << VecString(rot_z);
-
-    };
-
-  CheckRotation(BigVec3(BigRat(0), BigRat(1), BigRat(0)));
-  CheckRotation(BigVec3(BigRat(1), BigRat(0), BigRat(0)));
-  CheckRotation(BigVec3(BigRat(1), BigRat(2), BigRat(3)));
-  CheckRotation(BigVec3(BigRat(-1), BigRat(2), BigRat(-3)));
-}
-#endif
-
 static void TestQuatMult() {
   const BigQuat i(BigRat(1), BigRat(0), BigRat(0), BigRat(0));
   const BigQuat j(BigRat(0), BigRat(1), BigRat(0), BigRat(0));
@@ -214,10 +122,8 @@ int main(int argc, char **argv) {
 
   TestLiterals();
   TestBigQuickHull();
-  // TestQuaternionFromViewPos();
-
   TestQuatMult();
-  TestFrameFromViewPos();
+
 
   printf("OK");
   return 0;

@@ -83,17 +83,6 @@ struct BigFrame {
   }
 };
 
-// Converts the rational view position v (nonzero, but not necessarily
-// on the view sphere) into a quaternion that represents a view of the
-// object from that position, with any arbitrary rotation around the
-// view axis. The quaternion is rational.
-//
-// The position may not be *on* the z axis. You should perform a
-// coordinate system transformation (e.g. rotate in xz plane) to
-// avoid this before calling.
-BigQuat QuaternionFromViewPos(const BigVec3 &v);
-BigFrame FrameFromViewPos(const BigVec3 &v);
-
 // Scale the vector so that it has integer coordinates. The
 // result is a canonical representation of the direction.
 BigVec3 ScaleToMakeIntegral(const BigVec3 &a);
@@ -308,6 +297,7 @@ inline BigFrame InverseRigid(const BigFrame &a) {
 
 
 // XXX These don't work how I'd expect. Fix or delete.
+// (it was likely the quat operator* bug?)
 BigVec3 RotatePoint(const BigQuat &q, const BigVec3 &v);
 BigPoly Rotate(const BigQuat &q, const BigPoly &poly);
 
