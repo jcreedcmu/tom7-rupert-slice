@@ -9,7 +9,7 @@
 
 #include "yocto_matht.h"
 
-// Below there is also PointMap3, which is a simple wrapper for
+// Below there is also PointSet3, which is a simple wrapper for
 // the common case that you don't need interesting values.
 
 // SQDIST is the (squared) threshold below which two points are

@@ -1,4 +1,7 @@
 
+#ifndef _RUPERTS_BIG_POLYHEDRA_H
+#define _RUPERTS_BIG_POLYHEDRA_H
+
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
@@ -329,6 +332,10 @@ BigPoly BigTetra(int digits);
 
 // Returns true if the solution (doubles) is actually valid (using
 // rational arithmetic with the specified precision).
+//
+// Note that this does not ensure that the frame is actually a
+// rigid transformation, and it is likely not quite one due to
+// floating point error.
 bool ValidateSolution(const BigPoly &poly,
                       const frame3 &outer,
                       const frame3 &inner,
@@ -400,3 +407,5 @@ BigRat SquaredDistanceToClosestPointOnSegment(
 BigRat SquaredDistanceToHull(const std::vector<BigVec2> &vertices,
                              const std::vector<int> &hull,
                              const BigVec2 &pt);
+
+#endif

@@ -284,6 +284,7 @@ BigFrame FrameFromViewPos(const BigVec3 &v) {
 }
 #endif
 
+#if 0
 BigFrame FrameFromViewPos(const BigVec3 &v) {
   CHECK(v.x != BigRat(0) || v.y != BigRat(0))
       << "Input vector v must not be on the Z axis. v = " << VecString(v);
@@ -322,6 +323,7 @@ BigFrame FrameFromViewPos(const BigVec3 &v) {
   return BigFrame{std::move(fx), std::move(fy), std::move(fz),
     BigVec3(zero,zero,zero)};
 }
+#endif
 
 BigMesh2D Shadow(const BigPoly &poly) {
   std::vector<BigVec2> vertices;

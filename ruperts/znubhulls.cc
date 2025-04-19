@@ -6,6 +6,7 @@
 #include <format>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -27,6 +28,7 @@
 #include "image.h"
 #include "periodically.h"
 #include "polyhedra.h"
+#include "process-util.h"
 #include "randutil.h"
 #include "status-bar.h"
 #include "threadutil.h"
@@ -34,77 +36,9 @@
 #include "util.h"
 #include "vector-util.h"
 #include "yocto_matht.h"
+#include "z3.h"
 
 using vec3 = yocto::vec<double, 3>;
-
-DECLARE_COUNTERS(too_close);
-
-// TODO Normalizing a hull:
-// Since the snub cube is vertex transitive, it does
-// not matter where we start. The path traced out is
-// ...
-
-// TODO:
-// - Extract a single patch and compute bounds on
-//   the parameters (quaternion parameters?)
-// -
-
-struct Hulls {
-  size_t Num() { return canonical.size(); }
-
-  size_t GetHullId(const std::vector<int> &hull) {
-    CHECK(hull.size() >= 3);
-
-    // Canonicalize:
-    //  - The hull should start with the smallest
-    //    vertex, numerically. (Handled here)
-    //  - We should not include colinear vertices.
-    //    (TODO: handled elsewhere?)
-    //  - With duplicate points, use the minimum
-    //    index (TODO: handled elsewhere?)
-    //  - Winding order: The hull could wind in
-    //    either direction. Choose the one that
-    //    puts the smaller vertex second.
-
-    // It would be great if we modded out by symmetry,
-    // too. This might require a more thoughtful
-    // assignment of vertex indices?
-
-    int besti = 0;
-    for (int i = 1; i < hull.size(); i++) {
-      if (hull[i] < hull[besti]) {
-        besti = i;
-      }
-    }
-
-    std::vector<int> hull_key;
-    hull_key.reserve(hull.size());
-    for (int i = 0; i < hull.size(); i++) {
-      hull_key.push_back(hull[(besti + i) % hull.size()]);
-    }
-
-    if (hull_key[1] > hull_key.back()) {
-      VectorReverse(&hull_key);
-      // Because that put the first element last.
-      VectorRotateRight(&hull_key, 1);
-    }
-
-    // Do we have it?
-    auto it = indices.find(hull_key);
-    if (it != indices.end()) {
-      return it->second;
-    } else {
-      size_t id = canonical.size();
-      indices[hull_key] = id;
-      canonical.emplace_back(std::move(hull_key));
-      return id;
-    }
-  }
-
-  std::unordered_map<std::vector<int>, size_t,
-                     Hashing<std::vector<int>>> indices;
-  std::vector<std::vector<int>> canonical;
-};
 
 inline vec3 QuaternionToSpherePoint(const quat4 &q) {
   // The z-column of the rotation matrix represents the rotated Z-axis.
@@ -117,6 +51,7 @@ inline bool AllZero(const BigVec3 &v) {
 }
 
 struct Boundaries {
+  // 1 bit means dot product is positive, 0 means negative.
   uint64_t GetCode(const BigVec3 &v) const {
     uint64_t code = 0;
     for (int i = 0; i < planes.size(); i++) {
@@ -171,6 +106,8 @@ struct Boundaries {
     // polyhedra.
     CHECK(planes.size() <= 64);
   }
+
+  size_t Size() const { return planes.size(); }
 
   std::vector<BigVec3> planes;
   BigPoly poly;
@@ -334,35 +271,6 @@ static void PlotPatch(const Boundaries &boundaries,
          ANSI::Time(timer.Seconds()).c_str());
 }
 
-#if 0
-// Get the patch that contains v.
-static void GeneratePatch(const Boundaries &boundaries,
-                          const BigVec3 &v) {
-  const BigPoly &poly = boundaries.poly;
-
-  uint64_t code = boundaries.GetCode(v);
-
-
-
-
-  // Here we use exact math. The poly approximates the snub cube
-  // (but we still think it is an actual counterexample) and the quat
-  // came from a double sample but now exact (it is NOT unit length,
-  // however).
-
-  // The patch is the contiguous region around the point p that
-  // has the same hull topologically.
-
-  // First, recompute that hull.
-  BigFrame frame = NonUnitRotationFrame(pt);
-  BigMesh2D shadow = Shadow(Rotate(frame, poly));
-  std::vector<int> hull = BigQuickHull(shadow.vertices);
-
-  // Now, the boundaries are planes parallel to faces that pass
-  // through the origin.
-}
-#endif
-
 static vec3 RandomPointOnSphere(ArcFour *rc) {
   const quat4 small_quat = normalize(RandomQuaternion(rc));
   return QuaternionToSpherePoint(small_quat);
@@ -482,12 +390,6 @@ static void BigSnubHulls() {
     PlotPatch(boundaries, ex);
   }
 
-  #if 0
-  PlotPatch(boundaries, {BigRat(1), BigRat(1), BigRat(1)});
-  PlotPatch(boundaries, {BigRat(1, 2), BigRat(2, 3), BigRat(3, 8)});
-  PlotPatch(boundaries, {BigRat(111, 233), BigRat(2, 5), BigRat(11, 8)});
-  #endif
-
   // As point cloud.
   if (true) {
     std::string outply =
@@ -523,181 +425,126 @@ static void BigSnubHulls() {
   }
 }
 
-// Visualize a sample of the distinct convex hulls.
-// By distinct convex hull, we mean a specific set of
-// points on the hull.
-static void SnubHulls() {
+// Find the set of patches (as their codes) that are non-empty, by
+// shelling out to z3. This could be optimized a lot, but the set is a
+// fixed property of the snub cube (given the ordering of vertices and
+// faces), so we just need to enumerate them once.
+struct PatchEnumerator {
+  PatchEnumerator() : scube(BigScube(50)), boundaries(scube), status(1) {
+    status.Statusf("Setup.");
+    // Find patches that are non-empty.
+    // Naively there are 2^31 of them, but the vast majority
+    // are completely empty. Z3 is a good way to prove this.
+    std::string out;
 
-  Polyhedron cube = SnubCube();
-
-  Periodically status_per(1.0);
-  Hulls hulls;
-  constexpr int64_t ITERS = 100'000;
-  StatusBar status(1);
-
-  std::mutex m;
-  int64_t next_work_idx = 0;
-  constexpr int NUM_THREADS = 8;
-
-  // Parallel.
-  std::vector<vec3> samples;
-  std::vector<size_t> ids;
-  // An orientation from each region.
-  std::unordered_map<size_t, quat4> examples;
-
-  Tree3D<double, bool> tree;
-  static constexpr double TOO_CLOSE = 1.0e-3;
-
-  ParallelFan(
-      NUM_THREADS,
-      [&](int thread_idx) {
-        ArcFour rc(std::format("snubhulls.{}.{}", thread_idx,
-                               time(nullptr)));
-        for (;;) {
-          int64_t work_idx = 0;
-          {
-            MutexLock ml(&m);
-            if (next_work_idx == ITERS)
-              return;
-            work_idx = next_work_idx;
-            next_work_idx++;
-          }
-
-          vec3 sphere_point = RandomPointOnSphere(&rc);
-
-          if (AllZero(sphere_point))
-            continue;
-
-          {
-            MutexLock ml(&m);
-            vec3 sphere_point100 = sphere_point * 100.0;
-
-            if (!tree.Empty()) {
-              const auto &[pos_, value_, dist] =
-                tree.Closest(sphere_point100.x,
-                             sphere_point100.y,
-                             sphere_point100.z);
-              if (dist < TOO_CLOSE) {
-                too_close++;
-                continue;
-              }
-            }
-
-            // Reserve it.
-            tree.Insert(sphere_point100.x,
-                        sphere_point100.y,
-                        sphere_point100.z,
-                        true);
-          }
-
-          frame3 frame =
-            inverse(frame_fromz(vec3{0, 0, 0}, sphere_point));
-          // frame3 frame = rotation_frame(small_quat);
-          Mesh2D shadow = Shadow(Rotate(cube, frame));
-          std::vector<int> hull = QuickHull(shadow.vertices);
-
-          {
-            MutexLock ml(&m);
-            size_t id = hulls.GetHullId(hull);
-            CHECK(ids.size() == samples.size());
-            ids.push_back(id);
-            samples.push_back(sphere_point);
-            if (!examples.contains(id)) {
-              const auto &[rot, trans] = UnpackFrame(frame);
-              examples[id] = normalize(rot);
-            }
-          }
-          status_per.RunIf([&]{
-              status.Progressf(work_idx, ITERS,
-                               "%lld/%lld  %lld" ARED("≈"),
-                               work_idx, ITERS,
-                               too_close.Read());
-            });
-        }
-      });
-
-  for (const vec3 &v : samples) {
-    CHECK(!AllZero(v));
-  }
-
-  CHECK(ids.size() == samples.size());
-
-  printf("There are %lld distinct hulls in this sample.\n",
-         (int64_t)hulls.Num());
-
-  ArcFour rc("color");
-  std::vector<uint32_t> colors;
-  colors.reserve(hulls.Num());
-  if (hulls.Num() <= 4) {
-    colors.push_back(0xFF0000FF);
-    colors.push_back(0x00FF00FF);
-    colors.push_back(0x0000FFFF);
-    colors.push_back(0xFF00FFFF);
-  } else {
-    for (int i = 0; i < hulls.Num(); i++) {
-      colors.push_back(ColorUtil::HSVAToRGBA32(
-                           RandDouble(&rc),
-                           0.5 + RandDouble(&rc) * 0.5,
-                           0.5 + RandDouble(&rc) * 0.5,
-                           1.0));
-    }
-  }
-
-  if (colors.size() > hulls.Num()) colors.resize(hulls.Num());
-
-  for (int i = 0; i < hulls.Num(); i++) {
-    printf("%d. (%s▉" ANSI_RESET "):",
-           i, ANSI::ForegroundRGB32(colors[i]).c_str());
-    for (int vidx : hulls.canonical[i]) {
-      CHECK(vidx >= 0 && vidx < cube.vertices.size());
-      printf(" %d", vidx);
-    }
-    printf("\n");
-  }
-
-  // As point cloud.
-  if (true) {
-    std::string outply =
-      std::format(
-          "ply\n"
-          "format ascii 1.0\n"
-          "element vertex {}\n"
-          "property float x\n"
-          "property float y\n"
-          "property float z\n"
-          "property uchar red\n"
-          "property uchar green\n"
-          "property uchar blue\n"
-          "end_header\n", samples.size());
-
-    for (size_t i = 0; i < samples.size(); i++) {
-      CHECK(i < samples.size());
-      const vec3 v = samples[i] * 100.0;
-      const int id = ids[i];
-      CHECK(id < colors.size());
-      uint32_t color32 = colors[id];
-
-      const auto &[r, g, b, _] = ColorUtil::Unpack32(color32);
-      AppendFormat(&outply,
-                   "{} {} {} {} {} {}\n",
-                   v.x, v.y, v.z,
-                   r, g, b);
+    int num_bits = boundaries.Size();
+    for (int b = 0; b < num_bits; b++) {
+      // true = 1 = postive dot product
+      bits.emplace_back(NewBool(&out, std::format("bit{}", b)));
     }
 
-    std::string filename = "snubcloud.ply";
-    Util::WriteFile(filename, outply);
-    printf("Wrote %lld bytes to %s.\n",
-           outply.size(),
-           filename.c_str());
-  }
-}
+    // The hypothesized point. If unsatisfiable, then the patch
+    // is empty.
+    Z3Vec3 v = NewVec3(&out, "pt");
 
+    // Constrain v based on the bits.
+    for (int b = 0; b < num_bits; b++) {
+      Z3Vec3 normal{boundaries.planes[b]};
+      AppendFormat(&out,
+                   "(assert (ite {} (> {} 0.0) (< {} 0.0)))\n",
+                   bits[b].s,
+                   Dot(v, normal).s,
+                   Dot(v, normal).s);
+    }
+    setup = std::move(out);
+    status.Statusf("Setup done.");
+  }
+
+  BigPoly scube;
+  Boundaries boundaries;
+  std::vector<Z3Bool> bits;
+  std::string setup;
+  int64_t z3calls = 0;
+  StatusBar status;
+
+  std::vector<uint64_t> nonempty_patches;
+
+  std::string PartialCodeString(int depth, uint64_t code) {
+    if (depth == 0) return AGREY("(empty)");
+    std::string ret;
+    for (int i = depth - 1; i >= 0; i--) {
+      uint64_t bit = 1ULL << i;
+      ret.append((code & bit) ? ACYAN("1") : ABLUE("0"));
+    }
+    return ret;
+  }
+
+  // Bits < depth have been assigned to the values in code.
+  void EnumerateRec(int depth,
+                    uint64_t code) {
+    // Is it possible at all?
+    std::string out = setup;
+
+    for (int b = 0; b < depth; b++) {
+      AppendFormat(&out, "(assert (= {} {}))\n",
+                   bits[b].s,
+                   (code & (1UL << b)) ? "true" : "false");
+    }
+
+    // Don't even need to get the model here.
+    AppendFormat(&out, "(check-sat)\n");
+
+    std::string filename = "z3-patches-tmp.z3";
+    Util::WriteFile(filename, out);
+    // satus.Printf("Wrote %s\n", filename.c_str());
+
+    z3calls++;
+    status.Statusf("Z3: %s", std::format("{:b}", code).c_str());
+    std::optional<std::string> z3result =
+      ProcessUtil::GetOutput(std::format("d:\\z3\\bin\\z3.exe {}", filename));
+    status.Statusf("%lld Z3 calls. Depth %d\n", z3calls, depth);
+
+    CHECK(z3result.has_value());
+    if (z3result.value().find("unsat") != std::string::npos) {
+      status.Printf("Code %s is impossible.\n",
+                    PartialCodeString(depth, code).c_str());
+      return;
+    }
+
+    if (depth == boundaries.Size()) {
+      // Then we have a complete code.
+      status.Printf(AGREEN("Nonempty") ": %s\n",
+                    PartialCodeString(depth, code).c_str());
+      nonempty_patches.push_back(code);
+      return;
+    }
+    CHECK(depth < boundaries.Size());
+
+    // Otherwise, we try extending with 0, and with 1.
+    EnumerateRec(depth + 1, code);
+    EnumerateRec(depth + 1, code | (1ULL << depth));
+  }
+
+  void Enumerate() {
+    Timer timer;
+    EnumerateRec(0, 0);
+    std::string all_codes;
+    for (uint64_t code : nonempty_patches) {
+      AppendFormat(&all_codes, "{:b}\n", code);
+    }
+    std::string filename = "scube-nonempty-patches.txt";
+    Util::WriteFile(filename, all_codes);
+    status.Printf("Wrote %s in %s (%lld z3 calls)\n", filename.c_str(),
+                  ANSI::Time(timer.Seconds()).c_str(),
+                  z3calls);
+  }
+};
 
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  BigSnubHulls();
-  // SnubHulls();
+  PatchEnumerator pe;
+  pe.Enumerate();
 
   return 0;
 }

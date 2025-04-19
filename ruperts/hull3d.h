@@ -1,4 +1,7 @@
 
+#ifndef _RUPERTS_HULL3D_H
+#define _RUPERTS_HULL3D_H
+
 #include "yocto_matht.h"
 
 #include <tuple>
@@ -19,3 +22,5 @@ struct Hull3D {
   static std::vector<std::tuple<int, int, int>> HullFaces(
       const std::vector<vec3> &v);
 };
+
+#endif

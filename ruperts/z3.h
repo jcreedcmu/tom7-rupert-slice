@@ -71,6 +71,9 @@ struct Z3Real {
 };
 
 struct Z3Vec3 {
+  Z3Vec3(const BigVec3 &v) : Z3Vec3(Z3Real(v.x),
+                                    Z3Real(v.y),
+                                    Z3Real(v.z)) {}
   Z3Vec3(Z3Real x, Z3Real y, Z3Real z) :
     x(std::move(x)), y(std::move(y)), z(std::move(z)) {}
   Z3Real x;
@@ -148,7 +151,7 @@ inline Z3Vec2 operator-(const Z3Vec2 &a, const Z3Vec2 &b) {
   return Z3Vec2(a.x - b.x, a.y - b.y);
 }
 
-inline Z3Real cross(const Z3Vec2 &a, const Z3Vec2 &b) {
+inline Z3Real Cross(const Z3Vec2 &a, const Z3Vec2 &b) {
   return a.x * b.y - a.y * b.x;
 }
 
@@ -159,6 +162,9 @@ inline Z3Bool operator&&(const Z3Bool &a, const Z3Bool &b) {
 inline Z3Bool operator||(const Z3Bool &a, const Z3Bool &b) {
   return Z3Bool(std::format("(or {} {})", a.s, b.s));
 }
+
+Z3Real Dot(const Z3Vec3 &a, const Z3Vec3 &b);
+Z3Vec3 Cross(const Z3Vec3 &a, const Z3Vec3 &b);
 
 Z3Real Sum(const std::vector<Z3Real> &v);
 Z3Vec2 Sum(const std::vector<Z3Vec2> &v);
@@ -189,6 +195,12 @@ inline std::vector<Z3Vec3> EmitPolyhedron(const SymbolicPolyhedron &poly,
   }
 
   return vs;
+}
+
+inline Z3Bool NewBool(std::string *out, std::string_view name_hint = "") {
+  std::string r = Fresh(name_hint);
+  AppendFormat(out, "(declare-const {} Bool)\n", r);
+  return Z3Bool(r);
 }
 
 inline Z3Real NewReal(std::string *out, std::string_view name_hint = "") {

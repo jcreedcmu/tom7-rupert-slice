@@ -199,6 +199,10 @@ snubhulls.exe : snubhulls.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
+znubhulls.exe : znubhulls.o $(OBJECTS) $(CC_LIB)/process-util.o
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
 clean :
 	rm -f *.o *.exe $(OBJECTS)
 

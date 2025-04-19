@@ -143,6 +143,18 @@ static std::string JoinOp(std::string_view op,
   return ret + ")";
 }
 
+Z3Real Dot(const Z3Vec3 &a, const Z3Vec3 &b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+Z3Vec3 Cross(const Z3Vec3 &a, const Z3Vec3 &b) {
+  return Z3Vec3{
+    a.y * b.z - a.z * b.y,
+    a.z * b.x - a.x * b.z,
+    a.x * b.y - a.y * b.x,
+  };
+}
+
 Z3Real Sum(const std::vector<Z3Real> &v) {
   return Z3Real(
       JoinOp("+", "0.0", v, [](const Z3Real &b) { return b.s; }));
@@ -247,8 +259,8 @@ Z3Bool EmitInTriangle(std::string *out,
   auto SameSide = [out](const Z3Vec2 &u, const Z3Vec2 &v,
                         const Z3Vec2 &p1, const Z3Vec2 &p2) -> Z3Bool {
       Z3Vec2 edge = v - u;
-      Z3Real c1 = cross(edge, p1 - u);
-      Z3Real c2 = cross(edge, p2 - u);
+      Z3Real c1 = Cross(edge, p1 - u);
+      Z3Real c2 = Cross(edge, p2 - u);
 
       // Excluding the edge itself.
       return SameNonzeroSign(out, c1, c2);
