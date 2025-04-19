@@ -1987,10 +1987,13 @@ inline quat<T, 4> operator/(const quat<T, 4>& a, T b) {
 }
 template <typename T>
 inline quat<T, 4> operator*(const quat<T, 4>& a, const quat<T, 4>& b) {
-  return {a.x * b.w + a.w * b.x + a.y * b.w - a.z * b.y,
-      a.y * b.w + a.w * b.y + a.z * b.x - a.x * b.z,
-      a.z * b.w + a.w * b.z + a.x * b.y - a.y * b.x,
-      a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+  // Port note: Original yocto code was incorrect!
+  return {
+    a.x * b.w + a.w * b.x + a.y * b.z - a.z * b.y,
+    a.y * b.w + a.w * b.y + a.z * b.x - a.x * b.z,
+    a.z * b.w + a.w * b.z + a.x * b.y - a.y * b.x,
+    a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
+  };
 }
 
 // Quaterion operations
