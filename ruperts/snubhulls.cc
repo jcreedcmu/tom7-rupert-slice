@@ -174,8 +174,9 @@ struct Boundaries {
 };
 
 static void GeneratePatch(
-    const Boundaries &boundaries, const BigQuat &pt) {
+    const Boundaries &boundaries, const BigVec3 &view_pos) {
   const BigPoly &poly = boundaries.poly;
+
   // Here we use exact math. The poly approximates the snub cube
   // (but we still think it is an actual counterexample) and the quat
   // came from a double sample but now exact (it is NOT unit length,

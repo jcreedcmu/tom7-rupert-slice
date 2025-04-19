@@ -51,6 +51,49 @@ struct BigMesh2D {
   const Faces *faces = nullptr;
 };
 
+// Rigid frames stored as a column-major affine transform matrix.
+struct BigFrame {
+  BigVec3 x = {BigRat(1), BigRat(0), BigRat(0)};
+  BigVec3 y = {BigRat(0), BigRat(1), BigRat(0)};
+  BigVec3 z = {BigRat(0), BigRat(0), BigRat(1)};
+  BigVec3 o = {BigRat(0), BigRat(0), BigRat(0)};
+
+  BigVec3& operator[](int i) {
+    switch (i) {
+    case 0: return x;
+    case 1: return y;
+    case 2: return z;
+    case 3: return o;
+    default:
+      LOG(FATAL) << "Bad";
+      return x;
+    }
+  }
+
+  const BigVec3 &operator[](int i) const {
+    switch (i) {
+    case 0: return x;
+    case 1: return y;
+    case 2: return z;
+    case 3: return o;
+    default:
+      LOG(FATAL) << "Bad";
+      return x;
+    }
+  }
+};
+
+// Converts the rational view position v (nonzero, but not necessarily
+// on the view sphere) into a quaternion that represents a view of the
+// object from that position, with any arbitrary rotation around the
+// view axis. The quaternion is rational.
+//
+// The position may not be *on* the z axis. You should perform a
+// coordinate system transformation (e.g. rotate in xz plane) to
+// avoid this before calling.
+BigQuat QuaternionFromViewPos(const BigVec3 &v);
+BigFrame FrameFromViewPos(const BigVec3 &v);
+
 // Scale the vector so that it has integer coordinates. The
 // result is a canonical representation of the direction.
 BigVec3 ScaleToMakeIntegral(const BigVec3 &a);
@@ -90,6 +133,10 @@ inline bool operator ==(const BigVec2 &a, const BigVec2 &b) {
 
 inline bool operator ==(const BigVec3 &a, const BigVec3 &b) {
   return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+inline bool operator ==(const BigQuat &a, const BigQuat &b) {
+  return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
 }
 
 inline BigRat dot(const BigVec2 &a, const BigVec2 &b) {
@@ -146,15 +193,17 @@ std::string QuatString(const BigQuat &q);
 std::string PlainVecString(const BigVec2 &v);
 std::string PlainQuatString(const BigQuat &q);
 
+std::string FrameString(const BigFrame &f);
+
 BigQuat Normalize(const BigQuat &q, int digits);
 
-inline BigQuat UnitInverse(const BigQuat &q) {
+inline BigQuat Conjugate(const BigQuat &q) {
   return BigQuat(-q.x, -q.y, -q.z, q.w);
 }
 
 inline BigQuat operator*(const BigQuat &a, const BigQuat &b) {
   return BigQuat{
-    a.x * b.w + a.w * b.x + a.y * b.w - a.z * b.y,
+    a.x * b.w + a.w * b.x + a.y * b.z - a.z * b.y,
     a.y * b.w + a.w * b.y + a.z * b.x - a.x * b.z,
     a.z * b.w + a.w * b.z + a.x * b.y - a.y * b.x,
     a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
@@ -172,38 +221,6 @@ inline vec2 SmallVec(const BigVec2 &v) {
 inline quat4 quat_conjugate(const quat4 &q) {
   return {-q.x, -q.y, -q.z, q.w};
 }
-
-// Rigid frames stored as a column-major affine transform matrix.
-struct BigFrame {
-  BigVec3 x = {BigRat(1), BigRat(0), BigRat(0)};
-  BigVec3 y = {BigRat(0), BigRat(1), BigRat(0)};
-  BigVec3 z = {BigRat(0), BigRat(0), BigRat(1)};
-  BigVec3 o = {BigRat(0), BigRat(0), BigRat(0)};
-
-  BigVec3& operator[](int i) {
-    switch (i) {
-    case 0: return x;
-    case 1: return y;
-    case 2: return z;
-    case 3: return o;
-    default:
-      LOG(FATAL) << "Bad";
-      return x;
-    }
-  }
-
-  const BigVec3 &operator[](int i) const {
-    switch (i) {
-    case 0: return x;
-    case 1: return y;
-    case 2: return z;
-    case 3: return o;
-    default:
-      LOG(FATAL) << "Bad";
-      return x;
-    }
-  }
-};
 
 // Compute the rigid frame that rotates according to the unit
 // quaternion v.
@@ -263,6 +280,32 @@ struct BigMat3 {
     }
   }
 };
+
+inline BigMat3 Rotation(const BigFrame &a) {
+  return BigMat3{a.x, a.y, a.z};
+}
+
+inline BigMat3 Transpose(const BigMat3 &a) {
+  return BigMat3{
+    .x = BigVec3{a.x.x, a.y.x, a.z.x},
+    .y = BigVec3{a.x.y, a.y.y, a.z.y},
+    .z = BigVec3{a.x.z, a.y.z, a.z.z},
+  };
+}
+
+inline BigVec3 operator*(const BigMat3 &a, const BigVec3 &b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+inline BigFrame InverseRigid(const BigFrame &a) {
+  BigMat3 mtx = Transpose(Rotation(a));
+  BigFrame ret;
+  return BigFrame{
+    .x = mtx.x, .y = mtx.y, .z = mtx.z,
+    .o = -(mtx * a.o),
+  };
+}
+
 
 // XXX These don't work how I'd expect. Fix or delete.
 BigVec3 RotatePoint(const BigQuat &q, const BigVec3 &v);

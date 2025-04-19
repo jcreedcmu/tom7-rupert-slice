@@ -62,6 +62,19 @@ std::string VecString(const BigVec3 &v) {
       ColorRat(ANSI_BLUE, v.z), v.y.ToDouble());
 }
 
+std::string FrameString(const BigFrame &f) {
+  return std::format(
+      "== frame ==\n"
+      "x: {}\n"
+      "y: {}\n"
+      "z: {}\n"
+      "o: {}\n",
+      VecString(f.x),
+      VecString(f.y),
+      VecString(f.z),
+      VecString(f.o));
+}
+
 // XXX use ColorRat
 std::string QuatString(const BigQuat &q) {
   return StringPrintf(
@@ -201,39 +214,114 @@ BigFrame NonUnitRotationFrame(const BigQuat &v) {
      one - two_s * (xx + yy)}};
 }
 
-#if 0
-// Converts the rational view position v (nonzero, but not necessarily
-// on the view sphere) into a quaternion that represents a view of the
-// object from that position, with any arbitrary rotation around the
-// view axis. The quaternion is rational.
-//
-// The position may not be *on* the z axis. You should perform a
-// coordinate system transformation (e.g. rotate in xz plane) to
-// avoid this before calling.
 BigQuat QuaternionFromViewPos(const BigVec3 &v) {
   CHECK(v.x != BigRat(0) || v.y != BigRat(0));
+  LOG(FATAL) << "This doesn't work?";
 
-  LOG(FATAL) << "Need to test this.";
+  const BigRat &qx = v.y;
+  const BigRat qy = -v.x;
+  const BigRat qz = BigRat(0);
 
-  // We use the construction r = (1 + v · k, v × k) where k = (0,0,1).
-  // This quaternion represents the rotation needed to align v with k.
+  BigRat v_dot_v = (v.x * v.x) + (v.y * v.y) + (v.z * v.z);
+  return BigQuat(qx, qy, qz, v_dot_v + v.z);
+}
 
-  // dot(v, k) is just vz.
-  const BigRat &dot_vk = v.z;
+#if 0
+BigFrame FrameFromViewPos(const BigVec3 &v) {
+  CHECK(v.x != BigRat(0) || v.y != BigRat(0));
 
-  // Cross product: v×k = (vy*1 - vz*0, vz*0 - vx*1, vx*0 - vy*0) = (vy, -vx, 0)
-  const BigRat &cross_x = v.y;
-  const BigRat cross_y = -v.x;
-  const BigRat cross_z = BigRat(0);
+  // k is the z axis here.
 
-  // Scalar part of the quaternion: w = 1 + v·k
-  BigRat w = BigRat(1) + dot_vk;
+  // n1 = v + k
+  BigVec3 n1(v.x, v.y, v.z + BigRat(1));
 
-  // Construct the quaternion (x, y, z, w)
-  // Note that the components of the cross product form the vector part (x,y,z)
-  return BigQuat(cross_x, cross_y, cross_z, w);
+  BigRat xx1 = n1.x * n1.x;
+  BigRat yy1 = n1.y * n1.y;
+  BigRat zz1 = n1.z * n1.z;
+
+  BigRat dot1 = xx1 + yy1 + zz1;
+
+  CHECK(!BigRat::IsZero(dot1)) << "Impossible since v is not on the z axis.";
+
+  // Scaling factor.
+  BigRat s = BigRat(2) / dot1;
+
+  // Precompute terms needed for the matrix elements
+  // s * n1_i * n1_j terms
+  BigRat s_n1x_n1x = s * xx1;
+  BigRat s_n1x_n1y = s * n1.x * n1.y;
+  BigRat s_n1x_n1z = s * n1.x * n1.z;
+
+  BigRat s_n1y_n1y = s * yy1;
+  BigRat s_n1y_n1z = s * n1.y * n1.z;
+
+  BigRat s_n1z_n1z = s * zz1;
+
+  // Construct the columns of the rotation matrix v -> k
+  // which is R_reflect(k) * R_reflect(v+k)
+  // Using the derived formula:
+  // Col 0: (1 - s*vx^2,    -s*vx*vy,     s*vx*(vz+1))
+  // Col 1: (-s*vx*vy,   1 - s*vy^2,      s*vy*(vz+1))
+  // Col 2: (-s*vx*(vz+1), -s*vy*(vz+1), s*(vz+1)^2 - 1)
+
+  BigFrame frame;
+
+  frame.x = BigVec3(BigRat(1) - s_n1x_n1x,
+                    BigRat::Negate(s_n1x_n1y),
+                    s_n1x_n1z);
+
+  frame.y = BigVec3(BigRat::Negate(s_n1x_n1y),
+                    BigRat(1) - s_n1y_n1y,
+                    s_n1y_n1z);
+
+  frame.z = BigVec3(BigRat::Negate(s_n1x_n1z),
+                    BigRat::Negate(s_n1y_n1z),
+                    s_n1z_n1z - BigRat(1));
+
+  frame.o = BigVec3(BigRat(0), BigRat(0), BigRat(0));
+
+  return frame;
 }
 #endif
+
+BigFrame FrameFromViewPos(const BigVec3 &v) {
+  CHECK(v.x != BigRat(0) || v.y != BigRat(0))
+      << "Input vector v must not be on the Z axis. v = " << VecString(v);
+
+  const BigRat zero(0);
+  const BigRat one(1);
+
+  // Calculate squared vector norms needed
+  BigRat dot_xx = v.x * v.x + v.y * v.y; // || k x v ||^2
+  BigRat dot_zz = dot(v, v);             // || v ||^2
+  // This check is technically redundant given the first check, but good practice.
+  CHECK(dot_xx != zero) << "vx^2+vy^2 is zero, vector is on Z axis. v=" << VecString(v);
+  CHECK(dot_zz != zero) << "Input vector v cannot be zero. v=" << VecString(v);
+
+  BigRat dot_yy = dot_xx * dot_zz;       // || v x (k x v) ||^2
+
+  // Calculate components for the columns of frame f (rotation v -> k)
+
+  // f.x = (-vy/dot_xx, -vx*vz/dot_yy, vx/dot_zz)
+  BigVec3 fx(-v.y / dot_xx,
+             -(v.x * v.z) / dot_yy,
+             v.x / dot_zz);
+
+  // f.y = (vx/dot_xx, -vy*vz/dot_yy, vy/dot_zz)
+  BigVec3 fy(v.x / dot_xx,
+             -(v.y * v.z) / dot_yy,
+             v.y / dot_zz);
+
+  // f.z = (0, (vx^2+vy^2)/dot_yy, vz/dot_zz)
+  // f.z = (0, dot_xx/dot_yy, vz/dot_zz)
+  // f.z = (0, 1.0/dot_zz, vz/dot_zz)
+  BigVec3 fz(zero,
+             one / dot_zz, // Simplified from dot_xx / dot_yy
+             v.z / dot_zz);
+
+  return BigFrame{std::move(fx), std::move(fy), std::move(fz),
+    BigVec3(zero,zero,zero)};
+}
 
 BigMesh2D Shadow(const BigPoly &poly) {
   std::vector<BigVec2> vertices;
@@ -328,7 +416,8 @@ bool PointInPolygon(const BigVec2 &point,
 }
 
 
-// XXX Buggy?
+// XXX Buggy? maybe it was just because quaternion multiplication
+// was wrong! ugh! test again.
 BigVec3 RotatePoint(const BigQuat &q, const BigVec3 &v) {
   vec3 dv = SmallVec(v);
   quat4 dp{.x = dv.x, .y = dv.y, .z = dv.z, .w = 0.0};
@@ -349,7 +438,7 @@ BigVec3 RotatePoint(const BigQuat &q, const BigVec3 &v) {
   //  - We actually want RotateAndProjectTo2D, since we're
   //    not even using the z coordinate.
   BigQuat p(v.x, v.y, v.z, BigRat(0));
-  BigQuat pqi = p * UnitInverse(q);
+  BigQuat pqi = p * Conjugate(q);
 
   CHECK_NEAR(dpqi.x, pqi.x.ToDouble());
   CHECK_NEAR(dpqi.y, pqi.y.ToDouble());
