@@ -89,7 +89,8 @@ struct BigSolver {
     CHECK(dotrans.x == 0.0 &&
           dotrans.y == 0.0 &&
           dotrans.z == 0.0) << "This can be handled, but we expect "
-      "exact zero translation for the outer frame.";
+      "exact zero translation for the outer frame: "
+                            << VecString(dotrans);
 
     // z component does not matter, because we project along z.
     initial_translation = BigVec2(BigRat::FromDouble(ditrans.x),
