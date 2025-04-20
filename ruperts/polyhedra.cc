@@ -1057,10 +1057,22 @@ bool PointInPolygon(const vec2 &point,
                          });
 }
 
-// via https://en.wikipedia.org/wiki/Shoelace_formula
-double AreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull) {
-  if (hull.size() < 3) return 0.0;
+double SignedAreaOfConvexPoly(const std::vector<vec2> &pts) {
+  if (pts.size() < 3) return 0.0;
+  double area = 0.0;
+  // Iterate through the polygon vertices, using the shoelace formula.
+  for (size_t i = 0; i < pts.size(); i++) {
+    const vec2 &v0 = pts[i];
+    const vec2 &v1 = pts[(i + 1) % pts.size()];
+    area += v0.x * v1.y - v1.x * v0.y;
+  }
 
+  return area * 0.5;
+}
+
+// via https://en.wikipedia.org/wiki/Shoelace_formula
+double SignedAreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull) {
+  if (hull.size() < 3) return 0.0;
   double area = 0.0;
   // Iterate through the polygon vertices, using the shoelace formula.
   for (size_t i = 0; i < hull.size(); i++) {
@@ -1069,9 +1081,13 @@ double AreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull) {
     area += v0.x * v1.y - v1.x * v0.y;
   }
 
+  return area * 0.5;
+}
+
+double AreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull) {
   // Sign depends on the winding order, but we always want a positive
   // area.
-  return std::abs(area * 0.5);
+  return std::abs(SignedAreaOfHull(mesh, hull));
 }
 
 bool FacesParallel(const Polyhedron &poly, int face1, int face2) {

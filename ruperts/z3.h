@@ -43,6 +43,21 @@ struct Z3Bool {
   std::string s;
 };
 
+struct Z3Int {
+  explicit Z3Int(int i) : Z3Int((int64_t)i) {}
+  explicit Z3Int(int64_t i) : s(std::format("{}", i)) {}
+  explicit Z3Int(std::string s) : s(std::move(s)) {}
+  explicit Z3Int(const BigInt &i) :
+    s(std::format("{}", i.ToString())) {}
+  Z3Int(const Z3Int &other) = default;
+  Z3Int(Z3Int &&other) = default;
+  Z3Int &operator =(const Z3Int &other) = default;
+  Z3Int &operator =(Z3Int &&other) = default;
+  std::string s;
+ private:
+  Z3Int(double d) {}
+};
+
 struct Z3Real {
   explicit Z3Real(int i) : Z3Real((int64_t)i) {}
   explicit Z3Real(int64_t i) : s(std::format("{}.0", i)) {}
@@ -114,6 +129,18 @@ inline std::string Fresh(std::string_view hint = "") {
 SymbolicPolyhedron SymbolicCube();
 SymbolicPolyhedron SymbolicTetrahedron();
 SymbolicPolyhedron FromBigPoly(const BigPoly &poly);
+
+inline Z3Int operator+(const Z3Int &a, const Z3Int &b) {
+  return Z3Int(std::format("(+ {} {})", a.s, b.s));
+}
+
+inline Z3Int operator-(const Z3Int &a, const Z3Int &b) {
+  return Z3Int(std::format("(- {} {})", a.s, b.s));
+}
+
+inline Z3Int operator*(const Z3Int &a, const Z3Int &b) {
+  return Z3Int(std::format("(* {} {})", a.s, b.s));
+}
 
 inline Z3Real operator+(const Z3Real &a, const Z3Real &b) {
   return Z3Real(std::format("(+ {} {})", a.s, b.s));
@@ -207,6 +234,12 @@ inline Z3Real NewReal(std::string *out, std::string_view name_hint = "") {
   std::string r = Fresh(name_hint);
   AppendFormat(out, "(declare-const {} Real)\n", r);
   return Z3Real(r);
+}
+
+inline Z3Int NewInt(std::string *out, std::string_view name_hint = "") {
+  std::string r = Fresh(name_hint);
+  AppendFormat(out, "(declare-const {} Int)\n", r);
+  return Z3Int(r);
 }
 
 inline Z3Vec3 NewVec3(std::string *out, std::string_view name_hint = "") {

@@ -120,9 +120,11 @@ struct BigSolver {
 
     const frame3 outer_frame =
       yocto::rotation_frame(normalize(SmallQuat(outer_rot)));
-    // Note: ignoring translation
-    const frame3 inner_frame =
+    frame3 inner_frame =
       yocto::rotation_frame(normalize(SmallQuat(inner_rot)));
+    vec2 trans = SmallVec(translation);
+    inner_frame.o.x = trans.x;
+    inner_frame.o.y = trans.y;
 
     Polyhedron outer = Rotate(poly, outer_frame);
     Polyhedron inner = Rotate(poly, inner_frame);
@@ -149,7 +151,7 @@ struct BigSolver {
     status->Printf("Solved! %lld iters, %lld attempts, in %s\n", iters.Read(),
                    attempts.Read(), ANSI::Time(run_timer.Seconds()).c_str());
 
-    std::string suffix = std::format("-{}-{}-{}",
+    std::string suffix = std::format("{}-{}-{}",
                                      LowerMethod(),
                                      polyhedron.name,
                                      time(nullptr));
@@ -465,8 +467,17 @@ static void Ratpert() {
   BigPoly scube(BigScube(100));
   BigPoly sdode(BigSdode(100));
 
-
   StatusBar status(NUM_OUTER_THREADS + 2);
+
+  if (true) {
+    BigPoly tetra(BigTetra(100));
+    for (const BigVec3 &v : tetra.vertices) {
+      printf("  %s\n", VecString(v).c_str());
+    }
+    BigSolver solver(tetra, &status, {60.0 * 60.0});
+    solver.Run();
+    return;
+  }
 
   if (false) {
     // Solved

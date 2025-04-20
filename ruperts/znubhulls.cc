@@ -1,10 +1,10 @@
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <format>
-#include <limits>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -16,21 +16,19 @@
 
 #include "ansi.h"
 #include "arcfour.h"
-#include "atomic-util.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "big-polyhedra.h"
 #include "bignum/big.h"
 #include "bounds.h"
 #include "color-util.h"
-#include "geom/tree-3d.h"
-#include "hashing.h"
-#include "hull3d.h"
+#include "crypt/sha256.h"
 #include "image.h"
 #include "periodically.h"
 #include "polyhedra.h"
 #include "process-util.h"
 #include "randutil.h"
+#include "rendering.h"
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
@@ -116,8 +114,25 @@ struct Boundaries {
   BigPoly poly;
 };
 
-static frame3 FrameFromViewPos(const vec3 &v) {
-  return frame_fromz({0, 0, 0}, v);
+static frame3 FrameFromViewPos(const vec3 &view) {
+  CHECK(length(view) > 1e-9);
+
+  vec3 frame_z = yocto::normalize(view);
+
+  // Define constant 'up' vector (0, 0, 1).
+  const vec3 up_z = {0.0, 0.0, 1.0};
+  vec3 frame_x = normalize(cross(up_z, frame_z));
+
+  frame3 frame{
+    .x = frame_x,
+    .y = cross(frame_z, frame_x),
+    .z = frame_z,
+    .o = vec3{0, 0, 0},
+  };
+
+  return frame;
+
+  // return frame_fromz({0, 0, 0}, v);
 }
 
 static BigVec3 GetPointInPatch(const Boundaries &boundaries,
@@ -302,11 +317,13 @@ static void PlotPatch(const Boundaries &boundaries,
          ANSI::Time(timer.Seconds()).c_str());
 }
 
+[[maybe_unused]]
 static vec3 RandomPointOnSphere(ArcFour *rc) {
   const quat4 small_quat = normalize(RandomQuaternion(rc));
   return QuaternionToSpherePoint(small_quat);
 }
 
+[[maybe_unused]]
 static void BigSnubHulls() {
   BigPoly scube = BigScube(DIGITS);
   Boundaries boundaries(scube);
@@ -456,6 +473,103 @@ static void BigSnubHulls() {
   }
 }
 
+enum class Z3Result {
+  SAT,
+  UNSAT,
+  UNKNOWN,
+};
+
+static Z3Result RunZ3(std::string_view content,
+                      std::optional<double> timeout_seconds = {}) {
+  std::string filename =
+    std::format("runz3-{}.z3",
+                SHA256::Ascii(SHA256::HashStringView(content)));
+  Util::WriteFile(filename, content);
+  std::string targ;
+  if (timeout_seconds.has_value()) {
+    // Milliseconds
+    targ = std::format("-t:{}", (int)std::round(
+                           timeout_seconds.value() * 1000.0));
+  }
+
+  std::optional<std::string> z3result =
+    ProcessUtil::GetOutput(std::format("d:\\z3\\bin\\z3.exe {} {}",
+                                       targ,
+                                       filename));
+  // Could return UNKNOWN here, but that would probably be surprising.
+  CHECK(z3result.has_value()) << "Couldn't run z3?";
+  // (void)Util::RemoveFile(filename);
+
+  // Just remember that "sat" is in "unsat"!
+  if (Util::StrContains(z3result.value(), "unknown"))
+    return Z3Result::UNKNOWN;
+  if (Util::StrContains(z3result.value(), "unsat"))
+    return Z3Result::UNSAT;
+  if (Util::StrContains(z3result.value(), "sat"))
+    return Z3Result::SAT;
+  LOG(FATAL) << "Unparseable z3 result:\n" << z3result.value();
+}
+
+Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
+  #if 0
+  Z3Vec3 v = NewVec3(out, name_hint);
+
+  // v must be a unit vector.
+  AppendFormat(out,
+               "(assert (= 1.0 (+ (* {} {}) (* {} {}) (* {} {}))))\n",
+               v.x.s, v.x.s,
+               v.y.s, v.y.s,
+               v.z.s, v.z.s);
+  return v;
+  #elif 0
+  Z3Int u = NewInt(out, std::format("{}_u", name_hint));
+  Z3Int v = NewInt(out, std::format("{}_v", name_hint));
+  Z3Int w = NewInt(out, std::format("{}_w", name_hint));
+  Z3Int t = NewInt(out, std::format("{}_t", name_hint));
+
+  // They can be anything as long as they are not all zero.
+  AppendFormat(out, "(assert (not "
+               "(and (= {} 0) (= {} 0) (= {} 0) (= {} 0))))\n",
+               u.s, v.s, w.s, t.s);
+
+  Z3Int xnumer = Z3Int(2) * (u * w - v * t);
+  Z3Int ynumer = Z3Int(2) * (u * t - v * w);
+  Z3Int znumer = u * u + v* v - w * w - t * t;
+  Z3Int denom = u * u + v * v + w * w + t * t;
+
+  Z3Real x(std::format("(/ (to_real {}) (to_real {}))", xnumer.s, denom.s));
+  Z3Real y(std::format("(/ (to_real {}) (to_real {}))", ynumer.s, denom.s));
+  Z3Real z(std::format("(/ (to_real {}) (to_real {}))", znumer.s, denom.s));
+
+  return Z3Vec3(x, y, z);
+
+
+  #else
+  // "The Diophantine Equation x^2+y^2+z^2=m^2", Robert Spira, 1962.
+
+  Z3Real u = NewReal(out, std::format("{}_u", name_hint));
+  Z3Real v = NewReal(out, std::format("{}_v", name_hint));
+  Z3Real w = NewReal(out, std::format("{}_w", name_hint));
+  Z3Real t = NewReal(out, std::format("{}_t", name_hint));
+
+  // They can be anything as long as they are not all zero.
+  AppendFormat(out, "(assert (not "
+               "(and (= {} 0) (= {} 0) (= {} 0) (= {} 0))))\n",
+               u.s, v.s, w.s, t.s);
+
+  Z3Real xnumer = Z3Real(2) * (u * w - v * t);
+  Z3Real ynumer = Z3Real(2) * (u * t - v * w);
+  Z3Real znumer = u * u + v * v - w * w - t * t;
+  Z3Real denom = u * u + v * v + w * w + t * t;
+
+  Z3Real x(std::format("(/ {} {})", xnumer.s, denom.s));
+  Z3Real y(std::format("(/ {} {})", ynumer.s, denom.s));
+  Z3Real z(std::format("(/ {} {})", znumer.s, denom.s));
+
+  return Z3Vec3(x, y, z);
+  #endif
+}
+
 // Make a view (unit vector) constrained to the given patch.
 Z3Vec3 EmitPatch(std::string *out,
                  const Boundaries &boundaries,
@@ -466,8 +580,8 @@ Z3Vec3 EmitPatch(std::string *out,
   constexpr const char *LESS = "<=";
   constexpr const char *GREATER = ">=";
 
-  // The view point, which is in the patch.
-  Z3Vec3 v = NewVec3(out, "view");
+  // The view point, which is in the patch. Unit length.
+  Z3Vec3 v = NewUnitVector(out, "view");
 
   // Constrain v based on the bits.
   for (int b = 0; b < boundaries.Size(); b++) {
@@ -479,13 +593,6 @@ Z3Vec3 EmitPatch(std::string *out,
                  order,
                  Dot(v, normal).s);
   }
-
-  // v must be a unit vector.
-  AppendFormat(out,
-               "(assert (= 1.0 (+ (* {} {}) (* {} {}) (* {} {}))))\n",
-               v.x.s, v.x.s,
-               v.y.s, v.y.s,
-               v.z.s, v.z.s);
 
   return v;
 }
@@ -509,6 +616,33 @@ inline Z3Real EmitInvSqrt(std::string *out, const Z3Real &val,
   return s;
 }
 
+// view is a unit vector, not parallel to z.
+std::vector<vec2> ReferenceShadow(const Polyhedron &poly,
+                                  const std::vector<int> &hull,
+                                  const vec3 &view) {
+  CHECK(fabs(length(view) - 1.0) < 1e-9);
+
+  const vec3 up_z = {0.0, 0.0, 1.0};
+
+  vec3 frame_x = normalize(cross(up_z, view));
+  // Already unit because frame_x and view are unit.
+  vec3 frame_y = yocto::cross(view, frame_x);
+  const vec3 frame_z = view;
+
+  std::vector<vec2> projected_hull;
+  projected_hull.reserve(hull.size());
+
+  for (int vidx : hull) {
+    CHECK(vidx >= 0 && vidx < poly.vertices.size());
+    const vec3 &v_in = poly.vertices[vidx];
+    double x = frame_x.x * v_in.x + frame_y.x * v_in.y + frame_z.x * v_in.z;
+    double y = frame_x.y * v_in.x + frame_y.y * v_in.y + frame_z.y * v_in.z;
+    projected_hull.emplace_back(vec2{x, y});
+  }
+
+  return projected_hull;
+}
+
 // Transform the hull points (indices into poly.vertices) using
 // the given view direction. Return the transformed points as
 // a vector of 2d points. Note: The patch may not contain the
@@ -528,6 +662,7 @@ std::vector<Z3Vec2> EmitShadow(std::string *out,
 
   Z3Vec3 frame_x = frame_x_unnorm * EmitInvSqrt(out, sqnorm, "framex");
   Z3Vec3 frame_y = NameVec3(out, Cross(view, frame_x), "framey");
+  const Z3Vec3 frame_z = view;
 
   std::vector<Z3Vec2> projected_hull;
   projected_hull.reserve(hull.size());
@@ -538,9 +673,9 @@ std::vector<Z3Vec2> EmitShadow(std::string *out,
 
     Z3Vec3 v_in(poly.vertices[vertex_index]);
 
-    // Projected coordinates are dot products with the basis vectors.
-    Z3Real x = Dot(v_in, frame_x);
-    Z3Real y = Dot(v_in, frame_y);
+    Z3Real x = frame_x.x * v_in.x + frame_y.x * v_in.x + frame_z.x * v_in.z;
+    Z3Real y = frame_x.y * v_in.y + frame_y.y * v_in.y + frame_z.y * v_in.z;
+    // Don't need z.
 
     Z3Vec2 v_out = NameVec2(out, Z3Vec2(x, y), std::format("v{}", i));
 
@@ -568,53 +703,214 @@ Z3Real EmitConvexPolyArea(std::string *out,
     cross_terms.push_back(Cross(v_i, v_next));
   }
 
-  Z3Real half = Z3Real(BigRat(1, 2));
-
   return NameReal(out, Sum(cross_terms) / Z3Real(2), "area");
 }
 
-void GetMaximumArea(const Boundaries &boundaries,
-                    uint64_t code) {
+struct RatBounds {
+  RatBounds(BigRat initial_lb, BigRat initial_ub) :
+    lb(std::move(initial_lb)),
+    ub(std::move(initial_ub)) {}
+  BigRat Midpoint() const {
+    return (lb + ub) / BigRat(2);
+  }
+
+  std::string BriefString() const {
+    double l = lb.ToDouble(), u = ub.ToDouble();
+    return std::format("{:.17g} {} x {} {:.17g}",
+                       l, lclosed ? "<=" : "<",
+                       uclosed ? "<=" : "<", u);
+  }
+
+  BigRat lb, ub;
+  // If closed, then the boundary is included.
+  bool lclosed = true, uclosed = true;
+};
+
+void BoundArea(const Boundaries &boundaries,
+               uint64_t code) {
+  Timer timer;
   // Could just save the hulls with the codes!
   BigVec3 pt = GetPointInPatch(boundaries, code);
 
   const std::vector<int> hull = [&]() {
       const vec3 v = normalize(SmallVec(pt));
       Polyhedron small_poly = SmallPoly(boundaries.poly);
+
       frame3 frame = FrameFromViewPos(v);
       Mesh2D shadow = Shadow(Rotate(small_poly, frame));
-      return QuickHull(shadow.vertices);
+      std::vector<int> hull = QuickHull(shadow.vertices);
+
+      {
+        Rendering rendering(small_poly, 1920, 1080);
+        rendering.RenderMesh(shadow);
+        rendering.RenderHull(shadow, hull);
+        rendering.Save(std::format("debug-{:b}.png", code));
+      }
+
+
+      // Make sure winding order is clockwise.
+      CHECK(hull.size() >= 3);
+
+      std::vector<vec2> rshadow = ReferenceShadow(small_poly, hull, v);
+      double area = SignedAreaOfConvexPoly(rshadow);
+      printf("Area for example hull: %.17g\n", area);
+      if (area < 0.0) {
+        VectorReverse(&hull);
+        rshadow = ReferenceShadow(small_poly, hull, v);
+        double area = SignedAreaOfConvexPoly(rshadow);
+        printf("Area for reversed hull: %.17g\n", area);
+      }
+
+      Bounds bounds;
+      for (const auto &vec : rshadow) {
+        bounds.Bound(vec.x, vec.y);
+      }
+      bounds.AddMarginFrac(0.05);
+
+      ImageRGBA ref(1920, 1080);
+      ref.Clear32(0x000000FF);
+      Bounds::Scaler scaler =
+        bounds.ScaleToFit(ref.Width(), ref.Height()).FlipY();
+      for (int i = 0; i < rshadow.size(); i++) {
+        const vec2 &v0 = rshadow[i];
+        const vec2 &v1 = rshadow[(i + 1) % rshadow.size()];
+        const auto &[x0, y0] = scaler.Scale(v0.x, v0.y);
+        const auto &[x1, y1] = scaler.Scale(v1.x, v1.y);
+        ref.BlendLine32(x0, y0, x1, y1, 0xFFFFFFAA);
+      }
+      ref.Save(std::format("ref-hull-{:b}.png", code));
+
+      return hull;
     }();
 
-  std::string out;
-  Z3Vec3 view = EmitPatch(&out, boundaries, code);
+  std::string setup;
+  Z3Vec3 view = EmitPatch(&setup, boundaries, code);
 
   std::vector<Z3Vec2> shadow =
-    EmitShadow(&out, boundaries.poly, hull, view);
+    EmitShadow(&setup, boundaries.poly, hull, view);
 
-  Z3Real area = EmitConvexPolyArea(&out, shadow);
+  Z3Real area = EmitConvexPolyArea(&setup, shadow);
 
-  Z3Real area_v = NewReal(&out, "area");
-  AppendFormat(&out, "(assert (= {} {}))\n", area_v.s, area.s);
-  // AppendFormat(&out, "(assert (< {} 10.0))\n", area_v.s);
+  Z3Real area_v = NewReal(&setup, "area");
+  AppendFormat(&setup, "(assert (= {} {}))\n", area_v.s, area.s);
 
-  #if 0
-  AppendFormat(&out,
-               "\n"
-               ";; try saving progress\n"
-               "(set-option :solver.cancel-backup-file "
-               "\"max-area-{:b}-partial.z3\")\n",
-               code);
-  #endif
+  {
+    std::string sanity = setup;
+    AppendFormat(&sanity,
+                 "(check-sat)\n"
+                 "(get-model)\n");
+    CHECK(Z3Result::SAT == RunZ3(sanity, {120.0}));
+    printf("Satisfiable, OK.\n");
+  }
 
-  // AppendFormat(&out, "(maximize {})\n", area.s);
-  AppendFormat(&out,
-               "(check-sat)\n"
-               "(get-model)\n");
+  // The area of the parameterized hull is an interval from
+  // min_area to max_area (which we don't know). Here we try
+  // to put bounds on each.
 
-  std::string filename = std::format("max-area-{:b}.z3", code);
-  Util::WriteFile(filename, out);
-  printf("Wrote %s\n", filename.c_str());
+  // Bounds on the maximum possible area.
+  RatBounds max_area(BigRat(0), BigRat(100000));
+  // Likewise, bounds on the minimal possible area.
+  RatBounds min_area(BigRat(0), BigRat(100000));
+
+
+
+  int64_t sat = 0, unsat = 0, unknown = 0;
+  StatusBar status(3);
+  for (int64_t iters = 0; true; iters++) {
+    std::string out = setup;
+
+    // Helpful to add the existing bounds?
+
+    bool do_min = iters & 1;
+
+    if (do_min) {
+      BigRat test_point = min_area.Midpoint();
+
+      AppendFormat(&out,
+                   "(assert (<= {} {}))\n",
+                   area_v.s, Z3Real(test_point).s);
+
+      AppendFormat(&out,
+                   "(check-sat)\n");
+
+      Z3Result lesseq = RunZ3(out, {180.0});
+      switch (lesseq) {
+      case Z3Result::SAT:
+        // Possible for the area to be lesseq than the test point.
+        status.Printf("sat: area <= %s", test_point.ToString().c_str());
+        if (test_point <= min_area.ub) {
+          min_area.ub = test_point;
+          min_area.uclosed = true;
+        }
+        sat++;
+        break;
+      case Z3Result::UNSAT:
+        // The area is always more than the test point.
+        status.Printf("unsat: area <= %s", test_point.ToString().c_str());
+        if (test_point >= min_area.lb) {
+          min_area.lb = test_point;
+          min_area.lclosed = false;
+        }
+        unsat++;
+        break;
+      case Z3Result::UNKNOWN:
+        // No info.
+        unknown++;
+        status.Printf(ARED("unknown") ": area <= %s",
+                      test_point.ToString().c_str());
+        break;
+      }
+
+    } else {
+      // Maximize.
+      BigRat test_point = max_area.Midpoint();
+
+      AppendFormat(&out,
+                   "(assert (>= {} {}))\n",
+                   area_v.s, Z3Real(test_point).s);
+
+      AppendFormat(&out,
+                   "(check-sat)\n");
+
+      Z3Result lesseq = RunZ3(out, {60.0});
+      switch (lesseq) {
+      case Z3Result::SAT:
+        status.Printf("sat: area >= %s", test_point.ToString().c_str());
+        // Possible for the area to be greatereq than the test point.
+        if (test_point >= max_area.lb) {
+          max_area.lb = test_point;
+          max_area.lclosed = true;
+        }
+        sat++;
+        break;
+      case Z3Result::UNSAT:
+        status.Printf("unsat: area >= %s", test_point.ToString().c_str());
+        // The area is always less than the test point.
+        if (test_point <= max_area.ub) {
+          max_area.ub = test_point;
+          max_area.uclosed = false;
+        }
+        unsat++;
+        break;
+      case Z3Result::UNKNOWN:
+        // No info.
+        status.Printf(ARED("unknown") ": area >= %s",
+                      test_point.ToString().c_str());
+        unknown++;
+        break;
+      }
+    }
+
+    std::string stats =
+      std::format("{} iters, {} sat, {} unsat, {} unknown, {}",
+                  iters, sat, unsat, unknown, ANSI::Time(timer.Seconds()));
+    std::string mins =
+      std::format("min area: {}", min_area.BriefString());
+    std::string maxes =
+      std::format("max area: {}", max_area.BriefString());
+
+    status.EmitStatus({stats, mins, maxes});
+  }
 }
 
 // Find the set of patches (as their codes) that are non-empty, by
@@ -686,18 +982,14 @@ struct PatchEnumerator {
     // Don't even need to get the model here.
     AppendFormat(&out, "(check-sat)\n");
 
-    std::string filename = "z3-patches-tmp.z3";
-    Util::WriteFile(filename, out);
-    // satus.Printf("Wrote %s\n", filename.c_str());
-
     z3calls++;
     status.Statusf("Z3: %s", std::format("{:b}", code).c_str());
-    std::optional<std::string> z3result =
-      ProcessUtil::GetOutput(std::format("d:\\z3\\bin\\z3.exe {}", filename));
+    Z3Result z3result = RunZ3(out);
     status.Statusf("%lld Z3 calls. Depth %d\n", z3calls, depth);
+    CHECK(z3result != Z3Result::UNKNOWN) << "Expecting a definitive "
+      "answer here";
 
-    CHECK(z3result.has_value());
-    if (z3result.value().find("unsat") != std::string::npos) {
+    if (z3result == Z3Result::UNSAT) {
       status.Printf("Code %s is impossible.\n",
                     PartialCodeString(depth, code).c_str());
       return;
@@ -736,7 +1028,8 @@ static void MaxArea() {
   BigPoly scube = BigScube(DIGITS);
   Boundaries boundaries(scube);
 
-  GetMaximumArea(boundaries, uint64_t{0b1010111101010001010010100000});
+  // GetMaximumArea(boundaries, uint64_t{0b1010111101010001010010100000});
+  BoundArea(boundaries, uint64_t{0b1010111101010001010010100000});
 }
 
 int main(int argc, char **argv) {

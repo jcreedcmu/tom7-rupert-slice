@@ -234,6 +234,10 @@ std::vector<int> QuickHull(const std::vector<vec2> &v);
 // The area of the convex hull; should also work for any simple
 // polygon.
 double AreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull);
+// Positive if clockwise, winding order; negative for ccw.
+double SignedAreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull);
+// Same, but with the points directly.
+double SignedAreaOfConvexPoly(const std::vector<vec2> &points);
 
 // In the inner loop, we compute a convex hull for a covex polyhedron
 // centered at the origin, and then test whether many points are
