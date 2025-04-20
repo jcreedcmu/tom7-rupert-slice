@@ -8,6 +8,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
@@ -37,6 +38,8 @@
 #include "vector-util.h"
 #include "yocto_matht.h"
 #include "z3.h"
+
+static constexpr int DIGITS = 24;
 
 using vec3 = yocto::vec<double, 3>;
 
@@ -115,6 +118,34 @@ struct Boundaries {
 
 static frame3 FrameFromViewPos(const vec3 &v) {
   return frame_fromz({0, 0, 0}, v);
+}
+
+static BigVec3 GetPointInPatch(const Boundaries &boundaries,
+                               uint64_t code) {
+  ArcFour rc(std::format("point{}", code));
+  for (;;) {
+    vec3 s;
+    std::tie(s.x, s.y, s.z) = RandomUnit3D(&rc);
+    BigVec3 bs(BigRat::ApproxDouble(s.x, 1000000),
+               BigRat::ApproxDouble(s.y, 1000000),
+               BigRat::ApproxDouble(s.z, 1000000));
+
+    // Try all the signs. At most one of these will be
+    // in the patch, but this should increase the
+    // efficiency (because knowing that other signs
+    // are *not* in the patch increases the chance
+    // that we are).
+    for (uint8_t b = 0b000; b < 0b1000; b++) {
+      BigVec3 bbs((b & 0b100) ? -bs.x : bs.x,
+                  (b & 0b010) ? -bs.y : bs.y,
+                  (b & 0b001) ? -bs.z : bs.z);
+      uint64_t sample_code = boundaries.GetCode(bbs);
+      if (sample_code == code) {
+        // Sample is in range.
+        return bbs;
+      }
+    }
+  }
 }
 
 // Visualize a patch under its parameterization. This is
@@ -277,7 +308,7 @@ static vec3 RandomPointOnSphere(ArcFour *rc) {
 }
 
 static void BigSnubHulls() {
-  BigPoly scube = BigScube(50);
+  BigPoly scube = BigScube(DIGITS);
   Boundaries boundaries(scube);
 
   Polyhedron cube = SnubCube();
@@ -425,12 +456,173 @@ static void BigSnubHulls() {
   }
 }
 
+// Make a view (unit vector) constrained to the given patch.
+Z3Vec3 EmitPatch(std::string *out,
+                 const Boundaries &boundaries,
+                 uint64_t code) {
+
+  // Note: Trying closed spaces, which is also valid and may be faster
+  // for z3.
+  constexpr const char *LESS = "<=";
+  constexpr const char *GREATER = ">=";
+
+  // The view point, which is in the patch.
+  Z3Vec3 v = NewVec3(out, "view");
+
+  // Constrain v based on the bits.
+  for (int b = 0; b < boundaries.Size(); b++) {
+    Z3Vec3 normal{boundaries.planes[b]};
+    // If 1, then positive dot product.
+    const char *order = (code & (uint64_t{1} << b)) ? GREATER : LESS;
+    AppendFormat(out,
+                 "(assert ({} {} 0.0))\n",
+                 order,
+                 Dot(v, normal).s);
+  }
+
+  // v must be a unit vector.
+  AppendFormat(out,
+               "(assert (= 1.0 (+ (* {} {}) (* {} {}) (* {} {}))))\n",
+               v.x.s, v.x.s,
+               v.y.s, v.y.s,
+               v.z.s, v.z.s);
+
+  return v;
+}
+
+// Returns a real s such that s = 1 / sqrt(val)
+// Requires val_sq > 0.
+inline Z3Real EmitInvSqrt(std::string *out, const Z3Real &val,
+                          std::string_view name_hint) {
+  Z3Real s = NewReal(out, name_hint);
+  // Maybe unnecessary, but these must be true.
+  AppendFormat(out, "(assert (> {} 0.0))\n", val.s);
+  AppendFormat(out, "(assert (> {} 0.0))\n", s.s);
+  // 1.0 = s * s * val      (divide by val)
+  // 1.0 / val = s * s      (sqrt both sides)
+  // 1.0 / sqrt(val) = s
+  AppendFormat(out,
+               ";; {} = 1.0 / sqrt({})\n"
+               "(assert (= 1.0 (* {} {} {})))\n",
+               s.s, val.s,
+               s.s, s.s, val.s);
+  return s;
+}
+
+// Transform the hull points (indices into poly.vertices) using
+// the given view direction. Return the transformed points as
+// a vector of 2d points. Note: The patch may not contain the
+// z axis!
+std::vector<Z3Vec2> EmitShadow(std::string *out,
+                               const BigPoly &poly,
+                               const std::vector<int> &hull,
+                               const Z3Vec3 &view) {
+
+  Z3Vec3 up_z(BigVec3{BigRat(0), BigRat(0), BigRat(1)});
+
+  Z3Vec3 frame_x_unnorm =
+    NameVec3(out, Cross(up_z, view), "frame_x_unnorm");
+
+  Z3Real sqnorm =
+    NameReal(out, Dot(frame_x_unnorm, frame_x_unnorm), "sqnorm");
+
+  Z3Vec3 frame_x = frame_x_unnorm * EmitInvSqrt(out, sqnorm, "framex");
+  Z3Vec3 frame_y = NameVec3(out, Cross(view, frame_x), "framey");
+
+  std::vector<Z3Vec2> projected_hull;
+  projected_hull.reserve(hull.size());
+
+  for (size_t i = 0; i < hull.size(); ++i) {
+    int vertex_index = hull[i];
+    CHECK(vertex_index >= 0 && vertex_index < poly.vertices.size());
+
+    Z3Vec3 v_in(poly.vertices[vertex_index]);
+
+    // Projected coordinates are dot products with the basis vectors.
+    Z3Real x = Dot(v_in, frame_x);
+    Z3Real y = Dot(v_in, frame_y);
+
+    Z3Vec2 v_out = NameVec2(out, Z3Vec2(x, y), std::format("v{}", i));
+
+    projected_hull.push_back(v_out);
+  }
+
+  return projected_hull;
+}
+
+
+Z3Real EmitConvexPolyArea(std::string *out,
+                          const std::vector<Z3Vec2> &vertices) {
+  CHECK(vertices.size() >= 3);
+
+  AppendFormat(out, ";; Hull area\n");
+  std::vector<Z3Real> cross_terms;
+  cross_terms.reserve(vertices.size());
+
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    const Z3Vec2 &v_i = vertices[i];
+    const Z3Vec2 &v_next = vertices[(i + 1) % vertices.size()];
+
+    // We're essentially creating a triangle fan with the origin
+    // (saving the division by half for the end).
+    cross_terms.push_back(Cross(v_i, v_next));
+  }
+
+  Z3Real half = Z3Real(BigRat(1, 2));
+
+  return NameReal(out, Sum(cross_terms) / Z3Real(2), "area");
+}
+
+void GetMaximumArea(const Boundaries &boundaries,
+                    uint64_t code) {
+  // Could just save the hulls with the codes!
+  BigVec3 pt = GetPointInPatch(boundaries, code);
+
+  const std::vector<int> hull = [&]() {
+      const vec3 v = normalize(SmallVec(pt));
+      Polyhedron small_poly = SmallPoly(boundaries.poly);
+      frame3 frame = FrameFromViewPos(v);
+      Mesh2D shadow = Shadow(Rotate(small_poly, frame));
+      return QuickHull(shadow.vertices);
+    }();
+
+  std::string out;
+  Z3Vec3 view = EmitPatch(&out, boundaries, code);
+
+  std::vector<Z3Vec2> shadow =
+    EmitShadow(&out, boundaries.poly, hull, view);
+
+  Z3Real area = EmitConvexPolyArea(&out, shadow);
+
+  Z3Real area_v = NewReal(&out, "area");
+  AppendFormat(&out, "(assert (= {} {}))\n", area_v.s, area.s);
+  // AppendFormat(&out, "(assert (< {} 10.0))\n", area_v.s);
+
+  #if 0
+  AppendFormat(&out,
+               "\n"
+               ";; try saving progress\n"
+               "(set-option :solver.cancel-backup-file "
+               "\"max-area-{:b}-partial.z3\")\n",
+               code);
+  #endif
+
+  // AppendFormat(&out, "(maximize {})\n", area.s);
+  AppendFormat(&out,
+               "(check-sat)\n"
+               "(get-model)\n");
+
+  std::string filename = std::format("max-area-{:b}.z3", code);
+  Util::WriteFile(filename, out);
+  printf("Wrote %s\n", filename.c_str());
+}
+
 // Find the set of patches (as their codes) that are non-empty, by
 // shelling out to z3. This could be optimized a lot, but the set is a
 // fixed property of the snub cube (given the ordering of vertices and
 // faces), so we just need to enumerate them once.
 struct PatchEnumerator {
-  PatchEnumerator() : scube(BigScube(50)), boundaries(scube), status(1) {
+  PatchEnumerator() : scube(BigScube(DIGITS)), boundaries(scube), status(1) {
     status.Statusf("Setup.");
     // Find patches that are non-empty.
     // Naively there are 2^31 of them, but the vast majority
@@ -540,11 +732,21 @@ struct PatchEnumerator {
   }
 };
 
+static void MaxArea() {
+  BigPoly scube = BigScube(DIGITS);
+  Boundaries boundaries(scube);
+
+  GetMaximumArea(boundaries, uint64_t{0b1010111101010001010010100000});
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
 
+  /*
   PatchEnumerator pe;
   pe.Enumerate();
+  */
+  MaxArea();
 
   return 0;
 }

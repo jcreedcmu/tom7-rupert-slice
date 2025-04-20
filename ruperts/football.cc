@@ -646,10 +646,10 @@ int main(int argc, char **argv) {
 
   // STL();
 
-  Plot();
-  GetSol();
+  // Plot();
+  // GetSol();
 
-  // DoFootball();
+  DoFootball();
 
   return 0;
 }
