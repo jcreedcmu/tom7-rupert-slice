@@ -118,6 +118,18 @@ struct Periodically {
     return times_run;
   }
 
+  double SecondsLeft() {
+    const tpoint now = std::chrono::steady_clock::now();
+    std::unique_lock ml(m);
+    tpoint next = next_run.load();
+    if (now >= next) {
+      return 0.0;
+    } else {
+      dur left = next - now;
+      return left / std::chrono::duration<double>(1.0);
+    }
+  }
+
  private:
   // This just exists to allow initialization of members like
   //   Periodically status_per = Periodically(1.0);

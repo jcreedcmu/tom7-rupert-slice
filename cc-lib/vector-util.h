@@ -1,6 +1,8 @@
 // Some native utilities on the std::vector type.
 // Everything in here is single-threaded to improve portability; for
 // multithreaded stuff, see threadutil.h.
+//
+// PERF: Several of these can be done in place with some care.
 
 #ifndef _CC_LIB_VECTOR_UTIL_H
 #define _CC_LIB_VECTOR_UTIL_H
@@ -57,6 +59,27 @@ static bool VectorContains(const std::vector<A> &vec, const A &a) {
     if (a == aa) return true;
   }
   return false;
+}
+
+// Rotate right in place. A positive offset means each element moves
+// to the right (wrapping around).
+template<class A>
+static void VectorRotateRight(std::vector<A> *vec,
+                              int64_t offset) {
+  const int64_t size = vec->size();
+
+  if (vec->empty()) return;
+  int64_t d = offset % size;
+  if (d < 0) d = (d + size) % size;
+  if (d == 0) return;
+
+  std::vector<A> rot;
+  rot.resize(size);
+  for (int i = 0; i < size; i++) {
+    rot[(i + offset) % size] = (*vec)[i];
+  }
+
+  *vec = std::move(rot);
 }
 
 #endif

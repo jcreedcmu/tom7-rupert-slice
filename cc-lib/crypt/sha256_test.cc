@@ -24,6 +24,8 @@ int main(int argc, char **argv) {
 
   CHECK(SHA256::HashPtr("ponycorn", 8) == SHA256::HashString("ponycorn"));
 
+  CHECK(SHA256::HashPtr("ponycorn", 8) == SHA256::HashStringView("ponycorn"));
+
   printf("OK\n");
   return 0;
 }

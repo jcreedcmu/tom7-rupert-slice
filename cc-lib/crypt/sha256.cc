@@ -77,6 +77,13 @@ std::vector<uint8> SHA256::HashPtr(const void *ptr, size_t len) {
   return SHA256::FinalVector(&c);
 }
 
+std::vector<uint8> SHA256::HashStringView(std::string_view s) {
+  SHA256::Ctx c;
+  SHA256::Init(&c);
+  SHA256::Update(&c, (const uint8 *)s.data(), s.size());
+  return SHA256::FinalVector(&c);
+}
+
 void SHA256::UpdateString(Ctx *c, const string &s) {
   SHA256::Update(c, (const uint8 *)s.data(), s.size());
 }

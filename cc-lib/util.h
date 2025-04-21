@@ -233,6 +233,8 @@ struct Util {
   static bool TryStripPrefix(string_view prefix, string_view *s);
   static bool TryStripPrefix(string_view prefix, string *s);
 
+  static bool StrContains(string_view haystack, string_view needle);
+
   /* split the string up to the first
      occurrence of character c. The character
      is deleted from both the returned string and

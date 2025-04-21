@@ -55,6 +55,7 @@ struct BigInt {
 
   // Returns -1, 0, or 1.
   inline static int Sign(const BigInt &a);
+  inline static bool IsZero(const BigInt &a);
 
   inline static BigInt Negate(const BigInt &a);
   inline static BigInt Negate(BigInt &&a);
@@ -291,6 +292,8 @@ struct BigRat {
 
   // Returns -1, 0, or 1.
   inline static int Sign(const BigRat &a);
+  // Tests for zero using the sign. Avoids constructing BigRat(0).
+  inline static bool IsZero(const BigRat &a);
 
   // Returns -1, 0, or 1.
   inline static int Compare(const BigRat &a, const BigRat &b);
@@ -1666,6 +1669,10 @@ int BigRat::Sign(const BigRat &a) {
 
 // Common / derived implementations.
 
+bool BigInt::IsZero(const BigInt &a) {
+  return Sign(a) == 0;
+}
+
 BigRat BigRat::Pow(const BigRat &a, uint64_t exponent) {
   const auto &[numer, denom] = a.Parts();
   BigInt nn(BigInt::Pow(numer, exponent));
@@ -1694,6 +1701,10 @@ bool BigRat::Greater(const BigRat &a, const BigRat &b) {
 }
 bool BigRat::GreaterEq(const BigRat &a, const BigRat &b) {
   return Compare(a, b) != -1;
+}
+
+bool BigRat::IsZero(const BigRat &a) {
+  return Sign(a) == 0;
 }
 
 #endif

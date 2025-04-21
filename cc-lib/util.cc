@@ -694,6 +694,10 @@ bool Util::TryStripPrefix(string_view prefix, string *s) {
   return false;
 }
 
+bool Util::StrContains(string_view haystack, string_view needle) {
+  return haystack.find(needle) != std::string_view::npos;
+}
+
 int Util::changedir(string s) {
   return !chdir(s.c_str());
 }

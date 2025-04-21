@@ -36,12 +36,13 @@ static int voronoi_perpendicular_bisector(
          (2 * (vx - ux));
 }
 
-static bool remove_candidate(int ux, int uy, int vx, int vy, int wx, int wy,
-                             int r) {
-  int a = ((wx - vx) * ((vx * vx) - (ux * ux) - (2 * r * (vy - uy)) +
-                        (vy * vy) - (uy * uy)));
-  int b = ((vx - ux) * ((wx * wx) - (vx * vx) - (2 * r * (wy - vy)) +
-                        (wy * wy) - (vy * vy)));
+static bool remove_candidate(
+    int64_t ux, int64_t uy, int64_t vx, int64_t vy, int64_t wx, int64_t wy,
+    int64_t r) {
+  int64_t a = ((wx - vx) * ((vx * vx) - (ux * ux) - (2 * r * (vy - uy)) +
+                            (vy * vy) - (uy * uy)));
+  int64_t b = ((vx - ux) * ((wx * wx) - (vx * vx) - (2 * r * (wy - vy)) +
+                            (wy * wy) - (vy * vy)));
   return a >= b;
 }
 

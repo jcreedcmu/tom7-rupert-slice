@@ -423,7 +423,8 @@ Tree3D<Num, T>::Closest(Pos pos) const {
   std::vector<std::pair<double, const Node *>> q = {{0.0, root.get()}};
 
   while (!q.empty()) {
-    const auto &[node_sqdist, node] = q.back();
+    double node_sqdist = q.back().first;
+    const Node *node = q.back().second;
     q.pop_back();
     CHECK(node != nullptr);
     // No need to search if every point in there is further than

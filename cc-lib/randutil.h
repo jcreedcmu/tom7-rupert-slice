@@ -330,6 +330,21 @@ inline double RandomBeta(ArcFour *rc, double a, double b) {
   }
 }
 
+// Get a uniformly random 3D unit vector, i.e., a point on a sphere.
+inline std::tuple<double, double, double> RandomUnit3D(ArcFour *rc) {
+  for (;;) {
+    double a = 2.0 * RandDouble(rc) - 1.0;
+    double b = 2.0 * RandDouble(rc) - 1.0;
+    double c = 2.0 * RandDouble(rc) - 1.0;
+
+    double sq_dist = a * a + b * b + c * c;
+    if (sq_dist <= 1.0 && sq_dist > 0.0) {
+      double norm = 1.0 / std::sqrt(sq_dist);
+      return std::make_tuple(norm * a, norm * b, norm * c);
+    }
+  }
+}
+
 // Get a random 4D unit vector.
 inline std::tuple<double, double, double, double> RandomUnit4D(
     ArcFour *rc) {
@@ -349,9 +364,9 @@ inline std::tuple<double, double, double, double> RandomUnit4D(
     double d = 2.0 * RandDouble(rc) - 1.0;
 
     double sq_dist = a * a + b * b + c * c + d * d;
-    if (sq_dist <= 1.0 && sq_dist > 0) {
+    if (sq_dist <= 1.0 && sq_dist > 0.0) {
       double norm = 1.0 / std::sqrt(sq_dist);
-      return std::make_tuple(norm * a, norm * b, norm * c, norm *d);
+      return std::make_tuple(norm * a, norm * b, norm * c, norm * d);
     }
   }
 }

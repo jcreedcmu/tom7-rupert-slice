@@ -69,10 +69,24 @@ static void TestReverse() {
   CHECK(v[2] == "hello");
 }
 
+static void TestRotateRight() {
+  std::vector<std::string> v = { "hello", "world", "yes", "no" };
+  VectorRotateRight(&v, 0);
+  CHECK(v[0] == "hello" && v[3] == "no");
+  VectorRotateRight(&v, 8);
+  CHECK(v[0] == "hello" && v[3] == "no");
+  VectorRotateRight(&v, 2);
+  CHECK(v[0] == "yes" && v[3] == "world");
+  VectorRotateRight(&v, -1);
+  VectorRotateRight(&v, -5);
+  CHECK(v[0] == "hello" && v[3] == "no");
+}
+
 int main(int argc, char **argv) {
   TestApp();
   TestFilter();
   TestReverse();
+  TestRotateRight();
   printf("OK\n");
   return 0;
 }

@@ -7,8 +7,9 @@
 #define _CC_LIB_CRYPT_SHA256_H
 
 #include <cstdint>
-#include <vector>
 #include <string>
+#include <string_view>
+#include <vector>
 
 struct SHA256 {
   // Size of output digest in bytes.
@@ -43,6 +44,7 @@ struct SHA256 {
   static std::vector<uint8_t> HashString(const std::string &s);
   static std::vector<uint8_t> HashVector(const std::vector<uint8_t> &v);
   static std::vector<uint8_t> HashPtr(const void *ptr, size_t len);
+  static std::vector<uint8_t> HashStringView(std::string_view s);
 };
 
 #endif

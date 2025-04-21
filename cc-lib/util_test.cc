@@ -291,6 +291,18 @@ static void TestPrefixSuffix() {
   }
 }
 
+static void TestContains() {
+  CHECK(Util::StrContains("haystack", "hay"));
+  CHECK(Util::StrContains("haystack", ""));
+  CHECK(Util::StrContains("haystack", "stack"));
+  CHECK(Util::StrContains("haystack", "haystack"));
+  CHECK(Util::StrContains("haystack", "a"));
+  CHECK(!Util::StrContains("haystack", "stacks"));
+  CHECK(!Util::StrContains("haystack", "chay"));
+  CHECK(!Util::StrContains("haystack", "haystacks"));
+  CHECK(!Util::StrContains("haystack", "k0"));
+}
+
 static void TestWriteFiles() {
   const string f = "util_test.deleteme";
   const string ss = "the\n\0contents";
@@ -674,6 +686,7 @@ int main(int argc, char **argv) {
   TestChop();
   TestChopTo();
   TestFormatTime();
+  TestContains();
 
   printf("OK\n");
   return 0;

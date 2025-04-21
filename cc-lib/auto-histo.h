@@ -199,13 +199,44 @@ struct AutoHisto {
   std::string SimpleANSI(int buckets) const {
     const Histo histo = GetHisto(buckets);
 
+    // Figure out what scale to use for labels.
+    // We need to fit these all within the same column length.
+    int places = 1;
+    // Maximum chararacter length of label.
+    int max_label_length = 1;
+    while (places < 17) {
+      // Are there duplicate labels? There would always be consecutive
+      // duplicates if so, since these appear in order.
+      bool ok = true;
+      max_label_length = 1;
+      std::string prev_label = "";
+      for (int bidx = 0; bidx < (int)histo.buckets.size(); bidx++) {
+        std::string label =
+          std::format("{:.{}f}", histo.BucketLeft(bidx), places);
+        // We want to compute the max label length even if we fail,
+        // since we might have reached max precision.
+        if (label == prev_label)
+          ok = false;
+        max_label_length = std::max((int)label.size(), max_label_length);
+        prev_label = std::move(label);
+      }
+
+      if (ok) {
+        break;
+      }
+      places++;
+    }
+
+    const int label_column = max_label_length;
+
     std::string ret;
     for (int bidx = 0; bidx < (int)histo.buckets.size(); bidx++) {
       const std::string label =
-        PadLeft(StringPrintf("%.1f", histo.BucketLeft(bidx)), 10);
+        PadLeft(std::format("{:.{}f}", histo.BucketLeft(bidx), places),
+                label_column);
       const std::string count =
         StringPrintf("%lld", (int64_t)histo.buckets[bidx]);
-      static constexpr int BAR_CHARS = 60;
+      const int BAR_CHARS = 70 - label_column;
       double f = histo.buckets[bidx] / histo.max_value;
 
       const bool before = f > 0.5;
