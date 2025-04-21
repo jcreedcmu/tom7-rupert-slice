@@ -118,6 +118,10 @@ inline BigVec2 operator *(const BigRat &s, const BigVec2 &v) {
   return BigVec2(v.x * s, v.y * s);
 }
 
+inline BigQuat operator *(const BigQuat &q, const BigRat &s) {
+  return BigQuat(q.x * s, q.y * s, q.z * s, q.w * s);
+}
+
 // Exact equality.
 inline bool operator ==(const BigVec2 &a, const BigVec2 &b) {
   return a.x == b.x && a.y == b.y;
@@ -220,6 +224,11 @@ BigFrame RotationFrame(const BigQuat &v);
 
 // Same, but not requiring a unit quaternion.
 BigFrame NonUnitRotationFrame(const BigQuat &v);
+
+// Returns a rational position on the view sphere,
+// with an unspecified rotation around that axis.
+// The quat does not need to be unit-length.
+BigVec3 ViewPosFromNonUnitQuat(const BigQuat &q);
 
 inline BigVec3 operator*(const BigVec3 &a, BigRat b) {
   return BigVec3(a.x * b, a.y * b, a.z * b);

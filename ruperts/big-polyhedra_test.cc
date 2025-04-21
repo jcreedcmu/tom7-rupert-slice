@@ -117,6 +117,98 @@ static void TestQuatMult() {
         BigQuat(BigRat(1), BigRat(1), BigRat(1), BigRat(1)));
 }
 
+static void TestViewPosFromQuat() {
+  printf("Testing ViewPosFromNonUnitQuat...\n");
+
+  // Helper to check the core property: Applying the inverse rotation
+  // (R^T) defined by q to the view position v should yield (0, 0, 1).
+  // Also checks that v is a unit vector.
+  auto CheckView = [](const BigQuat &q, const BigVec3 &v) {
+      CHECK(length_squared(v) == "1"_r)
+        << "Must be unit. But got: v = " << VecString(v)
+        << " len^2 = " << length_squared(v).ToString();
+
+      // Rotating the view should give us (0, 0, 1).
+      BigFrame frame = NonUnitRotationFrame(q);
+      BigVec3 transformed_v = TransformPoint(frame, v);
+
+      const BigVec3 expected_z("0"_r, "0"_r, "1"_r);
+      CHECK(transformed_v == expected_z)
+        << "q = " << QuatString(q)
+        << "v = " << VecString(v)
+        << "R^T * v = " << VecString(transformed_v)
+        << "Expected " << VecString(expected_z);
+    };
+
+  // Case 1: Identity quaternion
+  {
+    BigQuat q_id("0"_r, "0"_r, "0"_r, "1"_r);
+    BigVec3 v_id = ViewPosFromNonUnitQuat(q_id);
+    // For identity rotation R=I, R^T=I. We need I*v = (0,0,1), so v = (0,0,1).
+    CHECK(v_id == BigVec3("0"_r, "0"_r, "1"_r));
+    CheckView(q_id, v_id);
+  }
+
+  {
+    // This is a unit quaternion.
+    BigQuat q_180y("0"_r, "1"_r, "0"_r, "0"_r);
+    BigVec3 v_180y = ViewPosFromNonUnitQuat(q_180y);
+    CHECK(v_180y == BigVec3("0"_r, "0"_r, "-1"_r));
+    CheckView(q_180y, v_180y);
+    // Check non-unit version
+    BigQuat q_180y_nu = q_180y * "2"_r;
+    BigVec3 v_180y_nu = ViewPosFromNonUnitQuat(q_180y_nu);
+    CHECK(v_180y_nu == v_180y);
+    CheckView(q_180y_nu, v_180y_nu);
+  }
+
+  // Case 3: 90 deg rotation around Z axis
+  {
+    BigQuat q_90z("0"_r, "0"_r, "1"_r, "1"_r);
+    BigVec3 v_90z = ViewPosFromNonUnitQuat(q_90z);
+    CHECK(v_90z == BigVec3("0"_r, "0"_r, "1"_r)) << VecString(v_90z);
+    CheckView(q_90z, v_90z);
+  }
+
+  {
+    BigQuat q_90y("0"_r, "1"_r, "0"_r, "1"_r);
+    BigVec3 v_90y = ViewPosFromNonUnitQuat(q_90y);
+    CHECK(v_90y == BigVec3("-1"_r, "0"_r, "0"_r)) << VecString(v_90y);
+    CheckView(q_90y, v_90y);
+  }
+
+  {
+    BigQuat q_xyz("1"_r, "1"_r, "1"_r, "1"_r);
+    BigVec3 v_xyz = ViewPosFromNonUnitQuat(q_xyz);
+    CHECK(v_xyz == BigVec3("0"_r, "1"_r, "0"_r)) << VecString(v_xyz);
+    CheckView(q_xyz, v_xyz);
+  }
+
+  // Case 6: General rational quaternion
+  {
+    BigQuat q_gen("1/2"_r, "-1/3"_r, "3/4"_r, "1/5"_r);
+    BigVec3 v_gen = ViewPosFromNonUnitQuat(q_gen);
+    // No simple check for the value of v, just check the property
+    CheckView(q_gen, v_gen);
+  }
+
+  for (int i = 0; i < 1000; i++) {
+    ArcFour rc("qh");
+    BigRat x = BigRat::FromDouble(RandDouble(&rc) * 5 - 2.5);
+    BigRat y = BigRat::FromDouble(RandDouble(&rc) * 5 - 2.5);
+    BigRat z = BigRat::FromDouble(RandDouble(&rc) * 5 - 2.5);
+    BigRat w = BigRat::FromDouble(RandDouble(&rc) * 5 - 2.5);
+
+    BigQuat q(x, y, z, w);
+    if (x == BigRat(0) && y == BigRat(0) && z == BigRat(0) && w == BigRat(0))
+      continue;
+
+    CheckView(q, ViewPosFromNonUnitQuat(q));
+  }
+
+  printf("TestViewPosFromQuat OK.\n");
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
 
@@ -124,6 +216,7 @@ int main(int argc, char **argv) {
   TestBigQuickHull();
   TestQuatMult();
 
+  TestViewPosFromQuat();
 
   printf("OK");
   return 0;

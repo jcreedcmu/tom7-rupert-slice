@@ -214,6 +214,13 @@ BigFrame NonUnitRotationFrame(const BigQuat &v) {
      one - two_s * (xx + yy)}};
 }
 
+BigVec3 ViewPosFromNonUnitQuat(const BigQuat &q) {
+  BigFrame frame = NonUnitRotationFrame(q);
+  // We just apply the inverse rotation to (0, 0, 1).
+  BigFrame iframe = InverseRigid(frame);
+  return TransformPoint(iframe, BigVec3(BigRat(0), BigRat(0), BigRat(1)));
+}
+
 BigQuat QuaternionFromViewPos(const BigVec3 &v) {
   CHECK(v.x != BigRat(0) || v.y != BigRat(0));
   LOG(FATAL) << "This doesn't work?";
