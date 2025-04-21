@@ -270,3 +270,85 @@ Z3Bool EmitInTriangle(std::string *out,
     SameSide(b, c, a, pt) &&
     SameSide(c, a, b, pt);
 }
+
+// See the implementation in big-polyhedra.cc.
+Z3Frame NonUnitRotationFrame(const Z3Quat &v) {
+  Z3Real two(2);
+
+  Z3Real xx = v.x * v.x;
+  Z3Real yy = v.y * v.y;
+  Z3Real zz = v.z * v.z;
+  Z3Real ww = v.w * v.w;
+
+  Z3Real two_s = Z3Real(2) / (xx + yy + zz + ww);
+
+  Z3Real xy = v.x * v.y;
+  Z3Real zx = v.z * v.x;
+  Z3Real zw = v.z * v.w;
+  Z3Real yw = v.y * v.w;
+  Z3Real yz = v.y * v.z;
+  Z3Real xw = v.x * v.w;
+
+  Z3Real one(1);
+
+  return Z3Frame(
+    // Left
+    Z3Vec3{
+      one - two_s * (yy + zz),
+      two_s * (xy + zw),
+      two_s * (zx - yw)
+    },
+    // Middle
+    Z3Vec3{
+      two_s * (xy - zw),
+      one - two_s * (xx + zz),
+      two_s * (yz + xw)
+    },
+    // Right
+    Z3Vec3{
+      two_s * (zx + yw),
+      two_s * (yz - xw),
+      one - two_s * (xx + yy)
+    });
+}
+
+inline Z3Frame InverseRigid(const Z3Frame &frame) {
+  Z3Vec3 x = Z3Vec3(frame.x.x, frame.y.x, frame.z.x);
+  Z3Vec3 y = Z3Vec3(frame.x.y, frame.y.y, frame.z.y);
+  Z3Vec3 z = Z3Vec3(frame.x.z, frame.y.z, frame.z.z);
+  return Z3Frame(x, y, z);
+}
+
+
+
+// PERF! Expand this and discard the components we don't use.
+[[maybe_unused]]
+static Z3Vec3 ReferenceViewPosFromNonUnitQuat(const Z3Quat &q) {
+  Z3Frame frame = NonUnitRotationFrame(q);
+  // We just apply the inverse rotation to (0, 0, 1).
+  Z3Frame iframe = InverseRigid(frame);
+  return TransformPoint(iframe, Z3Vec3(Z3Real(0), Z3Real(0), Z3Real(1)));
+}
+
+
+// Same as Reference version, but skipping work we don't need.
+Z3Vec3 ViewPosFromNonUnitQuat(const Z3Quat &q) {
+  Z3Real one(1);
+  Z3Real two(2);
+
+  Z3Real xx = q.x * q.x;
+  Z3Real yy = q.y * q.y;
+  Z3Real zz = q.z * q.z;
+  Z3Real ww = q.w * q.w;
+
+  Z3Real two_s = two / (xx + yy + zz + ww);
+
+  Z3Real zx = q.z * q.x;
+  Z3Real yw = q.y * q.w;
+  Z3Real yz = q.y * q.z;
+  Z3Real xw = q.x * q.w;
+
+  return Z3Vec3(two_s * (zx - yw),
+                two_s * (yz + xw),
+                one - two_s * (xx + yy));
+}

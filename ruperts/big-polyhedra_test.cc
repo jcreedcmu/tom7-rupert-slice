@@ -120,9 +120,9 @@ static void TestQuatMult() {
 static void TestViewPosFromQuat() {
   printf("Testing ViewPosFromNonUnitQuat...\n");
 
-  // Helper to check the core property: Applying the inverse rotation
-  // (R^T) defined by q to the view position v should yield (0, 0, 1).
-  // Also checks that v is a unit vector.
+  // Applying the rotation computed from q to the view
+  // position v should yield (0, 0, 1). v should also
+  // be a unit vector.
   auto CheckView = [](const BigQuat &q, const BigVec3 &v) {
       CHECK(length_squared(v) == "1"_r)
         << "Must be unit. But got: v = " << VecString(v)
@@ -136,7 +136,7 @@ static void TestViewPosFromQuat() {
       CHECK(transformed_v == expected_z)
         << "q = " << QuatString(q)
         << "v = " << VecString(v)
-        << "R^T * v = " << VecString(transformed_v)
+        << "R * v = " << VecString(transformed_v)
         << "Expected " << VecString(expected_z);
     };
 
@@ -144,7 +144,6 @@ static void TestViewPosFromQuat() {
   {
     BigQuat q_id("0"_r, "0"_r, "0"_r, "1"_r);
     BigVec3 v_id = ViewPosFromNonUnitQuat(q_id);
-    // For identity rotation R=I, R^T=I. We need I*v = (0,0,1), so v = (0,0,1).
     CHECK(v_id == BigVec3("0"_r, "0"_r, "1"_r));
     CheckView(q_id, v_id);
   }
@@ -155,7 +154,7 @@ static void TestViewPosFromQuat() {
     BigVec3 v_180y = ViewPosFromNonUnitQuat(q_180y);
     CHECK(v_180y == BigVec3("0"_r, "0"_r, "-1"_r));
     CheckView(q_180y, v_180y);
-    // Check non-unit version
+    // Check non-unit version.
     BigQuat q_180y_nu = q_180y * "2"_r;
     BigVec3 v_180y_nu = ViewPosFromNonUnitQuat(q_180y_nu);
     CHECK(v_180y_nu == v_180y);
@@ -184,11 +183,10 @@ static void TestViewPosFromQuat() {
     CheckView(q_xyz, v_xyz);
   }
 
-  // Case 6: General rational quaternion
   {
+    // A general non-unit vector.
     BigQuat q_gen("1/2"_r, "-1/3"_r, "3/4"_r, "1/5"_r);
     BigVec3 v_gen = ViewPosFromNonUnitQuat(q_gen);
-    // No simple check for the value of v, just check the property
     CheckView(q_gen, v_gen);
   }
 

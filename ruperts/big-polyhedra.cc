@@ -172,7 +172,7 @@ BigFrame NonUnitRotationFrame(const BigQuat &v) {
   // 1/(sqrt(x^2 + y^2 + z^2 + w^2))^2, so we can avoid
   // the square root! It's always multiplied by 2 in the
   // terms below, so we also do that here.
-  BigRat two_s = BigRat(2) / (xx + yy + zz + ww);
+  BigRat two_s = two / (xx + yy + zz + ww);
 
   BigRat xy = v.x * v.y;
   BigRat zx = v.z * v.x;
@@ -214,11 +214,34 @@ BigFrame NonUnitRotationFrame(const BigQuat &v) {
      one - two_s * (xx + yy)}};
 }
 
-BigVec3 ViewPosFromNonUnitQuat(const BigQuat &q) {
+[[maybe_unused]]
+static BigVec3 ReferenceViewPosFromNonUnitQuat(const BigQuat &q) {
   BigFrame frame = NonUnitRotationFrame(q);
   // We just apply the inverse rotation to (0, 0, 1).
   BigFrame iframe = InverseRigid(frame);
   return TransformPoint(iframe, BigVec3(BigRat(0), BigRat(0), BigRat(1)));
+}
+
+// Same as Reference version, but skipping work we don't need.
+BigVec3 ViewPosFromNonUnitQuat(const BigQuat &q) {
+  BigRat one(1);
+  BigRat two(2);
+
+  BigRat xx = q.x * q.x;
+  BigRat yy = q.y * q.y;
+  BigRat zz = q.z * q.z;
+  BigRat ww = q.w * q.w;
+
+  BigRat two_s = two / (xx + yy + zz + ww);
+
+  BigRat zx = q.z * q.x;
+  BigRat yw = q.y * q.w;
+  BigRat yz = q.y * q.z;
+  BigRat xw = q.x * q.w;
+
+  return BigVec3(two_s * (zx - yw),
+                 two_s * (yz + xw),
+                 one - two_s * (xx + yy));
 }
 
 BigQuat QuaternionFromViewPos(const BigVec3 &v) {
@@ -232,105 +255,6 @@ BigQuat QuaternionFromViewPos(const BigVec3 &v) {
   BigRat v_dot_v = (v.x * v.x) + (v.y * v.y) + (v.z * v.z);
   return BigQuat(qx, qy, qz, v_dot_v + v.z);
 }
-
-#if 0
-BigFrame FrameFromViewPos(const BigVec3 &v) {
-  CHECK(v.x != BigRat(0) || v.y != BigRat(0));
-
-  // k is the z axis here.
-
-  // n1 = v + k
-  BigVec3 n1(v.x, v.y, v.z + BigRat(1));
-
-  BigRat xx1 = n1.x * n1.x;
-  BigRat yy1 = n1.y * n1.y;
-  BigRat zz1 = n1.z * n1.z;
-
-  BigRat dot1 = xx1 + yy1 + zz1;
-
-  CHECK(!BigRat::IsZero(dot1)) << "Impossible since v is not on the z axis.";
-
-  // Scaling factor.
-  BigRat s = BigRat(2) / dot1;
-
-  // Precompute terms needed for the matrix elements
-  // s * n1_i * n1_j terms
-  BigRat s_n1x_n1x = s * xx1;
-  BigRat s_n1x_n1y = s * n1.x * n1.y;
-  BigRat s_n1x_n1z = s * n1.x * n1.z;
-
-  BigRat s_n1y_n1y = s * yy1;
-  BigRat s_n1y_n1z = s * n1.y * n1.z;
-
-  BigRat s_n1z_n1z = s * zz1;
-
-  // Construct the columns of the rotation matrix v -> k
-  // which is R_reflect(k) * R_reflect(v+k)
-  // Using the derived formula:
-  // Col 0: (1 - s*vx^2,    -s*vx*vy,     s*vx*(vz+1))
-  // Col 1: (-s*vx*vy,   1 - s*vy^2,      s*vy*(vz+1))
-  // Col 2: (-s*vx*(vz+1), -s*vy*(vz+1), s*(vz+1)^2 - 1)
-
-  BigFrame frame;
-
-  frame.x = BigVec3(BigRat(1) - s_n1x_n1x,
-                    BigRat::Negate(s_n1x_n1y),
-                    s_n1x_n1z);
-
-  frame.y = BigVec3(BigRat::Negate(s_n1x_n1y),
-                    BigRat(1) - s_n1y_n1y,
-                    s_n1y_n1z);
-
-  frame.z = BigVec3(BigRat::Negate(s_n1x_n1z),
-                    BigRat::Negate(s_n1y_n1z),
-                    s_n1z_n1z - BigRat(1));
-
-  frame.o = BigVec3(BigRat(0), BigRat(0), BigRat(0));
-
-  return frame;
-}
-#endif
-
-#if 0
-BigFrame FrameFromViewPos(const BigVec3 &v) {
-  CHECK(v.x != BigRat(0) || v.y != BigRat(0))
-      << "Input vector v must not be on the Z axis. v = " << VecString(v);
-
-  const BigRat zero(0);
-  const BigRat one(1);
-
-  // Calculate squared vector norms needed
-  BigRat dot_xx = v.x * v.x + v.y * v.y; // || k x v ||^2
-  BigRat dot_zz = dot(v, v);             // || v ||^2
-  // This check is technically redundant given the first check, but good practice.
-  CHECK(dot_xx != zero) << "vx^2+vy^2 is zero, vector is on Z axis. v=" << VecString(v);
-  CHECK(dot_zz != zero) << "Input vector v cannot be zero. v=" << VecString(v);
-
-  BigRat dot_yy = dot_xx * dot_zz;       // || v x (k x v) ||^2
-
-  // Calculate components for the columns of frame f (rotation v -> k)
-
-  // f.x = (-vy/dot_xx, -vx*vz/dot_yy, vx/dot_zz)
-  BigVec3 fx(-v.y / dot_xx,
-             -(v.x * v.z) / dot_yy,
-             v.x / dot_zz);
-
-  // f.y = (vx/dot_xx, -vy*vz/dot_yy, vy/dot_zz)
-  BigVec3 fy(v.x / dot_xx,
-             -(v.y * v.z) / dot_yy,
-             v.y / dot_zz);
-
-  // f.z = (0, (vx^2+vy^2)/dot_yy, vz/dot_zz)
-  // f.z = (0, dot_xx/dot_yy, vz/dot_zz)
-  // f.z = (0, 1.0/dot_zz, vz/dot_zz)
-  BigVec3 fz(zero,
-             one / dot_zz, // Simplified from dot_xx / dot_yy
-             v.z / dot_zz);
-
-  return BigFrame{std::move(fx), std::move(fy), std::move(fz),
-    BigVec3(zero,zero,zero)};
-}
-#endif
 
 BigMesh2D Shadow(const BigPoly &poly) {
   std::vector<BigVec2> vertices;

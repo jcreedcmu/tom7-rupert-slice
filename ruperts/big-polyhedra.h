@@ -214,6 +214,15 @@ inline vec2 SmallVec(const BigVec2 &v) {
   return vec2(v.x.ToDouble(), v.y.ToDouble());
 }
 
+inline frame3 SmallFrame(const BigFrame &frame) {
+  return frame3{
+    .x = SmallVec(frame.x),
+    .y = SmallVec(frame.y),
+    .z = SmallVec(frame.z),
+    .o = SmallVec(frame.o),
+  };
+}
+
 inline quat4 quat_conjugate(const quat4 &q) {
   return {-q.x, -q.y, -q.z, q.w};
 }

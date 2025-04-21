@@ -111,6 +111,8 @@ struct Z3Quat {
   Z3Real w;
 };
 
+// Unlike Yocto and BigFrame, this is a pure rotation with no
+// translation.
 struct Z3Frame {
   Z3Frame(Z3Vec3 x, Z3Vec3 y, Z3Vec3 z) :
     x(std::move(x)), y(std::move(y)), z(std::move(z)) {}
@@ -119,6 +121,9 @@ struct Z3Frame {
   Z3Vec3 y;
   Z3Vec3 z;
 };
+
+Z3Frame NonUnitRotationFrame(const Z3Quat &q);
+Z3Vec3 ViewPosFromNonUnitQuat(const Z3Quat &q);
 
 inline std::string Fresh(std::string_view hint = "") {
   static SymbolTable *table = new SymbolTable;
@@ -180,6 +185,15 @@ inline Z3Vec2 operator-(const Z3Vec2 &a, const Z3Vec2 &b) {
 
 inline Z3Real Cross(const Z3Vec2 &a, const Z3Vec2 &b) {
   return a.x * b.y - a.y * b.x;
+}
+
+inline Z3Vec3 operator*(const Z3Vec3 &a, const Z3Vec3 &b) {
+  return Z3Vec3(a.x * b.x, a.y * b.y, a.z * b.z);
+}
+
+inline Z3Vec3 TransformPoint(const Z3Frame &a,
+                             const Z3Vec3 &b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
 inline Z3Bool operator&&(const Z3Bool &a, const Z3Bool &b) {

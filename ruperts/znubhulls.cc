@@ -51,6 +51,11 @@ inline bool AllZero(const BigVec3 &v) {
   return BigRat::IsZero(v.x) && BigRat::IsZero(v.y) && BigRat::IsZero(v.z);
 }
 
+inline bool AllZero(const BigQuat &v) {
+  return BigRat::IsZero(v.x) && BigRat::IsZero(v.y) && BigRat::IsZero(v.z) &&
+    BigRat::IsZero(v.w);
+}
+
 struct Boundaries {
   // 1 bit means dot product is positive, 0 means negative.
   uint64_t GetCode(const BigVec3 &v) const {
@@ -66,6 +71,11 @@ struct Boundaries {
       }
     }
     return code;
+  }
+
+  uint64_t GetCode(const BigQuat &q) const {
+    BigVec3 view = ViewPosFromNonUnitQuat(q);
+    return GetCode(view);
   }
 
   explicit Boundaries(const BigPoly &poly) : poly(poly) {
@@ -119,7 +129,6 @@ static frame3 FrameFromViewPos(const vec3 &view) {
 
   vec3 frame_z = yocto::normalize(view);
 
-  // Define constant 'up' vector (0, 0, 1).
   const vec3 up_z = {0.0, 0.0, 1.0};
   vec3 frame_x = normalize(cross(up_z, frame_z));
 
@@ -131,8 +140,6 @@ static frame3 FrameFromViewPos(const vec3 &view) {
   };
 
   return frame;
-
-  // return frame_fromz({0, 0, 0}, v);
 }
 
 static BigVec3 GetPointInPatch(const Boundaries &boundaries,
@@ -162,6 +169,43 @@ static BigVec3 GetPointInPatch(const Boundaries &boundaries,
     }
   }
 }
+
+static BigQuat RandomBigQuaternion(ArcFour *rc) {
+  quat4 s = RandomQuaternion(rc);
+  return BigQuat(BigRat::ApproxDouble(s.x, 1000000),
+                 BigRat::ApproxDouble(s.y, 1000000),
+                 BigRat::ApproxDouble(s.z, 1000000),
+                 BigRat::ApproxDouble(s.w, 1000000));
+}
+
+static BigQuat GetQuatInPatch(const Boundaries &boundaries,
+                              uint64_t code) {
+  ArcFour rc(std::format("point{}", code));
+  for (;;) {
+    BigQuat q = RandomBigQuaternion(&rc);
+
+    // Try all the signs. At most one of these will be
+    // in the patch, but this should increase the
+    // efficiency (because knowing that other signs
+    // are *not* in the patch increases the chance
+    // that we are).
+    for (uint8_t b = 0b000; b < 0b1000; b++) {
+      BigQuat qsign((b & 0b100) ? -q.x : q.x,
+                    (b & 0b010) ? -q.y : q.y,
+                    (b & 0b001) ? -q.z : q.z,
+                    // negating the whole quaternion
+                    // is redundant, so wlog we leave
+                    // the real part the same.
+                    q.w);
+      uint64_t sample_code = boundaries.GetCode(qsign);
+      if (sample_code == code) {
+        // Sample is in range.
+        return qsign;
+      }
+    }
+  }
+}
+
 
 // Visualize a patch under its parameterization. This is
 // using doubles and samples.
@@ -354,15 +398,16 @@ static void BigSnubHulls() {
         BigRat(-n, 100000000);
     };
 
+  [[maybe_unused]]
   auto RandomVec = [&](ArcFour *rc) {
       for (;;) {
         BigRat x = RandomCoord(rc);
         BigRat y = RandomCoord(rc);
         BigRat z = RandomCoord(rc);
 
-        if (x * x + y * y + z * z >
-            BigRat(9))
+        if (x * x + y * y + z * z > BigRat(9)) {
           return BigVec3(x, y, z);
+        }
       }
     };
 
@@ -381,11 +426,14 @@ static void BigSnubHulls() {
             next_work_idx++;
           }
 
-          BigVec3 sample_point = RandomVec(&rc);
+          // BigVec3 sample_point = RandomVec(&rc);
+          BigQuat sample_quat = RandomBigQuaternion(&rc);
+          CHECK(!AllZero(sample_quat));
 
+          BigVec3 sample_point = ViewPosFromNonUnitQuat(sample_quat);
           CHECK(!AllZero(sample_point));
 
-          uint64_t code = boundaries.GetCode(sample_point);
+          uint64_t code = boundaries.GetCode(sample_quat);
 
           {
             MutexLock ml(&m);
@@ -435,7 +483,7 @@ static void BigSnubHulls() {
 
     CHECK(examples.contains(code));
     const BigVec3 &ex = examples[code];
-    PlotPatch(boundaries, ex);
+    // PlotPatch(boundaries, ex);
   }
 
   // As point cloud.
@@ -511,7 +559,7 @@ static Z3Result RunZ3(std::string_view content,
 }
 
 Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
-  #if 0
+  #if 1
   Z3Vec3 v = NewVec3(out, name_hint);
 
   // v must be a unit vector.
@@ -521,7 +569,10 @@ Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
                v.y.s, v.y.s,
                v.z.s, v.z.s);
   return v;
-  #elif 0
+  #endif
+
+  #if 0
+  // "The Diophantine Equation x^2+y^2+z^2=m^2", Robert Spira, 1962.
   Z3Int u = NewInt(out, std::format("{}_u", name_hint));
   Z3Int v = NewInt(out, std::format("{}_v", name_hint));
   Z3Int w = NewInt(out, std::format("{}_w", name_hint));
@@ -542,11 +593,9 @@ Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
   Z3Real z(std::format("(/ (to_real {}) (to_real {}))", znumer.s, denom.s));
 
   return Z3Vec3(x, y, z);
+  #endif
 
-
-  #else
-  // "The Diophantine Equation x^2+y^2+z^2=m^2", Robert Spira, 1962.
-
+  #if 0
   Z3Real u = NewReal(out, std::format("{}_u", name_hint));
   Z3Real v = NewReal(out, std::format("{}_v", name_hint));
   Z3Real w = NewReal(out, std::format("{}_w", name_hint));
@@ -570,18 +619,15 @@ Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
   #endif
 }
 
-// Make a view (unit vector) constrained to the given patch.
-Z3Vec3 EmitPatch(std::string *out,
-                 const Boundaries &boundaries,
-                 uint64_t code) {
+void ConstrainToPatch(std::string *out,
+                      const Z3Vec3 &view,
+                      const Boundaries &boundaries,
+                      uint64_t code) {
 
   // Note: Trying closed spaces, which is also valid and may be faster
   // for z3.
   constexpr const char *LESS = "<=";
   constexpr const char *GREATER = ">=";
-
-  // The view point, which is in the patch. Unit length.
-  Z3Vec3 v = NewUnitVector(out, "view");
 
   // Constrain v based on the bits.
   for (int b = 0; b < boundaries.Size(); b++) {
@@ -591,10 +637,47 @@ Z3Vec3 EmitPatch(std::string *out,
     AppendFormat(out,
                  "(assert ({} {} 0.0))\n",
                  order,
-                 Dot(v, normal).s);
+                 Dot(view, normal).s);
   }
 
-  return v;
+}
+
+// Make a view (quat) constrained to the given patch.
+Z3Quat GetPatchQuat(std::string *out,
+                    const Boundaries &boundaries,
+                    uint64_t code) {
+
+  Z3Quat q = NewQuat(out, "q");
+
+  // q must not be zero.
+  AppendFormat(out,
+               "(assert (not (and "
+               "(= {} 0.0) "
+               "(= {} 0.0) "
+               "(= {} 0.0) "
+               "(= {} 0.0)"
+               ")))\n",
+               q.x.s,
+               q.y.s,
+               q.z.s,
+               q.w.s);
+
+  // Insist the view point is in the patch.
+  Z3Vec3 view = ViewPosFromNonUnitQuat(q);
+  ConstrainToPatch(out, view, boundaries, code);
+
+  return q;
+}
+
+// Make a view (unit vector) constrained to the given patch.
+Z3Vec3 GetPatchView(std::string *out,
+                    const Boundaries &boundaries,
+                    uint64_t code) {
+
+  // The view point, which is in the patch. Unit length.
+  Z3Vec3 view = NewUnitVector(out, "view");
+  ConstrainToPatch(out, view, boundaries, code);
+  return view;
 }
 
 // Returns a real s such that s = 1 / sqrt(val)
@@ -616,18 +699,13 @@ inline Z3Real EmitInvSqrt(std::string *out, const Z3Real &val,
   return s;
 }
 
-// view is a unit vector, not parallel to z.
+// q any non-zero quaternion.
 std::vector<vec2> ReferenceShadow(const Polyhedron &poly,
                                   const std::vector<int> &hull,
-                                  const vec3 &view) {
-  CHECK(fabs(length(view) - 1.0) < 1e-9);
+                                  const BigQuat &q) {
+  CHECK(!AllZero(q));
 
-  const vec3 up_z = {0.0, 0.0, 1.0};
-
-  vec3 frame_x = normalize(cross(up_z, view));
-  // Already unit because frame_x and view are unit.
-  vec3 frame_y = yocto::cross(view, frame_x);
-  const vec3 frame_z = view;
+  frame3 frame = SmallFrame(NonUnitRotationFrame(q));
 
   std::vector<vec2> projected_hull;
   projected_hull.reserve(hull.size());
@@ -635,34 +713,22 @@ std::vector<vec2> ReferenceShadow(const Polyhedron &poly,
   for (int vidx : hull) {
     CHECK(vidx >= 0 && vidx < poly.vertices.size());
     const vec3 &v_in = poly.vertices[vidx];
-    double x = frame_x.x * v_in.x + frame_y.x * v_in.y + frame_z.x * v_in.z;
-    double y = frame_x.y * v_in.x + frame_y.y * v_in.y + frame_z.y * v_in.z;
-    projected_hull.emplace_back(vec2{x, y});
+    const vec3 &v_out = transform_point(frame, v_in);
+    projected_hull.emplace_back(vec2{v_out.x, v_out.y});
   }
 
   return projected_hull;
 }
 
 // Transform the hull points (indices into poly.vertices) using
-// the given view direction. Return the transformed points as
-// a vector of 2d points. Note: The patch may not contain the
-// z axis!
+// the given rotation. Return the transformed points as
+// a vector of 2d points.
 std::vector<Z3Vec2> EmitShadow(std::string *out,
                                const BigPoly &poly,
                                const std::vector<int> &hull,
-                               const Z3Vec3 &view) {
+                               const Z3Quat &view) {
 
-  Z3Vec3 up_z(BigVec3{BigRat(0), BigRat(0), BigRat(1)});
-
-  Z3Vec3 frame_x_unnorm =
-    NameVec3(out, Cross(up_z, view), "frame_x_unnorm");
-
-  Z3Real sqnorm =
-    NameReal(out, Dot(frame_x_unnorm, frame_x_unnorm), "sqnorm");
-
-  Z3Vec3 frame_x = frame_x_unnorm * EmitInvSqrt(out, sqnorm, "framex");
-  Z3Vec3 frame_y = NameVec3(out, Cross(view, frame_x), "framey");
-  const Z3Vec3 frame_z = view;
+  Z3Frame frame = NonUnitRotationFrame(view);
 
   std::vector<Z3Vec2> projected_hull;
   projected_hull.reserve(hull.size());
@@ -672,14 +738,12 @@ std::vector<Z3Vec2> EmitShadow(std::string *out,
     CHECK(vertex_index >= 0 && vertex_index < poly.vertices.size());
 
     Z3Vec3 v_in(poly.vertices[vertex_index]);
+    Z3Vec3 v_out = TransformPoint(frame, v_in);
 
-    Z3Real x = frame_x.x * v_in.x + frame_y.x * v_in.x + frame_z.x * v_in.z;
-    Z3Real y = frame_x.y * v_in.y + frame_y.y * v_in.y + frame_z.y * v_in.z;
-    // Don't need z.
+    Z3Vec2 v2_out = NameVec2(out, Z3Vec2(v_out.x, v_out.y),
+                             std::format("v{}", i));
 
-    Z3Vec2 v_out = NameVec2(out, Z3Vec2(x, y), std::format("v{}", i));
-
-    projected_hull.push_back(v_out);
+    projected_hull.push_back(v2_out);
   }
 
   return projected_hull;
@@ -730,13 +794,15 @@ void BoundArea(const Boundaries &boundaries,
                uint64_t code) {
   Timer timer;
   // Could just save the hulls with the codes!
-  BigVec3 pt = GetPointInPatch(boundaries, code);
+  BigQuat example_q = GetQuatInPatch(boundaries, code);
+  BigVec3 example_v = ViewPosFromNonUnitQuat(example_q);
 
   const std::vector<int> hull = [&]() {
-      const vec3 v = normalize(SmallVec(pt));
+      // const vec3 v = normalize(SmallVec(example_v));
       Polyhedron small_poly = SmallPoly(boundaries.poly);
 
-      frame3 frame = FrameFromViewPos(v);
+      BigFrame big_frame = NonUnitRotationFrame(example_q);
+      frame3 frame = SmallFrame(big_frame);
       Mesh2D shadow = Shadow(Rotate(small_poly, frame));
       std::vector<int> hull = QuickHull(shadow.vertices);
 
@@ -751,12 +817,13 @@ void BoundArea(const Boundaries &boundaries,
       // Make sure winding order is clockwise.
       CHECK(hull.size() >= 3);
 
-      std::vector<vec2> rshadow = ReferenceShadow(small_poly, hull, v);
+      std::vector<vec2> rshadow =
+        ReferenceShadow(small_poly, hull, example_q);
       double area = SignedAreaOfConvexPoly(rshadow);
       printf("Area for example hull: %.17g\n", area);
       if (area < 0.0) {
         VectorReverse(&hull);
-        rshadow = ReferenceShadow(small_poly, hull, v);
+        rshadow = ReferenceShadow(small_poly, hull, example_q);
         double area = SignedAreaOfConvexPoly(rshadow);
         printf("Area for reversed hull: %.17g\n", area);
       }
@@ -784,7 +851,7 @@ void BoundArea(const Boundaries &boundaries,
     }();
 
   std::string setup;
-  Z3Vec3 view = EmitPatch(&setup, boundaries, code);
+  Z3Quat view = GetPatchQuat(&setup, boundaries, code);
 
   std::vector<Z3Vec2> shadow =
     EmitShadow(&setup, boundaries.poly, hull, view);
@@ -794,13 +861,47 @@ void BoundArea(const Boundaries &boundaries,
   Z3Real area_v = NewReal(&setup, "area");
   AppendFormat(&setup, "(assert (= {} {}))\n", area_v.s, area.s);
 
+  StatusBar status(3);
+  status.Clear();
+
+  // Check that the thing is satisfiable at all.
   {
+    Timer timer;
     std::string sanity = setup;
     AppendFormat(&sanity,
                  "(check-sat)\n"
                  "(get-model)\n");
+    status.Printf("Sanity check satisfiability... (%lld bytes)\n",
+                  (int64_t)sanity.size());
     CHECK(Z3Result::SAT == RunZ3(sanity, {120.0}));
-    printf("Satisfiable, OK.\n");
+    status.Printf("Satisfiable; OK in %s\n",
+                  ANSI::Time(timer.Seconds()).c_str());
+  }
+
+
+  // Check again with the example quat asserted.
+  {
+    Timer timer;
+    std::string sanity = setup;
+    AppendFormat(&sanity,
+                 "(assert (= {} {}))\n"
+                 "(assert (= {} {}))\n"
+                 "(assert (= {} {}))\n"
+                 "(assert (= {} {}))\n",
+                 view.x.s, Z3Real(example_q.x).s,
+                 view.y.s, Z3Real(example_q.y).s,
+                 view.z.s, Z3Real(example_q.z).s,
+                 view.w.s, Z3Real(example_q.w).s);
+
+    AppendFormat(&sanity,
+                 "(check-sat)\n"
+                 "(get-model)\n");
+    status.Printf("Sanity check example... (%lld bytes)\n",
+                  (int64_t)sanity.size());
+    CHECK(Z3Result::SAT == RunZ3(sanity, {120.0}));
+    status.Printf("Example satisfiable; OK in %s\n",
+                  ANSI::Time(timer.Seconds()).c_str());
+
   }
 
   // The area of the parameterized hull is an interval from
@@ -813,9 +914,9 @@ void BoundArea(const Boundaries &boundaries,
   RatBounds min_area(BigRat(0), BigRat(100000));
 
 
+  double timeout = 600.0;
 
   int64_t sat = 0, unsat = 0, unknown = 0;
-  StatusBar status(3);
   for (int64_t iters = 0; true; iters++) {
     std::string out = setup;
 
@@ -833,7 +934,7 @@ void BoundArea(const Boundaries &boundaries,
       AppendFormat(&out,
                    "(check-sat)\n");
 
-      Z3Result lesseq = RunZ3(out, {180.0});
+      Z3Result lesseq = RunZ3(out, {timeout});
       switch (lesseq) {
       case Z3Result::SAT:
         // Possible for the area to be lesseq than the test point.
@@ -872,7 +973,7 @@ void BoundArea(const Boundaries &boundaries,
       AppendFormat(&out,
                    "(check-sat)\n");
 
-      Z3Result lesseq = RunZ3(out, {60.0});
+      Z3Result lesseq = RunZ3(out, {timeout});
       switch (lesseq) {
       case Z3Result::SAT:
         status.Printf("sat: area >= %s", test_point.ToString().c_str());
@@ -1024,6 +1125,7 @@ struct PatchEnumerator {
   }
 };
 
+[[maybe_unused]]
 static void MaxArea() {
   BigPoly scube = BigScube(DIGITS);
   Boundaries boundaries(scube);
@@ -1034,6 +1136,8 @@ static void MaxArea() {
 
 int main(int argc, char **argv) {
   ANSI::Init();
+
+  // BigSnubHulls();
 
   /*
   PatchEnumerator pe;
