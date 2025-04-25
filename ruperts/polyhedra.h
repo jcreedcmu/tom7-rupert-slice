@@ -27,6 +27,7 @@ using vec4 = yocto::vec<double, 4>;
 using mat4 = yocto::mat<double, 4>;
 using quat4 = yocto::quat<double, 4>;
 using frame3 = yocto::frame<double, 3>;
+using frame2 = yocto::frame<double, 2>;
 
 inline constexpr uint8_t SYM_UNKNOWN = 0b0;
 inline constexpr uint8_t SYM_TETRAHEDRAL = 0b1;
@@ -117,6 +118,12 @@ inline bool TriangleIsDegenerate(const vec3 &v0,
     std::numeric_limits<double>::epsilon();
 }
 
+// Returns a frame representing rotation by angle around the origin.
+inline frame2 rotation_frame2(double angle) {
+  auto s = std::sin(angle);
+  auto c = std::cos(angle);
+  return {{c, s}, {-s, c}, {0.0, 0.0}};
+}
 
 // For an oriented edge from v0 to v1, return the signed
 // distance to that edge. Negative distance means to the left.

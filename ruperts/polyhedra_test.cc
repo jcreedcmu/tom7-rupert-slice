@@ -590,6 +590,44 @@ static void TestLossRegression() {
   CHECK(!oclearance.has_value()) << oclearance.value();
 }
 
+static void TestPointLineDistance() {
+  //
+  //        *           f
+  //    *---+---------* e
+  //    0 1 2 3 4 5 6 7 8
+  vec2 linea{0,0};
+  vec2 lineb{7,0};
+  vec2 side_pt{2, 3};
+  vec2 e_pt{8.25, 0};
+  vec2 f_pt{7 + std::numbers::sqrt2, std::numbers::sqrt2};
+
+  ArcFour rc("test");
+  for (int i = 0; i < 1000; i++) {
+    double theta = RandDouble(&rc) * 2.0 * std::numbers::pi;
+    frame2 frame = rotation_frame2(theta);
+    frame.o.x = RandDouble(&rc) * 5 - 2.5;
+    frame.o.y = RandDouble(&rc) * 5 - 2.5;
+
+    vec2 rlinea = transform_point(frame, linea);
+    vec2 rlineb = transform_point(frame, lineb);
+    vec2 rside_pt = transform_point(frame, side_pt);
+    vec2 re_pt = transform_point(frame, e_pt);
+    vec2 rf_pt = transform_point(frame, f_pt);
+
+    // In both orientations.
+    CHECK_NEAR(DistanceToEdge(rlinea, rlineb, rside_pt), 3.0);
+    CHECK_NEAR(DistanceToEdge(rlineb, rlinea, rside_pt), 3.0);
+
+    CHECK_NEAR(DistanceToEdge(rlinea, rlineb, re_pt), 1.25);
+    CHECK_NEAR(DistanceToEdge(rlineb, rlinea, re_pt), 1.25);
+
+    CHECK_NEAR(DistanceToEdge(rlinea, rlineb, rf_pt), 1.0);
+    CHECK_NEAR(DistanceToEdge(rlineb, rlinea, rf_pt), 1.0);
+
+    CHECK_NEAR(DistanceToEdge(rlinea, rlineb, rlinea), 0.0);
+    CHECK_NEAR(DistanceToEdge(rlineb, rlinea, rlinea), 0.0);
+  }
+}
 
 int main(int argc, char **argv) {
   ANSI::Init();
@@ -619,6 +657,8 @@ int main(int argc, char **argv) {
   TestUnpackFull();
 
   TestLossRegression();
+
+  TestPointLineDistance();
 
   printf("OK\n");
   return 0;

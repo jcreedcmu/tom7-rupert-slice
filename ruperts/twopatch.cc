@@ -40,15 +40,6 @@ using namespace yocto;
 
 static constexpr int DIGITS = 24;
 
-using frame2 = yocto::frame<double, 2>;
-
-// Returns a frame representing rotation by angle around the origin.
-inline frame2 rotation_frame2(double angle) {
-  auto s = std::sin(angle);
-  auto c = std::cos(angle);
-  return {{c, s}, {-s, c}, {0.0, 0.0}};
-}
-
 struct TwoPatch {
   static std::string Filename(uint64_t outer_code, uint64_t inner_code) {
     return std::format("{:x}-{:x}.nds", outer_code, inner_code);
