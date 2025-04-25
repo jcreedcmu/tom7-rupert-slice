@@ -1,4 +1,7 @@
 
+#ifndef _CC_LIB_PROCESS_UTIL_H
+#define _CC_LIB_PROCESS_UTIL_H
+
 #include <optional>
 #include <string>
 
@@ -15,3 +18,5 @@ struct ProcessUtil {
   //  - exit status
   //  - stderr
 };
+
+#endif

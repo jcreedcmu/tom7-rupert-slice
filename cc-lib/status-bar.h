@@ -55,6 +55,9 @@ struct StatusBar {
   void LineStatusf(int idx, const char *format, ...) PRINTF_ATTRIBUTE(2, 3);
   void EmitLine(int idx, const std::string &s);
 
+  // Set every status line empty; keeps any lines above.
+  void Clear();
+
  private:
   void MoveUp();
 

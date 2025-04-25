@@ -126,3 +126,7 @@ void StatusBar::EmitLine(int idx, const std::string &s) {
   MoveUp();
   EmitStatusLinesWithLock(prev_status_lines);
 }
+
+void StatusBar::Clear() {
+  EmitStatus(std::string(num_lines, '\n'));
+}
