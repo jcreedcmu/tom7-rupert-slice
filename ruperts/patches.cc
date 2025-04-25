@@ -12,6 +12,7 @@
 #include <tuple>
 #include <vector>
 
+#include "ansi.h"
 #include "arcfour.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
@@ -85,6 +86,38 @@ uint64_t Boundaries::GetCode(const quat4 &q) const {
   vec3 view = ViewPosFromNonUnitQuat(q);
   return GetCode(view);
 }
+
+std::string Boundaries::ColorMaskedBits(uint64_t code,
+                                        uint64_t mask) const {
+  const size_t num_bits = Size();
+  std::string out;
+  uint8_t prev = 0x2A;
+  for (int i = num_bits - 1; i >= 0; i--) {
+    uint64_t pos = uint64_t{1} << i;
+    uint32_t cur = ((!!(code & pos)) << 1) | (!!(mask & pos));
+    if (cur != prev) {
+      if (mask & pos) {
+        // forced bit.
+        if (code & pos) {
+          out.append(ANSI::ForegroundRGB32(0x76F5F3FF));
+        } else {
+          out.append(ANSI::ForegroundRGB32(0xB8BBF2FF));
+        }
+      } else {
+        if (code & pos) {
+          out.append(ANSI::ForegroundRGB32(0x023540FF));
+        } else {
+          out.append(ANSI::ForegroundRGB32(0x1A1F6EFF));
+        }
+      }
+      prev = cur;
+    }
+    out.push_back((code & pos) ? '1' : '0');
+  }
+  out.append(ANSI_RESET);
+  return out;
+}
+
 
 Boundaries::Boundaries(const BigPoly &poly) : big_poly(poly) {
   // Now, the boundaries are planes parallel to faces that pass
@@ -186,7 +219,7 @@ BigVec3 GetBigVec3InPatch(const Boundaries &boundaries,
 
 // XXX use mask
 BigQuat GetBigQuatInPatch(const Boundaries &boundaries,
-                       uint64_t code, uint64_t mask) {
+                          uint64_t code, uint64_t mask) {
   ArcFour rc(std::format("point{}", code));
 
   for (;;) {

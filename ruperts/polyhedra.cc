@@ -347,24 +347,12 @@ inline double SquaredPointLineDistance(
   return dx * dx + dy * dy;
 }
 
-inline double PointLineDistance(
+double PointLineDistance(
     // Line segment
     const vec2 &v0, const vec2 &v1,
     // Point to test
     const vec2 &pt) {
   return sqrt(SquaredPointLineDistance(v0, v1, pt));
-}
-
-[[maybe_unused]]
-double BuggyDistanceToEdge(const vec2 &v0, const vec2 &v1, const vec2 &p) {
-  vec2 edge = v1 - v0;
-  vec2 p_edge = p - v0;
-  double cx = yocto::cross(edge, p_edge);
-  double dist = std::abs(cx / yocto::length(edge));
-  double d0 = yocto::length(p_edge);
-  double d1 = yocto::length(p - v1);
-
-  return std::min(std::min(d0, d1), dist);
 }
 
 // Create the shadow of the polyhedron on the x-y plane.

@@ -805,39 +805,6 @@ static void MaxArea() {
   BoundArea(boundaries, uint64_t{0b1010111101010001010010100000});
 }
 
-
-static std::string MaskedBits(int num_bits,
-                              uint64_t code,
-                              uint64_t mask) {
-  std::string out;
-  uint8_t prev = 0x2A;
-  for (int i = num_bits - 1; i >= 0; i--) {
-    uint64_t pos = uint64_t{1} << i;
-    uint32_t cur = ((!!(code & pos)) << 1) | (!!(mask & pos));
-    if (cur != prev) {
-      if (mask & pos) {
-        // forced bit.
-        if (code & pos) {
-          out.append(ANSI::ForegroundRGB32(0x76F5F3FF));
-        } else {
-          out.append(ANSI::ForegroundRGB32(0xB8BBF2FF));
-        }
-      } else {
-        if (code & pos) {
-          out.append(ANSI::ForegroundRGB32(0x023540FF));
-        } else {
-          out.append(ANSI::ForegroundRGB32(0x1A1F6EFF));
-        }
-      }
-      prev = cur;
-    }
-    out.push_back((code & pos) ? '1' : '0');
-  }
-
-  out.append(ANSI_RESET);
-  return out;
-}
-
 static void ComputeMasks() {
   BigPoly scube = BigScube(DIGITS);
   Boundaries boundaries(scube);
@@ -852,7 +819,7 @@ static void ComputeMasks() {
          "Full: %s\n",
          std::format("{:b}", example_code).c_str(),
          std::format("{:b}", mask).c_str(),
-         MaskedBits(boundaries.Size(), example_code, mask).c_str());
+         boundaries.ColorMaskedBits(example_code, mask).c_str());
 }
 
 int main(int argc, char **argv) {

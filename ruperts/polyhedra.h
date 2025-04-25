@@ -125,6 +125,14 @@ inline frame2 rotation_frame2(double angle) {
   return {{c, s}, {-s, c}, {0.0, 0.0}};
 }
 
+// Euclidean distance (non-negative) to the line segment from
+// the point. This may be one of the endpoints.
+double PointLineDistance(
+    // Line segment
+    const vec2 &v0, const vec2 &v1,
+    // Point to test
+    const vec2 &pt);
+
 // For an oriented edge from v0 to v1, return the signed
 // distance to that edge. Negative distance means to the left.
 // Note: This cannot be used to find the signed distance to
@@ -148,9 +156,6 @@ inline double SignedDistanceToEdge(const vec2 &v0, const vec2 &v1,
 
   return dist;
 }
-
-// Unsigned distance to the edge.
-double DistanceToEdge(const vec2 &v0, const vec2 &v1, const vec2 &p);
 
 // Rotate (and translate, if the frame contains a translation) the polyhedron.
 // They share the same faces pointer.

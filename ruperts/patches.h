@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <string>
 #include <vector>
 
 #include "arcfour.h"
@@ -36,9 +37,10 @@ struct Boundaries {
   uint64_t GetCode(const quat4 &q) const;
 
   // Includes boundary. Approximate.
- bool HasCodeAssumingMask(uint64_t code, uint64_t mask,
+  bool HasCodeAssumingMask(uint64_t code, uint64_t mask,
                            const vec3 &v) const;
 
+  std::string ColorMaskedBits(uint64_t code, uint64_t mask) const;
 
   explicit Boundaries(const BigPoly &poly);
 

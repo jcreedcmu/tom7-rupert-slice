@@ -500,9 +500,11 @@ static void TestUnpackRot() {
     CHECK_NEAR(trans.y, 0.0);
     CHECK_NEAR(trans.z, 0.0);
 
+    /*
     printf("%s\n ** to **\n %s\n",
            QuatString(qi).c_str(),
            QuatString(qo).c_str());
+    */
 
     // the quaternion could either be qi or -qi.
     if (IsNear(qi.x, -qo.x) &&
@@ -615,17 +617,17 @@ static void TestPointLineDistance() {
     vec2 rf_pt = transform_point(frame, f_pt);
 
     // In both orientations.
-    CHECK_NEAR(DistanceToEdge(rlinea, rlineb, rside_pt), 3.0);
-    CHECK_NEAR(DistanceToEdge(rlineb, rlinea, rside_pt), 3.0);
+    CHECK_NEAR(PointLineDistance(rlinea, rlineb, rside_pt), 3.0);
+    CHECK_NEAR(PointLineDistance(rlineb, rlinea, rside_pt), 3.0);
 
-    CHECK_NEAR(DistanceToEdge(rlinea, rlineb, re_pt), 1.25);
-    CHECK_NEAR(DistanceToEdge(rlineb, rlinea, re_pt), 1.25);
+    CHECK_NEAR(PointLineDistance(rlinea, rlineb, re_pt), 1.25);
+    CHECK_NEAR(PointLineDistance(rlineb, rlinea, re_pt), 1.25);
 
-    CHECK_NEAR(DistanceToEdge(rlinea, rlineb, rf_pt), 1.0);
-    CHECK_NEAR(DistanceToEdge(rlineb, rlinea, rf_pt), 1.0);
+    CHECK_NEAR(PointLineDistance(rlinea, rlineb, rf_pt), 2.0);
+    CHECK_NEAR(PointLineDistance(rlineb, rlinea, rf_pt), 2.0);
 
-    CHECK_NEAR(DistanceToEdge(rlinea, rlineb, rlinea), 0.0);
-    CHECK_NEAR(DistanceToEdge(rlineb, rlinea, rlinea), 0.0);
+    CHECK_NEAR(PointLineDistance(rlinea, rlineb, rlinea), 0.0);
+    CHECK_NEAR(PointLineDistance(rlineb, rlinea, rlinea), 0.0);
   }
 }
 
