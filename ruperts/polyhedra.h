@@ -192,6 +192,9 @@ double DistanceToHull(
     const std::vector<vec2> &points, const std::vector<int> &hull,
     const vec2 &pt);
 
+double SquaredDistanceToPoly(
+    const std::vector<vec2> &poly, const vec2 &pt);
+
 // Return the closest point (could be on an edge or a vertex) on
 // the hull, and its distance.
 std::pair<vec2, double> ClosestPointOnHull(
@@ -387,6 +390,9 @@ std::pair<quat4, vec3> UnpackFrame(const frame3 &f);
 // For normalized vectors a and b (interpreted as orientations on
 // the sphere), compute a rotation from a to b.
 quat4 RotationFromAToB(const vec3 &a, const vec3 &b);
+
+// See big-polyhedra.
+vec3 ViewPosFromNonUnitQuat(const quat4 &q);
 
 // Sample two faces from the polyhedron that are not parallel to each
 // other.

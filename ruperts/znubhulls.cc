@@ -1,4 +1,5 @@
 
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -22,13 +23,13 @@
 #include "bignum/big.h"
 #include "bounds.h"
 #include "color-util.h"
-#include "crypt/sha256.h"
 #include "image.h"
+#include "patches.h"
 #include "periodically.h"
 #include "polyhedra.h"
-#include "process-util.h"
 #include "randutil.h"
 #include "rendering.h"
+#include "run-z3.h"
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
@@ -39,174 +40,6 @@
 
 static constexpr int DIGITS = 24;
 
-using vec3 = yocto::vec<double, 3>;
-
-inline vec3 QuaternionToSpherePoint(const quat4 &q) {
-  // The z-column of the rotation matrix represents the rotated Z-axis.
-  // return normalize(rotation_frame(q).z);
-  return transform_point(rotation_frame(normalize(q)), vec3{0, 0, 1});
-}
-
-inline bool AllZero(const BigVec3 &v) {
-  return BigRat::IsZero(v.x) && BigRat::IsZero(v.y) && BigRat::IsZero(v.z);
-}
-
-inline bool AllZero(const BigQuat &v) {
-  return BigRat::IsZero(v.x) && BigRat::IsZero(v.y) && BigRat::IsZero(v.z) &&
-    BigRat::IsZero(v.w);
-}
-
-struct Boundaries {
-  // 1 bit means dot product is positive, 0 means negative.
-  uint64_t GetCode(const BigVec3 &v) const {
-    uint64_t code = 0;
-    for (int i = 0; i < planes.size(); i++) {
-      const BigVec3 &normal = planes[i];
-      BigRat d = dot(v, normal);
-      int sign = BigRat::Sign(d);
-      CHECK(sign != 0) << "Points exactly on the boundary are not "
-        "handled.";
-      if (sign > 0) {
-        code |= uint64_t{1} << i;
-      }
-    }
-    return code;
-  }
-
-  uint64_t GetCode(const BigQuat &q) const {
-    BigVec3 view = ViewPosFromNonUnitQuat(q);
-    return GetCode(view);
-  }
-
-  explicit Boundaries(const BigPoly &poly) : poly(poly) {
-    // Now, the boundaries are planes parallel to faces that pass
-    // through the origin. First we find all of these planes
-    // and give them ids. These planes need an orientation, too,
-    // so a normal vector is a good representation. We can't make
-    // this unit length, however.
-    //
-    // We could actually use integer vectors here! Scale by
-    // multiplying by all the denominators, then divide by the GCD.
-    // This representation is canonical up to sign flips.
-
-    auto AlreadyHave = [&](const BigVec3 &n) {
-        for (const BigVec3 &m : planes) {
-          if (AllZero(cross(n, m))) {
-            return true;
-          }
-        }
-        return false;
-      };
-
-    for (const std::vector<int> &face : poly.faces->v) {
-      CHECK(face.size() >= 3);
-      const BigVec3 &a = poly.vertices[face[0]];
-      const BigVec3 &b = poly.vertices[face[1]];
-      const BigVec3 &c = poly.vertices[face[2]];
-      BigVec3 normal = ScaleToMakeIntegral(cross(c - a, b - a));
-      printf("Normal: %s\n", VecString(normal).c_str());
-      if (!AlreadyHave(normal)) {
-        planes.push_back(normal);
-      }
-    }
-
-    printf("There are %d distinct planes.\n",
-           (int)planes.size());
-
-    // You can switch to a larger word size for more complex
-    // polyhedra.
-    CHECK(planes.size() <= 64);
-  }
-
-  size_t Size() const { return planes.size(); }
-
-  std::vector<BigVec3> planes;
-  BigPoly poly;
-};
-
-static frame3 FrameFromViewPos(const vec3 &view) {
-  CHECK(length(view) > 1e-9);
-
-  vec3 frame_z = yocto::normalize(view);
-
-  const vec3 up_z = {0.0, 0.0, 1.0};
-  vec3 frame_x = normalize(cross(up_z, frame_z));
-
-  frame3 frame{
-    .x = frame_x,
-    .y = cross(frame_z, frame_x),
-    .z = frame_z,
-    .o = vec3{0, 0, 0},
-  };
-
-  return frame;
-}
-
-static BigVec3 GetPointInPatch(const Boundaries &boundaries,
-                               uint64_t code) {
-  ArcFour rc(std::format("point{}", code));
-  for (;;) {
-    vec3 s;
-    std::tie(s.x, s.y, s.z) = RandomUnit3D(&rc);
-    BigVec3 bs(BigRat::ApproxDouble(s.x, 1000000),
-               BigRat::ApproxDouble(s.y, 1000000),
-               BigRat::ApproxDouble(s.z, 1000000));
-
-    // Try all the signs. At most one of these will be
-    // in the patch, but this should increase the
-    // efficiency (because knowing that other signs
-    // are *not* in the patch increases the chance
-    // that we are).
-    for (uint8_t b = 0b000; b < 0b1000; b++) {
-      BigVec3 bbs((b & 0b100) ? -bs.x : bs.x,
-                  (b & 0b010) ? -bs.y : bs.y,
-                  (b & 0b001) ? -bs.z : bs.z);
-      uint64_t sample_code = boundaries.GetCode(bbs);
-      if (sample_code == code) {
-        // Sample is in range.
-        return bbs;
-      }
-    }
-  }
-}
-
-static BigQuat RandomBigQuaternion(ArcFour *rc) {
-  quat4 s = RandomQuaternion(rc);
-  return BigQuat(BigRat::ApproxDouble(s.x, 1000000),
-                 BigRat::ApproxDouble(s.y, 1000000),
-                 BigRat::ApproxDouble(s.z, 1000000),
-                 BigRat::ApproxDouble(s.w, 1000000));
-}
-
-static BigQuat GetQuatInPatch(const Boundaries &boundaries,
-                              uint64_t code) {
-  ArcFour rc(std::format("point{}", code));
-  for (;;) {
-    BigQuat q = RandomBigQuaternion(&rc);
-
-    // Try all the signs. At most one of these will be
-    // in the patch, but this should increase the
-    // efficiency (because knowing that other signs
-    // are *not* in the patch increases the chance
-    // that we are).
-    for (uint8_t b = 0b000; b < 0b1000; b++) {
-      BigQuat qsign((b & 0b100) ? -q.x : q.x,
-                    (b & 0b010) ? -q.y : q.y,
-                    (b & 0b001) ? -q.z : q.z,
-                    // negating the whole quaternion
-                    // is redundant, so wlog we leave
-                    // the real part the same.
-                    q.w);
-      uint64_t sample_code = boundaries.GetCode(qsign);
-      if (sample_code == code) {
-        // Sample is in range.
-        return qsign;
-      }
-    }
-  }
-}
-
-
 // Visualize a patch under its parameterization. This is
 // using doubles and samples.
 static void PlotPatch(const Boundaries &boundaries,
@@ -214,7 +47,7 @@ static void PlotPatch(const Boundaries &boundaries,
   Timer timer;
   uint64_t code = boundaries.GetCode(bigv);
   std::string code_string = std::format("{:b}", code);
-  Polyhedron small_poly = SmallPoly(boundaries.poly);
+  Polyhedron small_poly = SmallPoly(boundaries.big_poly);
 
   const vec3 v = normalize(SmallVec(bigv));
 
@@ -482,7 +315,7 @@ static void BigSnubHulls() {
            std::format("{:b}", code).c_str());
 
     CHECK(examples.contains(code));
-    const BigVec3 &ex = examples[code];
+    // const BigVec3 &ex = examples[code];
     // PlotPatch(boundaries, ex);
   }
 
@@ -519,43 +352,6 @@ static void BigSnubHulls() {
            outply.size(),
            filename.c_str());
   }
-}
-
-enum class Z3Result {
-  SAT,
-  UNSAT,
-  UNKNOWN,
-};
-
-static Z3Result RunZ3(std::string_view content,
-                      std::optional<double> timeout_seconds = {}) {
-  std::string filename =
-    std::format("runz3-{}.z3",
-                SHA256::Ascii(SHA256::HashStringView(content)));
-  Util::WriteFile(filename, content);
-  std::string targ;
-  if (timeout_seconds.has_value()) {
-    // Milliseconds
-    targ = std::format("-t:{}", (int)std::round(
-                           timeout_seconds.value() * 1000.0));
-  }
-
-  std::optional<std::string> z3result =
-    ProcessUtil::GetOutput(std::format("d:\\z3\\bin\\z3.exe {} {}",
-                                       targ,
-                                       filename));
-  // Could return UNKNOWN here, but that would probably be surprising.
-  CHECK(z3result.has_value()) << "Couldn't run z3?";
-  // (void)Util::RemoveFile(filename);
-
-  // Just remember that "sat" is in "unsat"!
-  if (Util::StrContains(z3result.value(), "unknown"))
-    return Z3Result::UNKNOWN;
-  if (Util::StrContains(z3result.value(), "unsat"))
-    return Z3Result::UNSAT;
-  if (Util::StrContains(z3result.value(), "sat"))
-    return Z3Result::SAT;
-  LOG(FATAL) << "Unparseable z3 result:\n" << z3result.value();
 }
 
 Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
@@ -596,6 +392,7 @@ Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
   #endif
 
   #if 0
+  // Same, but use reals instead of ints.
   Z3Real u = NewReal(out, std::format("{}_u", name_hint));
   Z3Real v = NewReal(out, std::format("{}_v", name_hint));
   Z3Real w = NewReal(out, std::format("{}_w", name_hint));
@@ -622,22 +419,27 @@ Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
 void ConstrainToPatch(std::string *out,
                       const Z3Vec3 &view,
                       const Boundaries &boundaries,
-                      uint64_t code) {
+                      uint64_t code,
+                      uint64_t mask) {
 
   // Note: Trying closed spaces, which is also valid and may be faster
   // for z3.
   constexpr const char *LESS = "<=";
   constexpr const char *GREATER = ">=";
 
-  // Constrain v based on the bits.
+  // Constrain v based on the bits, but only for the ones in the
+  // mask.
   for (int b = 0; b < boundaries.Size(); b++) {
-    Z3Vec3 normal{boundaries.planes[b]};
-    // If 1, then positive dot product.
-    const char *order = (code & (uint64_t{1} << b)) ? GREATER : LESS;
-    AppendFormat(out,
-                 "(assert ({} {} 0.0))\n",
-                 order,
-                 Dot(view, normal).s);
+    uint64_t pos = uint64_t{1} << b;
+    if (mask & pos) {
+      Z3Vec3 normal{boundaries.big_planes[b]};
+      // If 1, then positive dot product.
+      const char *order = (code & pos) ? GREATER : LESS;
+      AppendFormat(out,
+                   "(assert ({} {} 0.0))\n",
+                   order,
+                   Dot(view, normal).s);
+    }
   }
 
 }
@@ -645,7 +447,9 @@ void ConstrainToPatch(std::string *out,
 // Make a view (quat) constrained to the given patch.
 Z3Quat GetPatchQuat(std::string *out,
                     const Boundaries &boundaries,
-                    uint64_t code) {
+                    uint64_t code,
+                    // can just pass all 1 bits
+                    uint64_t mask) {
 
   Z3Quat q = NewQuat(out, "q");
 
@@ -663,8 +467,14 @@ Z3Quat GetPatchQuat(std::string *out,
                q.w.s);
 
   // Insist the view point is in the patch.
-  Z3Vec3 view = ViewPosFromNonUnitQuat(q);
-  ConstrainToPatch(out, view, boundaries, code);
+  Z3Vec3 view = ViewPosFromNonUnitQuat(out, q);
+  ConstrainToPatch(out, view, boundaries, code, mask);
+
+  // Optional: The view position will be a unit vector.
+  AppendFormat(out, "(assert (= 1.0 {}))\n",
+               Sum({view.x * view.x,
+                    view.y * view.y,
+                    view.z * view.z}).s);
 
   return q;
 }
@@ -672,11 +482,12 @@ Z3Quat GetPatchQuat(std::string *out,
 // Make a view (unit vector) constrained to the given patch.
 Z3Vec3 GetPatchView(std::string *out,
                     const Boundaries &boundaries,
-                    uint64_t code) {
+                    uint64_t code,
+                    uint64_t mask) {
 
   // The view point, which is in the patch. Unit length.
   Z3Vec3 view = NewUnitVector(out, "view");
-  ConstrainToPatch(out, view, boundaries, code);
+  ConstrainToPatch(out, view, boundaries, code, mask);
   return view;
 }
 
@@ -713,7 +524,7 @@ std::vector<vec2> ReferenceShadow(const Polyhedron &poly,
   for (int vidx : hull) {
     CHECK(vidx >= 0 && vidx < poly.vertices.size());
     const vec3 &v_in = poly.vertices[vidx];
-    const vec3 &v_out = transform_point(frame, v_in);
+    const vec3 v_out = transform_point(frame, v_in);
     projected_hull.emplace_back(vec2{v_out.x, v_out.y});
   }
 
@@ -728,7 +539,7 @@ std::vector<Z3Vec2> EmitShadow(std::string *out,
                                const std::vector<int> &hull,
                                const Z3Quat &view) {
 
-  Z3Frame frame = NonUnitRotationFrame(view);
+  Z3Frame frame = NonUnitRotationFrame(out, view);
 
   std::vector<Z3Vec2> projected_hull;
   projected_hull.reserve(hull.size());
@@ -737,11 +548,11 @@ std::vector<Z3Vec2> EmitShadow(std::string *out,
     int vertex_index = hull[i];
     CHECK(vertex_index >= 0 && vertex_index < poly.vertices.size());
 
-    Z3Vec3 v_in(poly.vertices[vertex_index]);
+    Z3Vec3 v_in = DeclareVec3(out, poly.vertices[vertex_index],
+                              std::format("p{}", i));
     Z3Vec3 v_out = TransformPoint(frame, v_in);
-
-    Z3Vec2 v2_out = NameVec2(out, Z3Vec2(v_out.x, v_out.y),
-                             std::format("v{}", i));
+    Z3Vec2 v2_out = DeclareVec2(out, Z3Vec2(v_out.x, v_out.y),
+                                std::format("v{}", i));
 
     projected_hull.push_back(v2_out);
   }
@@ -793,20 +604,33 @@ struct RatBounds {
 void BoundArea(const Boundaries &boundaries,
                uint64_t code) {
   Timer timer;
+  uint64_t mask = GetCodeMask(boundaries, code);
+  // mask = mask | (mask << 1);
+  // const uint64_t mask = ~0;
+  // mask = ~0;
+
+  printf("Using mask: %s\n",
+         std::format("{:b}", mask).c_str());
+
   // Could just save the hulls with the codes!
-  BigQuat example_q = GetQuatInPatch(boundaries, code);
+  printf("Get quat in patch...\n");
+  BigQuat example_q = GetBigQuatInPatch(boundaries, code);
+  printf("Get view pos...\n");
   BigVec3 example_v = ViewPosFromNonUnitQuat(example_q);
 
+  static constexpr bool RENDER_HULL = false;
+
+  printf("Compute hull once...\n");
   const std::vector<int> hull = [&]() {
       // const vec3 v = normalize(SmallVec(example_v));
-      Polyhedron small_poly = SmallPoly(boundaries.poly);
+      Polyhedron small_poly = SmallPoly(boundaries.big_poly);
 
       BigFrame big_frame = NonUnitRotationFrame(example_q);
       frame3 frame = SmallFrame(big_frame);
       Mesh2D shadow = Shadow(Rotate(small_poly, frame));
       std::vector<int> hull = QuickHull(shadow.vertices);
 
-      {
+      if (RENDER_HULL) {
         Rendering rendering(small_poly, 1920, 1080);
         rendering.RenderMesh(shadow);
         rendering.RenderHull(shadow, hull);
@@ -828,33 +652,35 @@ void BoundArea(const Boundaries &boundaries,
         printf("Area for reversed hull: %.17g\n", area);
       }
 
-      Bounds bounds;
-      for (const auto &vec : rshadow) {
-        bounds.Bound(vec.x, vec.y);
-      }
-      bounds.AddMarginFrac(0.05);
+      if (RENDER_HULL) {
+        Bounds bounds;
+        for (const auto &vec : rshadow) {
+          bounds.Bound(vec.x, vec.y);
+        }
+        bounds.AddMarginFrac(0.05);
 
-      ImageRGBA ref(1920, 1080);
-      ref.Clear32(0x000000FF);
-      Bounds::Scaler scaler =
-        bounds.ScaleToFit(ref.Width(), ref.Height()).FlipY();
-      for (int i = 0; i < rshadow.size(); i++) {
-        const vec2 &v0 = rshadow[i];
-        const vec2 &v1 = rshadow[(i + 1) % rshadow.size()];
-        const auto &[x0, y0] = scaler.Scale(v0.x, v0.y);
-        const auto &[x1, y1] = scaler.Scale(v1.x, v1.y);
-        ref.BlendLine32(x0, y0, x1, y1, 0xFFFFFFAA);
+        ImageRGBA ref(1920, 1080);
+        ref.Clear32(0x000000FF);
+        Bounds::Scaler scaler =
+          bounds.ScaleToFit(ref.Width(), ref.Height()).FlipY();
+        for (int i = 0; i < rshadow.size(); i++) {
+          const vec2 &v0 = rshadow[i];
+          const vec2 &v1 = rshadow[(i + 1) % rshadow.size()];
+          const auto &[x0, y0] = scaler.Scale(v0.x, v0.y);
+          const auto &[x1, y1] = scaler.Scale(v1.x, v1.y);
+          ref.BlendLine32(x0, y0, x1, y1, 0xFFFFFFAA);
+        }
+        ref.Save(std::format("ref-hull-{:b}.png", code));
       }
-      ref.Save(std::format("ref-hull-{:b}.png", code));
 
       return hull;
     }();
 
   std::string setup;
-  Z3Quat view = GetPatchQuat(&setup, boundaries, code);
+  Z3Quat view = GetPatchQuat(&setup, boundaries, code, mask);
 
   std::vector<Z3Vec2> shadow =
-    EmitShadow(&setup, boundaries.poly, hull, view);
+    EmitShadow(&setup, boundaries.big_poly, hull, view);
 
   Z3Real area = EmitConvexPolyArea(&setup, shadow);
 
@@ -865,7 +691,7 @@ void BoundArea(const Boundaries &boundaries,
   status.Clear();
 
   // Check that the thing is satisfiable at all.
-  {
+  if (true) {
     Timer timer;
     std::string sanity = setup;
     AppendFormat(&sanity,
@@ -873,7 +699,8 @@ void BoundArea(const Boundaries &boundaries,
                  "(get-model)\n");
     status.Printf("Sanity check satisfiability... (%lld bytes)\n",
                   (int64_t)sanity.size());
-    CHECK(Z3Result::SAT == RunZ3(sanity, {120.0}));
+    CHECK(Z3Result::SAT == RunZ3(sanity, {120.0})) << "Couldn't prove "
+      "that the setup is satisfiable?";
     status.Printf("Satisfiable; OK in %s\n",
                   ANSI::Time(timer.Seconds()).c_str());
   }
@@ -918,6 +745,16 @@ void BoundArea(const Boundaries &boundaries,
 
   int64_t sat = 0, unsat = 0, unknown = 0;
   for (int64_t iters = 0; true; iters++) {
+    std::string stats =
+      std::format("{} iters, {} sat, {} unsat, {} unknown, {}",
+                  iters, sat, unsat, unknown, ANSI::Time(timer.Seconds()));
+    std::string mins =
+      std::format("min area: {}", min_area.BriefString());
+    std::string maxes =
+      std::format("max area: {}", max_area.BriefString());
+
+    status.EmitStatus({stats, mins, maxes});
+
     std::string out = setup;
 
     // Helpful to add the existing bounds?
@@ -1001,16 +838,6 @@ void BoundArea(const Boundaries &boundaries,
         break;
       }
     }
-
-    std::string stats =
-      std::format("{} iters, {} sat, {} unsat, {} unknown, {}",
-                  iters, sat, unsat, unknown, ANSI::Time(timer.Seconds()));
-    std::string mins =
-      std::format("min area: {}", min_area.BriefString());
-    std::string maxes =
-      std::format("max area: {}", max_area.BriefString());
-
-    status.EmitStatus({stats, mins, maxes});
   }
 }
 
@@ -1038,7 +865,7 @@ struct PatchEnumerator {
 
     // Constrain v based on the bits.
     for (int b = 0; b < num_bits; b++) {
-      Z3Vec3 normal{boundaries.planes[b]};
+      Z3Vec3 normal{boundaries.big_planes[b]};
       AppendFormat(&out,
                    "(assert (ite {} (> {} 0.0) (< {} 0.0)))\n",
                    bits[b].s,
@@ -1134,6 +961,56 @@ static void MaxArea() {
   BoundArea(boundaries, uint64_t{0b1010111101010001010010100000});
 }
 
+
+static std::string MaskedBits(int num_bits,
+                              uint64_t code,
+                              uint64_t mask) {
+  std::string out;
+  uint8_t prev = 0x2A;
+  for (int i = num_bits - 1; i >= 0; i--) {
+    uint64_t pos = uint64_t{1} << i;
+    uint32_t cur = ((!!(code & pos)) << 1) | (!!(mask & pos));
+    if (cur != prev) {
+      if (mask & pos) {
+        // forced bit.
+        if (code & pos) {
+          out.append(ANSI::ForegroundRGB32(0x76F5F3FF));
+        } else {
+          out.append(ANSI::ForegroundRGB32(0xB8BBF2FF));
+        }
+      } else {
+        if (code & pos) {
+          out.append(ANSI::ForegroundRGB32(0x023540FF));
+        } else {
+          out.append(ANSI::ForegroundRGB32(0x1A1F6EFF));
+        }
+      }
+      prev = cur;
+    }
+    out.push_back((code & pos) ? '1' : '0');
+  }
+
+  out.append(ANSI_RESET);
+  return out;
+}
+
+static void ComputeMasks() {
+  BigPoly scube = BigScube(DIGITS);
+  Boundaries boundaries(scube);
+
+  // uint64_t example_code = uint64_t{0b1010111101010001010010100000};
+  // uint64_t example_code = uint64_t{0b1101110011101000001011100000101};
+  uint64_t example_code = uint64_t{0b101000010101110101111011111};
+  uint64_t mask = GetCodeMask(boundaries, example_code);
+
+  printf("Code: %s\n"
+         "Mask: %s\n"
+         "Full: %s\n",
+         std::format("{:b}", example_code).c_str(),
+         std::format("{:b}", mask).c_str(),
+         MaskedBits(boundaries.Size(), example_code, mask).c_str());
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
 
@@ -1144,6 +1021,7 @@ int main(int argc, char **argv) {
   pe.Enumerate();
   */
   MaxArea();
+  // ComputeMasks();
 
   return 0;
 }

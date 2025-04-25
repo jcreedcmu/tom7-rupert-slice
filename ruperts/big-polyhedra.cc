@@ -447,6 +447,35 @@ Mesh2D SmallMesh(const BigMesh2D &big) {
   };
 }
 
+BigRat SignedAreaOfConvexPoly(const std::vector<BigVec2> &pts) {
+  if (pts.size() < 3) return BigRat{0};
+  BigRat area{0};
+  // Iterate through the polygon vertices, using the shoelace formula.
+  for (size_t i = 0; i < pts.size(); i++) {
+    const BigVec2 &v0 = pts[i];
+    const BigVec2 &v1 = pts[(i + 1) % pts.size()];
+    area += v0.x * v1.y - v1.x * v0.y;
+  }
+
+  return area / BigRat(2);
+}
+
+// via https://en.wikipedia.org/wiki/Shoelace_formula
+BigRat SignedAreaOfHull(const BigMesh2D &mesh,
+                        const std::vector<int> &hull) {
+  if (hull.size() < 3) return BigRat(0);
+  BigRat area{0};
+  // Iterate through the polygon vertices, using the shoelace formula.
+  for (size_t i = 0; i < hull.size(); i++) {
+    const BigVec2 &v0 = mesh.vertices[hull[i]];
+    const BigVec2 &v1 = mesh.vertices[hull[(i + 1) % hull.size()]];
+    area += v0.x * v1.y - v1.x * v0.y;
+  }
+
+  return area / BigRat(2);
+}
+
+
 BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices,
                                 const char *name) {
   // XXX check

@@ -379,6 +379,20 @@ Mesh2D Shadow(const Polyhedron &p) {
   return mesh;
 }
 
+double SquaredDistanceToPoly(const std::vector<vec2> &poly,
+                             const vec2 &pt) {
+  double best_sqdist = std::numeric_limits<double>::infinity();
+  for (int i = 0; i < poly.size(); i++) {
+    const vec2 &v0 = poly[i];
+    const vec2 &v1 = poly[(i + 1) % poly.size()];
+
+    double sqdist = SquaredPointLineDistance(v0, v1, pt);
+    best_sqdist = std::min(best_sqdist, sqdist);
+  }
+  CHECK(std::isfinite(best_sqdist));
+  return best_sqdist;
+}
+
 static double SquaredDistanceToHull(
     const std::vector<vec2> &points, const std::vector<int> &hull,
     const vec2 &pt) {
@@ -1723,6 +1737,24 @@ quat4 RotationFromAToB(const vec3 &a, const vec3 &b) {
   return normalize(quat4(axis.x * inv_s, axis.y * inv_s, axis.z * inv_s,
                          s * 0.5));
 #endif
+}
+
+vec3 ViewPosFromNonUnitQuat(const quat4 &q) {
+  double xx = q.x * q.x;
+  double yy = q.y * q.y;
+  double zz = q.z * q.z;
+  double ww = q.w * q.w;
+
+  double two_s = 2.0 / (xx + yy + zz + ww);
+
+  double zx = q.z * q.x;
+  double yw = q.y * q.w;
+  double yz = q.y * q.z;
+  double xw = q.x * q.w;
+
+  return vec3(two_s * (zx - yw),
+              two_s * (yz + xw),
+              1.0 - two_s * (xx + yy));
 }
 
 std::pair<quat4, vec3> UnpackFrame(const frame3 &f) {

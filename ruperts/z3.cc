@@ -6,13 +6,16 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <mutex>
 
 #include "base/stringprintf.h"
 #include "bignum/polynomial.h"
 #include "polyhedra.h"
+#include "threadutil.h"
 
 std::string SymbolTable::Fresh(std::string_view hint) {
   std::string actual = std::string(hint);
+  MutexLock ml(&mu);
   while (used.contains(actual)) {
     actual = std::format("{}_v{}", hint, counter);
     counter++;
@@ -272,7 +275,7 @@ Z3Bool EmitInTriangle(std::string *out,
 }
 
 // See the implementation in big-polyhedra.cc.
-Z3Frame NonUnitRotationFrame(const Z3Quat &v) {
+Z3Frame NonUnitRotationFrame(std::string *out, const Z3Quat &v) {
   Z3Real two(2);
 
   Z3Real xx = v.x * v.x;
@@ -280,7 +283,7 @@ Z3Frame NonUnitRotationFrame(const Z3Quat &v) {
   Z3Real zz = v.z * v.z;
   Z3Real ww = v.w * v.w;
 
-  Z3Real two_s = Z3Real(2) / (xx + yy + zz + ww);
+  Z3Real two_s = DeclareReal(out, Z3Real(2) / (xx + yy + zz + ww), "scale");
 
   Z3Real xy = v.x * v.y;
   Z3Real zx = v.z * v.x;
@@ -323,8 +326,9 @@ inline Z3Frame InverseRigid(const Z3Frame &frame) {
 
 // PERF! Expand this and discard the components we don't use.
 [[maybe_unused]]
-static Z3Vec3 ReferenceViewPosFromNonUnitQuat(const Z3Quat &q) {
-  Z3Frame frame = NonUnitRotationFrame(q);
+static Z3Vec3 ReferenceViewPosFromNonUnitQuat(std::string *out,
+                                              const Z3Quat &q) {
+  Z3Frame frame = NonUnitRotationFrame(out, q);
   // We just apply the inverse rotation to (0, 0, 1).
   Z3Frame iframe = InverseRigid(frame);
   return TransformPoint(iframe, Z3Vec3(Z3Real(0), Z3Real(0), Z3Real(1)));
@@ -332,7 +336,7 @@ static Z3Vec3 ReferenceViewPosFromNonUnitQuat(const Z3Quat &q) {
 
 
 // Same as Reference version, but skipping work we don't need.
-Z3Vec3 ViewPosFromNonUnitQuat(const Z3Quat &q) {
+Z3Vec3 ViewPosFromNonUnitQuat(std::string *out, const Z3Quat &q) {
   Z3Real one(1);
   Z3Real two(2);
 
@@ -348,7 +352,10 @@ Z3Vec3 ViewPosFromNonUnitQuat(const Z3Quat &q) {
   Z3Real yz = q.y * q.z;
   Z3Real xw = q.x * q.w;
 
-  return Z3Vec3(two_s * (zx - yw),
-                two_s * (yz + xw),
-                one - two_s * (xx + yy));
+  return DeclareVec3(
+      out,
+      Z3Vec3(two_s * (zx - yw),
+             two_s * (yz + xw),
+             one - two_s * (xx + yy)),
+      "view");
 }

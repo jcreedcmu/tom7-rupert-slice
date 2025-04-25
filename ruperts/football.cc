@@ -631,8 +631,152 @@ static void GetSol() {
     SaveAsSTL(residue, filename);
     status.Printf("Wrote %s", filename.c_str());
   }
-
 }
+
+#if 0
+static void Extrapolate() {
+  // Load solutions from the main database. Working from the existing
+  // solution, reduce both the shrink while maintaining a solution
+  // with maximal clearance. Save these solutions to a new file so
+  // that we can plot them.
+
+  NDSolutions<3> main_sols("football.nds");
+
+  // Find some good solutions to extrapolate.
+
+  std::vector<std::tuple<std::array<double, 3>, double, frame3, frame3>>
+    out_sols;
+  for (const auto &[key, clearance, outer, inner] : main_sols.GetVec()) {
+    if (clearance > 0.0) {
+      out_sols.emplace_back(key, clearance, outer, inner);
+    }
+  }
+
+  std::sort(out_sols.begin(),
+            out_sols.end(),
+            [](const auto &a, const auto &b) {
+              return std::get<1>(a) < std::get<1>(b);
+            });
+
+  // Consider the best 10%.
+  out_sols.resize(out_sols.size() * 0.10);
+
+  CHECK(out_sols.empty()) << "No sols to extrapolate!";
+
+  Timer run_timer;
+  Periodically status_per(1.0);
+  Periodically save_per(600.0, false);
+  std::mutex m;
+  NDSolutions<3> sols("footstrapolated.nds");
+
+  auto MaybeStatus = [&](int64_t num_left) {
+      if (status_per.ShouldRun()) {
+        MutexLock ml(&m);
+        double total_time = run_timer.Seconds();
+        const int64_t p = footballs.Read();
+        double pps = p / total_time;
+
+        ANSI::ProgressBarOptions options;
+        options.include_frac = false;
+        options.include_percent = true;
+
+        std::string timing = std::format(
+            AWHITE("{:.4f}") " footballs/s  "
+            AGREY("|") "  " AWHITE("{}") " remain",
+            pps,
+            num_left);
+
+        const double save_in = save_per.SecondsLeft();
+
+        std::string msg =
+          std::format(
+              APURPLE("{}") AWHITE("s") " "
+              AGREEN("{}") AWHITE("✔") " "
+              AORANGE("{}") AWHITE("⚡") " "
+              ARED("{}") AWHITE("⛔") " "
+              "(save in {})",
+              FormatNum(solve_attempts.Read()),
+              FormatNum(solved.Read()),
+              FormatNum(hard.Read()),
+              noperts.Read(),
+              ANSI::Time(save_in));
+
+        std::string bar =
+          ANSI::ProgressBar(TOTAL_SAMPLES - num_left, TOTAL_SAMPLES,
+                            msg, total_time, options);
+
+        std::vector<std::string> status_lines;
+        status_lines.reserve(NUM_THREADS + ADDL_STATUS_LINES);
+        status_lines.push_back(
+            ANSI_GREY
+            "——————————————————————————————————————————————————————————"
+            ANSI_RESET);
+        for (int i = 0; i < NUM_THREADS; i++) {
+          status_lines.push_back(thread_status[i]);
+        }
+        status_lines.push_back(std::move(timing));
+        status_lines.push_back(std::move(bar));
+        status->EmitStatus(status_lines);
+      }
+    };
+
+  auto MaybeSave = [&]() {
+      save_per.RunIf([&]() {
+          sols.Save();
+          status->Printf("Saved " AWHITE("%lld") "\n",
+                         sols.Size());
+        });
+    };
+  // Get a picture of the full space by running these in random
+  // order. It's just numbers; there are no memory locality downsides.
+  {
+    ArcFour rc("shuffle");
+    Shuffle(&rc, &work);
+  }
+
+  ArcFour rc(std::format("football.{}.{}", thread_idx,
+                         time(nullptr)));
+
+  ParallelFan(
+      NUM_THREADS,
+      [&](int thread_idx) {
+
+        for (;;) {
+          int64_t work_idx = 0;
+          int64_t num_left = 0;
+          {
+            MutexLock ml(&m);
+            if (work.empty())
+              return;
+            work_idx = work.back();
+            work.pop_back();
+            num_left = work.size();
+          }
+
+          const auto &[theta, phi, stretch] = Decode(work_idx);
+
+          const auto &oresult =
+            ComputeMinimumClearance(thread_idx, &rc,
+                                    theta, phi, stretch);
+          footballs++;
+
+          if (oresult.has_value()) {
+            const auto &[outer, inner, clearance] = oresult.value();
+            sols.Add({theta, phi, stretch}, clearance, outer, inner);
+          } else {
+            sols.Add({theta, phi, stretch}, UNSOLVED, frame3(), frame3());
+          }
+
+          MaybeStatus(num_left, theta, phi, stretch);
+          MaybeSave();
+        }
+      });
+
+  status->Printf("Done in %s.\n",
+                 ANSI::Time(run_timer.Seconds()).c_str());
+  sols.Save();
+}
+#endif
 
 int main(int argc, char **argv) {
   ANSI::Init();
@@ -646,10 +790,10 @@ int main(int argc, char **argv) {
 
   // STL();
 
-  // Plot();
+  Plot();
   // GetSol();
 
-  DoFootball();
+  // DoFootball();
 
   return 0;
 }

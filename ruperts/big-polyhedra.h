@@ -227,6 +227,15 @@ inline quat4 quat_conjugate(const quat4 &q) {
   return {-q.x, -q.y, -q.z, q.w};
 }
 
+inline bool AllZero(const BigVec3 &v) {
+  return BigRat::IsZero(v.x) && BigRat::IsZero(v.y) && BigRat::IsZero(v.z);
+}
+
+inline bool AllZero(const BigQuat &v) {
+  return BigRat::IsZero(v.x) && BigRat::IsZero(v.y) && BigRat::IsZero(v.z) &&
+    BigRat::IsZero(v.w);
+}
+
 // Compute the rigid frame that rotates according to the unit
 // quaternion v.
 BigFrame RotationFrame(const BigQuat &v);
@@ -334,6 +343,12 @@ BigMesh2D RotateAndProject(const BigFrame &f, const BigPoly &poly);
 
 Polyhedron SmallPoly(const BigPoly &big);
 Mesh2D SmallMesh(const BigMesh2D &big);
+
+// Positive if clockwise, winding order; negative for ccw.
+BigRat SignedAreaOfHull(const BigMesh2D &mesh, const std::vector<int> &hull);
+// Same, but with the points directly.
+BigRat SignedAreaOfConvexPoly(const std::vector<BigVec2> &points);
+
 
 BigPoly MakeBigPolyFromVertices(std::vector<BigVec3> vertices);
 

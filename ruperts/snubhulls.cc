@@ -25,6 +25,7 @@
 #include "hashing.h"
 #include "hull3d.h"
 #include "image.h"
+#include "patches.h"
 #include "periodically.h"
 #include "polyhedra.h"
 #include "randutil.h"
@@ -106,80 +107,6 @@ struct Hulls {
   std::vector<std::vector<int>> canonical;
 };
 
-inline vec3 QuaternionToSpherePoint(const quat4 &q) {
-  // The z-column of the rotation matrix represents the rotated Z-axis.
-  // return normalize(rotation_frame(q).z);
-  return transform_point(rotation_frame(normalize(q)), vec3{0, 0, 1});
-}
-
-inline bool AllZero(const BigVec3 &v) {
-  return BigRat::IsZero(v.x) && BigRat::IsZero(v.y) && BigRat::IsZero(v.z);
-}
-
-struct Boundaries {
-  uint64_t GetCode(const BigVec3 &v) const {
-    uint64_t code = 0;
-    for (int i = 0; i < planes.size(); i++) {
-      const BigVec3 &normal = planes[i];
-      BigRat d = dot(v, normal);
-      int sign = BigRat::Sign(d);
-      CHECK(sign != 0) << "Points exactly on the boundary are not "
-        "handled.";
-      if (sign > 0) {
-        code |= uint64_t{1} << i;
-      }
-    }
-    return code;
-  }
-
-  explicit Boundaries(const BigPoly &poly) : poly(poly) {
-    // Now, the boundaries are planes parallel to faces that pass
-    // through the origin. First we find all of these planes
-    // and give them ids. These planes need an orientation, too,
-    // so a normal vector is a good representation. We can't make
-    // this unit length, however.
-    //
-    // We could actually use integer vectors here! Scale by
-    // multiplying by all the denominators, then divide by the GCD.
-    // This representation is canonical up to sign flips.
-
-    auto AlreadyHave = [&](const BigVec3 &n) {
-        for (const BigVec3 &m : planes) {
-          if (AllZero(cross(n, m))) {
-            return true;
-          }
-        }
-        return false;
-      };
-
-    for (const std::vector<int> &face : poly.faces->v) {
-      CHECK(face.size() >= 3);
-      const BigVec3 &a = poly.vertices[face[0]];
-      const BigVec3 &b = poly.vertices[face[1]];
-      const BigVec3 &c = poly.vertices[face[2]];
-      BigVec3 normal = ScaleToMakeIntegral(cross(c - a, b - a));
-      printf("Normal: %s\n", VecString(normal).c_str());
-      if (!AlreadyHave(normal)) {
-        planes.push_back(normal);
-      }
-    }
-
-    printf("There are %d distinct planes.\n",
-           (int)planes.size());
-
-    // You can switch to a larger word size for more complex
-    // polyhedra.
-    CHECK(planes.size() <= 64);
-  }
-
-  std::vector<BigVec3> planes;
-  BigPoly poly;
-};
-
-static frame3 FrameFromViewPos(const vec3 &v) {
-  return frame_fromz({0, 0, 0}, v);
-}
-
 // Visualize a patch under its parameterization. This is
 // using doubles and samples.
 static void PlotPatch(const Boundaries &boundaries,
@@ -187,7 +114,7 @@ static void PlotPatch(const Boundaries &boundaries,
   Timer timer;
   uint64_t code = boundaries.GetCode(bigv);
   std::string code_string = std::format("{:b}", code);
-  Polyhedron small_poly = SmallPoly(boundaries.poly);
+  Polyhedron small_poly = SmallPoly(boundaries.big_poly);
 
   const vec3 v = normalize(SmallVec(bigv));
 

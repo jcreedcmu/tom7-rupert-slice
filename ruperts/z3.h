@@ -1,14 +1,18 @@
 
+// Stuff for manipulating Z3 expressions (as strings; not fancy).
+// To run Z3,
+
 #ifndef _RUPERTS_Z3_H
 #define _RUPERTS_Z3_H
 
 #include <cstdint>
 #include <format>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
-#include <unordered_set>
 
 #include "base/stringprintf.h"
 #include "bignum/big.h"
@@ -19,6 +23,7 @@
 struct SymbolTable {
   std::string Fresh(std::string_view hint);
  private:
+  std::mutex mu;
   int64_t counter = 0;
   std::unordered_set<std::string> used;
 };
@@ -40,6 +45,7 @@ struct SymbolicPolyhedron {
 
 struct Z3Bool {
   explicit Z3Bool(std::string s) : s(std::move(s)) {}
+  explicit Z3Bool(bool b) : s(b ? "true" : "false") {}
   std::string s;
 };
 
@@ -122,8 +128,8 @@ struct Z3Frame {
   Z3Vec3 z;
 };
 
-Z3Frame NonUnitRotationFrame(const Z3Quat &q);
-Z3Vec3 ViewPosFromNonUnitQuat(const Z3Quat &q);
+Z3Frame NonUnitRotationFrame(std::string *out, const Z3Quat &q);
+Z3Vec3 ViewPosFromNonUnitQuat(std::string *out, const Z3Quat &q);
 
 inline std::string Fresh(std::string_view hint = "") {
   static SymbolTable *table = new SymbolTable;
@@ -263,11 +269,26 @@ inline Z3Vec3 NewVec3(std::string *out, std::string_view name_hint = "") {
   return Z3Vec3(x, y, z);
 }
 
+inline Z3Real DeclareReal(std::string *out, const Z3Real &r,
+                          std::string_view name_hint = "") {
+  Z3Real v = NewReal(out, name_hint);
+  AppendFormat(out, "(assert (= {} {}))\n", v.s, r.s);
+  return v;
+}
+
 inline Z3Real NameReal(std::string *out, const Z3Real &r,
                        std::string_view name_hint = "") {
   std::string v = Fresh(name_hint);
   AppendFormat(out, "(define-fun {} () Real {})\n", v, r.s);
   return Z3Real(v);
+}
+
+inline Z3Vec3 DeclareVec3(std::string *out, const Z3Vec3 &v,
+                          std::string_view name_hint = "v") {
+  Z3Real x = DeclareReal(out, v.x, std::format("{}_x", name_hint));
+  Z3Real y = DeclareReal(out, v.y, std::format("{}_y", name_hint));
+  Z3Real z = DeclareReal(out, v.z, std::format("{}_z", name_hint));
+  return Z3Vec3(Z3Real(x), Z3Real(y), Z3Real(z));
 }
 
 inline Z3Vec3 NameVec3(std::string *out, const Z3Vec3 &v,
@@ -276,6 +297,13 @@ inline Z3Vec3 NameVec3(std::string *out, const Z3Vec3 &v,
   Z3Real y = NameReal(out, v.y, std::format("{}_y", name_hint));
   Z3Real z = NameReal(out, v.z, std::format("{}_z", name_hint));
   return Z3Vec3(Z3Real(x), Z3Real(y), Z3Real(z));
+}
+
+inline Z3Vec2 DeclareVec2(std::string *out, const Z3Vec2 &v,
+                          std::string_view name_hint = "v") {
+  Z3Real x = DeclareReal(out, v.x, std::format("{}_x", name_hint));
+  Z3Real y = DeclareReal(out, v.y, std::format("{}_y", name_hint));
+  return Z3Vec2(Z3Real(x), Z3Real(y));
 }
 
 inline Z3Vec2 NameVec2(std::string *out, const Z3Vec2 &v,
