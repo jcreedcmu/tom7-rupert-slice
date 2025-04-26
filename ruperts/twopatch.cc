@@ -9,6 +9,7 @@
 #include <format>
 #include <mutex>
 #include <numbers>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -24,11 +25,9 @@
 #include "patches.h"
 #include "periodically.h"
 #include "polyhedra.h"
-#include "rendering.h"
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
-#include "vector-util.h"
 #include "yocto_matht.h"
 #include "atomic-util.h"
 
@@ -56,8 +55,10 @@ struct TwoPatch {
     inner_mask = GetCodeMask(boundaries, inner_code);
 
     // Just need to compute the hulls once.
-    outer_hull = ComputeHull(outer_code, outer_mask);
-    inner_hull = ComputeHull(inner_code, inner_mask);
+    outer_hull = ComputeHullForPatch(boundaries, outer_code, outer_mask,
+                                     {"twopatch-outer"});
+    inner_hull = ComputeHullForPatch(boundaries, inner_code, inner_mask,
+                                     {"twopatch-inner"});
 
     {
       MutexLock ml(&mu);
@@ -213,8 +214,6 @@ struct TwoPatch {
       });
   }
 
-  static constexpr bool RENDER_HULL = true;
-
   std::vector<vec2> PlaceHull(const frame3 &frame,
                               const std::vector<int> &hull) const {
     std::vector<vec2> out;
@@ -227,62 +226,6 @@ struct TwoPatch {
       out[hidx] = vec2{v_out.x, v_out.y};
     }
     return out;
-  }
-
-  // Get the points on the hull when in this view patch. Exact.
-  // Clockwise winding order.
-  std::vector<int> ComputeHull(uint64_t code,
-                               uint64_t mask) const {
-    BigQuat example_view = GetBigQuatInPatch(boundaries, code, mask);
-    BigFrame frame = NonUnitRotationFrame(example_view);
-
-    BigMesh2D full_shadow = Shadow(Rotate(frame, boundaries.big_poly));
-    std::vector<int> hull = BigQuickHull(full_shadow.vertices);
-    CHECK(hull.size() >= 3);
-
-    if (RENDER_HULL) {
-      Rendering rendering(SmallPoly(boundaries.big_poly), 1920, 1080);
-      auto small_shadow = SmallMesh(full_shadow);
-      rendering.RenderMesh(small_shadow);
-      rendering.RenderHull(small_shadow, hull);
-      rendering.Save(std::format("twopatch-hull-{:b}.png", code));
-    }
-
-    BigRat area = SignedAreaOfHull(full_shadow, hull);
-    printf("Area for example hull: %.17g\n", area.ToDouble());
-
-    if (BigRat::Sign(area) == -1) {
-      VectorReverse(&hull);
-      area = SignedAreaOfHull(full_shadow, hull);
-      printf("Reversed hull to get area: %.17g\n", area.ToDouble());
-    }
-
-    CHECK(BigRat::Sign(area) == 1);
-
-    if (RENDER_HULL) {
-      std::vector<vec2> phull = PlaceHull(SmallFrame(frame), hull);
-
-      Bounds bounds;
-      for (const auto &vec : phull) {
-        bounds.Bound(vec.x, vec.y);
-      }
-      bounds.AddMarginFrac(0.05);
-
-      ImageRGBA ref(1920, 1080);
-      ref.Clear32(0x000000FF);
-      Bounds::Scaler scaler =
-        bounds.ScaleToFit(ref.Width(), ref.Height()).FlipY();
-      for (int i = 0; i < phull.size(); i++) {
-        const vec2 &v0 = phull[i];
-        const vec2 &v1 = phull[(i + 1) % phull.size()];
-        const auto &[x0, y0] = scaler.Scale(v0.x, v0.y);
-        const auto &[x1, y1] = scaler.Scale(v1.x, v1.y);
-        ref.BlendLine32(x0, y0, x1, y1, 0xFFFFFFAA);
-      }
-      ref.Save(std::format("twopatch-phull-{:b}.png", code));
-    }
-
-    return hull;
   }
 
   void Plot() {

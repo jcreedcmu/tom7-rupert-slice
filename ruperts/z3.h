@@ -128,6 +128,8 @@ struct Z3Frame {
   Z3Vec3 z;
 };
 
+Z3Frame FrameFromUnitViewPos(std::string *out, const Z3Vec3 &unit_vec);
+
 Z3Frame NonUnitRotationFrame(std::string *out, const Z3Quat &q);
 Z3Vec3 ViewPosFromNonUnitQuat(std::string *out, const Z3Quat &q);
 
@@ -159,6 +161,10 @@ inline Z3Real operator+(const Z3Real &a, const Z3Real &b) {
 
 inline Z3Real operator-(const Z3Real &a, const Z3Real &b) {
   return Z3Real(std::format("(- {} {})", a.s, b.s));
+}
+
+inline Z3Real operator-(const Z3Real &a) {
+  return Z3Real(std::format("(* -1.0 {})", a.s));
 }
 
 inline Z3Real operator*(const Z3Real &a, const Z3Real &b) {

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -85,5 +86,15 @@ BigVec3 GetBigVec3InPatch(const Boundaries &boundaries,
 // Slow.
 BigQuat GetBigQuatInPatch(const Boundaries &boundaries,
                           uint64_t code, uint64_t mask = ~uint64_t{0});
+
+// Get the points on the hull when in this view patch. Exact.
+// Clockwise winding order.
+std::vector<int> ComputeHullForPatch(
+    const Boundaries &boundaries,
+    uint64_t code,
+    uint64_t mask,
+    // renders debug output if set (don't include extension)
+    std::optional<std::string> render_hull_filebase);
+
 
 #endif

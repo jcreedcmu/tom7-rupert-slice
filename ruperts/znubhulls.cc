@@ -1,17 +1,12 @@
 
-#include <bit>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <format>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <tuple>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -21,181 +16,35 @@
 #include "base/stringprintf.h"
 #include "big-polyhedra.h"
 #include "bignum/big.h"
-#include "bounds.h"
-#include "color-util.h"
-#include "image.h"
+#include "numbers.h"
 #include "patches.h"
-#include "periodically.h"
 #include "polyhedra.h"
-#include "randutil.h"
-#include "rendering.h"
 #include "run-z3.h"
 #include "status-bar.h"
-#include "threadutil.h"
 #include "timer.h"
 #include "util.h"
-#include "vector-util.h"
 #include "yocto_matht.h"
 #include "z3.h"
 
 static constexpr int DIGITS = 24;
 
+#define AMINT(s) ANSI_FG(125, 232, 186) s ANSI_RESET
+#define ASKY(s) ANSI_FG(187, 233, 242) s ANSI_RESET
+
+enum class ViewParameterization {
+  QUATERNION,
+  UNIT_VEC,
+};
+
+static constexpr ViewParameterization view_parameterization =
+  ViewParameterization::UNIT_VEC;
+
+static constexpr bool POINT_CONSTS = false;
+
 [[maybe_unused]]
 static vec3 RandomPointOnSphere(ArcFour *rc) {
   const quat4 small_quat = normalize(RandomQuaternion(rc));
   return QuaternionToSpherePoint(small_quat);
-}
-
-[[maybe_unused]]
-static void BigSnubHulls() {
-  BigPoly scube = BigScube(DIGITS);
-  Boundaries boundaries(scube);
-
-  Polyhedron cube = SnubCube();
-
-  Periodically status_per(1.0);
-  constexpr int64_t ITERS = 100'000;
-  StatusBar status(1);
-
-  std::mutex m;
-  int64_t next_work_idx = 0;
-  constexpr int NUM_THREADS = 8;
-
-  // Parallel.
-  std::vector<BigVec3> samples;
-  std::vector<uint64_t> codes;
-
-  std::unordered_map<uint64_t, BigVec3> examples;
-
-  auto RandomCoord = [](ArcFour *rc) -> BigRat {
-      // Between 3 and 10 or -10 and -3.
-      // uint64_t n = 300000000 + RandTo(rc, 700000000);
-      uint64_t n = RandTo(rc, 2000000000);
-      //                       100000000
-      return (rc->Byte() & 1) ?
-        BigRat(n, 100000000) :
-        BigRat(-n, 100000000);
-    };
-
-  [[maybe_unused]]
-  auto RandomVec = [&](ArcFour *rc) {
-      for (;;) {
-        BigRat x = RandomCoord(rc);
-        BigRat y = RandomCoord(rc);
-        BigRat z = RandomCoord(rc);
-
-        if (x * x + y * y + z * z > BigRat(9)) {
-          return BigVec3(x, y, z);
-        }
-      }
-    };
-
-  ParallelFan(
-      NUM_THREADS,
-      [&](int thread_idx) {
-        ArcFour rc(std::format("snubhulls.{}.{}", thread_idx,
-                               time(nullptr)));
-        for (;;) {
-          int64_t work_idx = 0;
-          {
-            MutexLock ml(&m);
-            if (next_work_idx == ITERS)
-              return;
-            work_idx = next_work_idx;
-            next_work_idx++;
-          }
-
-          // BigVec3 sample_point = RandomVec(&rc);
-          BigQuat sample_quat = RandomBigQuaternion(&rc);
-          CHECK(!AllZero(sample_quat));
-
-          BigVec3 sample_point = ViewPosFromNonUnitQuat(sample_quat);
-          CHECK(!AllZero(sample_point));
-
-          uint64_t code = boundaries.GetCode(sample_quat);
-
-          {
-            MutexLock ml(&m);
-            CHECK(codes.size() == samples.size());
-            codes.push_back(code);
-            samples.push_back(sample_point);
-            if (!examples.contains(code)) {
-              examples[code] = sample_point;
-            }
-          }
-          status_per.RunIf([&]{
-              status.Progressf(work_idx, ITERS,
-                               "%lld/%lld",
-                               work_idx, ITERS);
-            });
-        }
-      });
-
-  for (const BigVec3 &v : samples) {
-    CHECK(!AllZero(v));
-  }
-
-  CHECK(codes.size() == samples.size());
-
-  ArcFour rc("color");
-  std::unordered_map<uint64_t, uint32_t> colored_codes;
-  for (uint64_t code : codes) {
-    if (!colored_codes.contains(code)) {
-      colored_codes[code] =
-        ColorUtil::HSVAToRGBA32(
-            RandDouble(&rc),
-            0.5 + RandDouble(&rc) * 0.5,
-            0.5 + RandDouble(&rc) * 0.5,
-            1.0);
-    }
-  }
-
-  printf("\n\n\n");
-
-  printf("There are %lld distinct codes in this sample.\n",
-         (int64_t)colored_codes.size());
-
-  for (const auto &[code, color] : colored_codes) {
-    printf("%s▉" ANSI_RESET ": %s\n",
-           ANSI::ForegroundRGB32(color).c_str(),
-           std::format("{:b}", code).c_str());
-
-    CHECK(examples.contains(code));
-  }
-
-  // As point cloud.
-  if (true) {
-    std::string outply =
-      std::format(
-          "ply\n"
-          "format ascii 1.0\n"
-          "element vertex {}\n"
-          "property float x\n"
-          "property float y\n"
-          "property float z\n"
-          "property uchar red\n"
-          "property uchar green\n"
-          "property uchar blue\n"
-          "end_header\n", samples.size());
-
-    for (size_t i = 0; i < samples.size(); i++) {
-      CHECK(i < samples.size());
-      const vec3 v = normalize(SmallVec(samples[i])) * 100.0;
-      uint32_t color = colored_codes[codes[i]];
-
-      const auto &[r, g, b, _] = ColorUtil::Unpack32(color);
-      AppendFormat(&outply,
-                   "{} {} {} {} {} {}\n",
-                   v.x, v.y, v.z,
-                   r, g, b);
-    }
-
-    std::string filename = "bigsnubcloud.ply";
-    Util::WriteFile(filename, outply);
-    printf("Wrote %lld bytes to %s.\n",
-           outply.size(),
-           filename.c_str());
-  }
 }
 
 Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
@@ -392,17 +241,53 @@ std::vector<Z3Vec2> EmitShadow(std::string *out,
     int vertex_index = hull[i];
     CHECK(vertex_index >= 0 && vertex_index < poly.vertices.size());
 
-    Z3Vec3 v_in = DeclareVec3(out, poly.vertices[vertex_index],
-                              std::format("p{}", i));
+    Z3Vec3 v_in = NameVec3(out, poly.vertices[vertex_index],
+                           std::format("p{}", i));
+
+    if (POINT_CONSTS) {
+      v_in = DeclareVec3(out, v_in, std::format("p{}", i));
+    }
+
     Z3Vec3 v_out = TransformPoint(frame, v_in);
-    Z3Vec2 v2_out = DeclareVec2(out, Z3Vec2(v_out.x, v_out.y),
-                                std::format("v{}", i));
+    Z3Vec2 v2_out = NameVec2(out, Z3Vec2(v_out.x, v_out.y),
+                             std::format("v{}", i));
+
+    if (POINT_CONSTS) {
+      v2_out = DeclareVec2(out, v2_out, std::format("v{}", i));
+    }
 
     projected_hull.push_back(v2_out);
   }
 
   return projected_hull;
 }
+
+std::vector<Z3Vec2> EmitShadow(std::string *out,
+                               const BigPoly &poly,
+                               const std::vector<int> &hull,
+                               const Z3Vec3 &unit_vec_view) {
+
+  Z3Frame frame = FrameFromUnitViewPos(out, unit_vec_view);
+
+  std::vector<Z3Vec2> projected_hull;
+  projected_hull.reserve(hull.size());
+
+  for (size_t i = 0; i < hull.size(); ++i) {
+    int vertex_index = hull[i];
+    CHECK(vertex_index >= 0 && vertex_index < poly.vertices.size());
+
+    Z3Vec3 v_in = NameVec3(out, poly.vertices[vertex_index],
+                              std::format("p{}", i));
+    Z3Vec3 v_out = TransformPoint(frame, v_in);
+    Z3Vec2 v2_out = NameVec2(out, Z3Vec2(v_out.x, v_out.y),
+                             std::format("v{}", i));
+
+    projected_hull.push_back(v2_out);
+  }
+
+  return projected_hull;
+}
+
 
 
 Z3Real EmitConvexPolyArea(std::string *out,
@@ -428,7 +313,10 @@ Z3Real EmitConvexPolyArea(std::string *out,
 struct RatBounds {
   RatBounds(BigRat initial_lb, BigRat initial_ub) :
     lb(std::move(initial_lb)),
-    ub(std::move(initial_ub)) {}
+    ub(std::move(initial_ub)) {
+    Succeeded();
+  }
+
   BigRat Midpoint() const {
     return (lb + ub) / BigRat(2);
   }
@@ -439,6 +327,37 @@ struct RatBounds {
                        l, lclosed ? "<=" : "<",
                        uclosed ? "<=" : "<", u);
   }
+
+  BigRat Guess() const {
+    BigRat span = ub - lb;
+    return lb + (span * BigRat(numer)) / BigRat(denom);
+  }
+
+  void Succeeded() {
+    // Start with midpoint.
+    numer = 1;
+    denom = 2;
+  }
+
+  void Failed() {
+    numer++;
+    for (;;) {
+      if (numer == denom) {
+        denom++;
+        numer = 1;
+        return;
+      }
+
+      // Only relatively prime fractions; otherwise
+      // we have already tried them.
+      if (GCD(numer, denom) == 1) {
+        return;
+      }
+    }
+  }
+
+  int64_t denom = 2;
+  int64_t numer = 1;
 
   BigRat lb, ub;
   // If closed, then the boundary is included.
@@ -462,63 +381,9 @@ void BoundArea(const Boundaries &boundaries,
   printf("Get view pos...\n");
   BigVec3 example_v = ViewPosFromNonUnitQuat(example_q);
 
-  static constexpr bool RENDER_HULL = false;
-
   printf("Compute hull once...\n");
-  const std::vector<int> hull = [&]() {
-      // const vec3 v = normalize(SmallVec(example_v));
-      Polyhedron small_poly = SmallPoly(boundaries.big_poly);
-
-      BigFrame big_frame = NonUnitRotationFrame(example_q);
-      frame3 frame = SmallFrame(big_frame);
-      Mesh2D shadow = Shadow(Rotate(small_poly, frame));
-      std::vector<int> hull = QuickHull(shadow.vertices);
-
-      if (RENDER_HULL) {
-        Rendering rendering(small_poly, 1920, 1080);
-        rendering.RenderMesh(shadow);
-        rendering.RenderHull(shadow, hull);
-        rendering.Save(std::format("debug-{:b}.png", code));
-      }
-
-
-      // Make sure winding order is clockwise.
-      CHECK(hull.size() >= 3);
-
-      std::vector<vec2> rshadow =
-        ReferenceShadow(small_poly, hull, example_q);
-      double area = SignedAreaOfConvexPoly(rshadow);
-      printf("Area for example hull: %.17g\n", area);
-      if (area < 0.0) {
-        VectorReverse(&hull);
-        rshadow = ReferenceShadow(small_poly, hull, example_q);
-        double area = SignedAreaOfConvexPoly(rshadow);
-        printf("Area for reversed hull: %.17g\n", area);
-      }
-
-      if (RENDER_HULL) {
-        Bounds bounds;
-        for (const auto &vec : rshadow) {
-          bounds.Bound(vec.x, vec.y);
-        }
-        bounds.AddMarginFrac(0.05);
-
-        ImageRGBA ref(1920, 1080);
-        ref.Clear32(0x000000FF);
-        Bounds::Scaler scaler =
-          bounds.ScaleToFit(ref.Width(), ref.Height()).FlipY();
-        for (int i = 0; i < rshadow.size(); i++) {
-          const vec2 &v0 = rshadow[i];
-          const vec2 &v1 = rshadow[(i + 1) % rshadow.size()];
-          const auto &[x0, y0] = scaler.Scale(v0.x, v0.y);
-          const auto &[x1, y1] = scaler.Scale(v1.x, v1.y);
-          ref.BlendLine32(x0, y0, x1, y1, 0xFFFFFFAA);
-        }
-        ref.Save(std::format("ref-hull-{:b}.png", code));
-      }
-
-      return hull;
-    }();
+  const std::vector<int> hull =
+    ComputeHullForPatch(boundaries, code, mask, {"area"});
 
   std::string setup;
   Z3Quat view = GetPatchQuat(&setup, boundaries, code, mask);
@@ -685,6 +550,261 @@ void BoundArea(const Boundaries &boundaries,
   }
 }
 
+void BoundEdges(const Boundaries &boundaries,
+                uint64_t code) {
+  Timer timer;
+  uint64_t mask = GetCodeMask(boundaries, code);
+  // mask = mask | (mask << 1);
+  // const uint64_t mask = ~0;
+  mask = ~0;
+
+  printf("For code: %s\n",
+         boundaries.ColorMaskedBits(code, mask).c_str());
+
+  printf("Compute hull once...\n");
+  const std::vector<int> hull =
+    ComputeHullForPatch(boundaries, code, mask, {"edge"});
+
+  // These are just used for sanity checking satisfiability.
+  printf("Get quat in patch...\n");
+  BigQuat example_q = GetBigQuatInPatch(boundaries, code);
+  printf("Get view pos (vector)...\n");
+  BigVec3 example_v = ViewPosFromNonUnitQuat(example_q);
+
+  std::string setup;
+
+  std::vector<Z3Vec2> shadow;
+  std::string assert_example_view;
+  switch (view_parameterization) {
+  case ViewParameterization::QUATERNION: {
+    Z3Quat view = GetPatchQuat(&setup, boundaries, code, mask);
+    shadow = EmitShadow(&setup, boundaries.big_poly, hull, view);
+
+    assert_example_view =
+      std::format("(assert (= {} {}))\n"
+                  "(assert (= {} {}))\n"
+                  "(assert (= {} {}))\n"
+                  "(assert (= {} {}))\n",
+                  view.x.s, Z3Real(example_q.x).s,
+                  view.y.s, Z3Real(example_q.y).s,
+                  view.z.s, Z3Real(example_q.z).s,
+                  view.w.s, Z3Real(example_q.w).s);
+
+    break;
+  }
+
+  case ViewParameterization::UNIT_VEC: {
+    Z3Vec3 view = GetPatchView(&setup, boundaries, code, mask);
+    shadow = EmitShadow(&setup, boundaries.big_poly, hull, view);
+
+    assert_example_view =
+      std::format("(assert (= {} {}))\n"
+                  "(assert (= {} {}))\n"
+                  "(assert (= {} {}))\n",
+                  view.x.s, Z3Real(example_v.x).s,
+                  view.y.s, Z3Real(example_v.y).s,
+                  view.z.s, Z3Real(example_v.z).s);
+    break;
+  }
+  default:
+    LOG(FATAL) << "??";
+  }
+
+  CHECK(shadow.size() >= 3);
+
+  // Pick a pair of edges and compute their squared distance.
+  const Z3Vec2 &v1 = shadow[0];
+  const Z3Vec2 &v2 = shadow[1];
+
+  Z3Real dx = v2.x - v1.x;
+  Z3Real dy = v2.y - v1.y;
+
+  const Z3Real sqd =
+    DeclareReal(&setup, (dx * dx) + (dy * dy), "sq_dist");
+
+  StatusBar status(3);
+  status.Clear();
+
+  // Check that the thing is satisfiable at all.
+  if (true) {
+    Timer timer;
+    std::string sanity = setup;
+    AppendFormat(&sanity,
+                 "(check-sat)\n"
+                 "(get-model)\n");
+    status.Printf("Sanity check satisfiability... (%lld bytes)\n",
+                  (int64_t)sanity.size());
+    CHECK(Z3Result::SAT == RunZ3(sanity, {120.0})) << "Couldn't prove "
+      "that the setup is satisfiable?";
+    status.Printf("Satisfiable; OK in %s\n",
+                  ANSI::Time(timer.Seconds()).c_str());
+  }
+
+  // Check again with the example quat asserted.
+  {
+    Timer timer;
+    std::string sanity = setup;
+    sanity.append(assert_example_view);
+
+    AppendFormat(&sanity,
+                 "(check-sat)\n"
+                 "(get-model)\n");
+    status.Printf("Sanity check example... (%lld bytes)\n",
+                  (int64_t)sanity.size());
+    CHECK(Z3Result::SAT == RunZ3(sanity, {120.0}));
+    status.Printf("Example satisfiable; OK in %s\n",
+                  ANSI::Time(timer.Seconds()).c_str());
+  }
+
+  #if 0
+  AppendFormat(&setup,
+               "(maximize {})\n"
+               "(check-sat)\n"
+               "(get-model)\n",
+               sqd.s);
+
+  Util::WriteFile(
+      std::format("edge-{}-{}.z3",
+                  hull[0], hull[1]),
+      setup);
+  printf("Wrote it.\n");
+  #endif
+
+  // Bounds on the maximum possible.
+  RatBounds max_sqlen(BigRat(0), BigRat(100000));
+  // Likewise, bounds on the minimal possible.
+  RatBounds min_sqlen(BigRat(0), BigRat(100000));
+
+  double timeout = 600.0;
+
+  auto ResetTimeout = [&]() {
+      timeout = 600.0;
+    };
+
+  int64_t sat = 0, unsat = 0, unknown = 0;
+  for (int64_t iters = 0; true; iters++) {
+    std::string stats =
+      std::format("{} z3s, {} sat, {} unsat, {} " ARED("unk") ", "
+                  "{} total {} timeout",
+                  iters, sat, unsat, unknown,
+                  ANSI::Time(timer.Seconds()),
+                  ANSI::Time(timeout));
+    std::string mins =
+      std::format(AWHITE("min length") ": {} " AGREY("[split {}]"),
+                  min_sqlen.BriefString(),
+                  min_sqlen.Guess().ToString());
+    std::string maxes =
+      std::format(AWHITE("max length") ": {} " AGREY("[split {}]"),
+                  max_sqlen.BriefString(),
+                  max_sqlen.Guess().ToString());
+
+    status.EmitStatus({stats, mins, maxes});
+
+    std::string out = setup;
+
+    // Helpful to add the existing bounds?
+
+    bool do_min = iters & 1;
+
+    if (do_min) {
+      BigRat test_point = min_sqlen.Guess();
+
+      AppendFormat(&out,
+                   "(assert (<= {} {}))\n",
+                   sqd.s, Z3Real(test_point).s);
+
+      AppendFormat(&out,
+                   "(check-sat)\n");
+
+      Z3Result lesseq = RunZ3(out, {timeout});
+      switch (lesseq) {
+      case Z3Result::SAT:
+        // Possible for the length to be lesseq than the test point.
+        status.Printf(AMINT("sat")
+                      ": length <= %s", test_point.ToString().c_str());
+        if (test_point <= min_sqlen.ub) {
+          min_sqlen.ub = test_point;
+          min_sqlen.uclosed = true;
+          min_sqlen.Succeeded();
+          ResetTimeout();
+        }
+        sat++;
+        break;
+      case Z3Result::UNSAT:
+        // The length is always more than the test point.
+        status.Printf(ASKY("unsat")
+                      ": length <= %s", test_point.ToString().c_str());
+        if (test_point >= min_sqlen.lb) {
+          min_sqlen.lb = test_point;
+          min_sqlen.lclosed = false;
+          min_sqlen.Succeeded();
+          ResetTimeout();
+        }
+        unsat++;
+        break;
+      case Z3Result::UNKNOWN:
+        // No info.
+        unknown++;
+        status.Printf(ARED("unknown") ": length <= %s. timeout now %s",
+                      test_point.ToString().c_str(),
+                      ANSI::Time(timeout).c_str());
+        timeout *= 1.25;
+        min_sqlen.Failed();
+        break;
+      }
+
+    } else {
+      // Maximize.
+      BigRat test_point = max_sqlen.Guess();
+
+      AppendFormat(&out,
+                   "(assert (>= {} {}))\n",
+                   sqd.s, Z3Real(test_point).s);
+
+      AppendFormat(&out,
+                   "(check-sat)\n");
+
+      Z3Result lesseq = RunZ3(out, {timeout});
+      switch (lesseq) {
+      case Z3Result::SAT:
+        status.Printf(AMINT("sat")
+                      ": length >= %s", test_point.ToString().c_str());
+        // Possible for the length to be greatereq than the test point.
+        if (test_point >= max_sqlen.lb) {
+          max_sqlen.lb = test_point;
+          max_sqlen.lclosed = true;
+          max_sqlen.Succeeded();
+          ResetTimeout();
+        }
+        sat++;
+        break;
+      case Z3Result::UNSAT:
+        status.Printf(ASKY("unsat")
+                      ": length >= %s", test_point.ToString().c_str());
+        // The length is always less than the test point.
+        if (test_point <= max_sqlen.ub) {
+          max_sqlen.ub = test_point;
+          max_sqlen.uclosed = false;
+          max_sqlen.Succeeded();
+          ResetTimeout();
+        }
+        unsat++;
+        break;
+      case Z3Result::UNKNOWN:
+        // No info.
+        status.Printf(ARED("unknown") ": length >= %s. timeout now {}",
+                      test_point.ToString().c_str(),
+                      ANSI::Time(timeout).c_str());
+        unknown++;
+        timeout *= 1.25;
+        max_sqlen.Failed();
+        break;
+      }
+    }
+  }
+}
+
+
 // Find the set of patches (as their codes) that are non-empty, by
 // shelling out to z3. This could be optimized a lot, but the set is a
 // fixed property of the snub cube (given the ordering of vertices and
@@ -805,6 +925,14 @@ static void MaxArea() {
   BoundArea(boundaries, uint64_t{0b1010111101010001010010100000});
 }
 
+static void EdgeBounds() {
+  BigPoly scube = BigScube(DIGITS);
+  Boundaries boundaries(scube);
+
+  // GetMaximumArea(boundaries, uint64_t{0b1010111101010001010010100000});
+  BoundEdges(boundaries, uint64_t{0b1010111101010001010010100000});
+}
+
 static void ComputeMasks() {
   BigPoly scube = BigScube(DIGITS);
   Boundaries boundaries(scube);
@@ -831,7 +959,8 @@ int main(int argc, char **argv) {
   PatchEnumerator pe;
   pe.Enumerate();
   */
-  MaxArea();
+  // MaxArea();
+  EdgeBounds();
   // ComputeMasks();
 
   return 0;

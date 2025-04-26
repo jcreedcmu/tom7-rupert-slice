@@ -322,6 +322,40 @@ inline Z3Frame InverseRigid(const Z3Frame &frame) {
   return Z3Frame(x, y, z);
 }
 
+Z3Frame FrameFromUnitViewPos(std::string *out, const Z3Vec3 &unit_vec) {
+  /*
+    a la yocto's fromz:
+
+    auto z    = normalize(v);
+    auto sign = copysign(1.0, z.z);
+    auto a    = -1.0 / (sign + z.z);
+    auto b    = z.x * z.y * a;
+    auto x    = vec<T, 3>{1.0 + sign * z.x * z.x * a, sign * b, -sign * z.x};
+    auto y    = vec<T, 3>{b, sign + z.y * z.y * a, -z.y};
+    return {x, y, z, o};
+  */
+
+  // The denominator is non-zero by precondition.
+  // We can just use (1 + z) instead of "sign + z" because we know
+  // that the vector is not on the z axis, and we don't have precision
+  // issues with exact rationals.
+  Z3Real a = NameReal(out, Z3Real(1) + unit_vec.z, "denom");
+  Z3Real b = NameReal(out, -(unit_vec.x * unit_vec.y) / a, "b");
+
+  Z3Vec3 frame_x = Z3Vec3{
+    NameReal(out, Z3Real(1) - (unit_vec.x * unit_vec.x) / a, "frame_x_x"),
+    NameReal(out, b, "frame_x_y"),
+    NameReal(out, -unit_vec.x, "frame_x_z")
+  };
+
+  Z3Vec3 frame_y = Z3Vec3{
+    NameReal(out, b, "frame_y_x"),
+    NameReal(out, Z3Real(1) - (unit_vec.y * unit_vec.y) / a, "frame_y_y"),
+    NameReal(out, -unit_vec.y, "frame_y_z")
+  };
+
+  return Z3Frame{frame_x, frame_y, unit_vec};
+}
 
 
 // PERF! Expand this and discard the components we don't use.

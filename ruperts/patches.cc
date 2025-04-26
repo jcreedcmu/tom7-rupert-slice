@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <ctime>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -18,11 +19,15 @@
 #include "base/stringprintf.h"
 #include "big-polyhedra.h"
 #include "bignum/big.h"
+#include "bounds.h"
+#include "image.h"
 #include "periodically.h"
 #include "polyhedra.h"
 #include "randutil.h"
+#include "rendering.h"
 #include "run-z3.h"
 #include "status-bar.h"
+#include "vector-util.h"
 #include "yocto_matht.h"
 #include "z3.h"
 
@@ -365,4 +370,80 @@ uint64_t GetCodeMask(const Boundaries &boundaries,
   printf("Reduced mask from %d to %d bits.\n",
          (int)num_bits, std::popcount<uint64_t>(mask));
   return mask;
+}
+
+std::vector<int> ComputeHullForPatch(
+    const Boundaries &boundaries,
+    uint64_t code,
+    uint64_t mask,
+    std::optional<std::string> render_hull_filebase) {
+  BigQuat example_view = GetBigQuatInPatch(boundaries, code, mask);
+  BigFrame frame = NonUnitRotationFrame(example_view);
+
+  BigMesh2D full_shadow = Shadow(Rotate(frame, boundaries.big_poly));
+  std::vector<int> hull = BigQuickHull(full_shadow.vertices);
+  CHECK(hull.size() >= 3);
+
+  if (render_hull_filebase.has_value()) {
+    Rendering rendering(SmallPoly(boundaries.big_poly), 1920, 1080);
+    auto small_shadow = SmallMesh(full_shadow);
+    rendering.RenderMesh(small_shadow);
+    rendering.RenderHull(small_shadow, hull);
+    rendering.Save(std::format("{}-hull-{:b}.png",
+                               render_hull_filebase.value(),
+                               code));
+  }
+
+  BigRat area = SignedAreaOfHull(full_shadow, hull);
+  printf("Area for example hull: %.17g\n", area.ToDouble());
+
+  if (BigRat::Sign(area) == -1) {
+    VectorReverse(&hull);
+    area = SignedAreaOfHull(full_shadow, hull);
+    printf("Reversed hull to get area: %.17g\n", area.ToDouble());
+  }
+
+  CHECK(BigRat::Sign(area) == 1);
+
+  if (render_hull_filebase.has_value()) {
+    const Polyhedron small_poly = SmallPoly(boundaries.big_poly);
+    auto PlaceHull = [&](const frame3 &frame,
+                         const std::vector<int> &hull) ->
+      std::vector<vec2> {
+      std::vector<vec2> out;
+      out.resize(hull.size());
+      for (int hidx = 0; hidx < hull.size(); hidx++) {
+        int vidx = hull[hidx];
+        const vec3 &v_in = small_poly.vertices[vidx];
+        // PERF: Don't need z coordinate.
+        const vec3 v_out = transform_point(frame, v_in);
+        out[hidx] = vec2{v_out.x, v_out.y};
+      }
+      return out;
+    };
+
+    std::vector<vec2> phull = PlaceHull(SmallFrame(frame), hull);
+
+    Bounds bounds;
+    for (const auto &vec : phull) {
+      bounds.Bound(vec.x, vec.y);
+    }
+    bounds.AddMarginFrac(0.05);
+
+    ImageRGBA ref(1920, 1080);
+    ref.Clear32(0x000000FF);
+    Bounds::Scaler scaler =
+      bounds.ScaleToFit(ref.Width(), ref.Height()).FlipY();
+    for (int i = 0; i < phull.size(); i++) {
+      const vec2 &v0 = phull[i];
+      const vec2 &v1 = phull[(i + 1) % phull.size()];
+      const auto &[x0, y0] = scaler.Scale(v0.x, v0.y);
+      const auto &[x1, y1] = scaler.Scale(v1.x, v1.y);
+      ref.BlendLine32(x0, y0, x1, y1, 0xFFFFFFAA);
+    }
+    ref.Save(std::format("{}-phull-{:b}.png",
+                         render_hull_filebase.value(), code));
+  }
+
+  return hull;
 }
