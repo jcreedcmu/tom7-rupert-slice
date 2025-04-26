@@ -142,6 +142,21 @@ std::string Util::HexString(const std::string &s,
   return out;
 }
 
+std::optional<uint64_t> Util::ParseBinary(std::string_view s) {
+  if (s.empty()) return std::nullopt;
+  if (s.size() > 64) return std::nullopt;
+
+  uint64_t out = 0;
+  for (size_t i = 0; i < s.size(); i++) {
+    char c = s[i];
+    if (c != '0' && c != '1') return std::nullopt;
+    out <<= 1;
+    out |= (c - '0');
+  }
+
+  return {out};
+}
+
 bool Util::isdir(std::string_view filename) {
   struct stat st;
   std::string f{filename};
@@ -1518,7 +1533,6 @@ std::string Util::FormatTime(std::string_view fmt,
     out_buffer.resize(out_buffer.size() * 2);
   }
 }
-
 
 const uint8_t *Util::MemMem(const uint8_t *haystack, size_t n,
                             const uint8_t *needle, size_t m) {

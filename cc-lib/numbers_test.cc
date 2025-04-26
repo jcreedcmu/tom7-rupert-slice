@@ -101,6 +101,10 @@ static void TestGCD() {
       CHECK(gcd == gcd3) << a << "," << b << ": gcd="
                          << gcd << " but std::gcd=" << gcd3;
 
+      const int64_t gcd4 = GCD(a, b);
+      CHECK(gcd == gcd4) << a << "," << b << ": gcd="
+                         << gcd << " but GCD=" << gcd3;
+
       #if 0
       // XXX need ExtendedGCD without GMP to test this cleanly here.
       const auto &[big_gcd, big_x, big_y] =

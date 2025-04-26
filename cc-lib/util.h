@@ -341,6 +341,10 @@ struct Util {
                                const char *sep = nullptr,
                                const char *prefix = nullptr);
 
+  // Requires that the string consist only of '1's and '0's.
+  // May not be empty.
+  static std::optional<uint64_t> ParseBinary(std::string_view s);
+
   // See utf8.h for UTF utilities that used to be here.
 
   // TODO: Migrate everyone to factorize.h, which is faster.

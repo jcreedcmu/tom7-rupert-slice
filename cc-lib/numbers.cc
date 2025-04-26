@@ -439,13 +439,13 @@ std::optional<uint64_t> SqrtModP(uint64_t base, uint64_t prime) {
     }
 
     if (VERBOSE)
-    printf("aux5 %llu = aux6 %llu\n",
-           base,
-           rep.ToInt(aux6));
+      printf("aux5 %llu = aux6 %llu\n",
+             base,
+             rep.ToInt(aux6));
 
     if ((prime & 7) == 5) {
       if (VERBOSE)
-      printf("prime & 7 == 5.\n");
+        printf("prime & 7 == 5.\n");
 
       // prime mod 8 = 5: use Atkin's method for modular square roots.
       // Step 1. v <- (2u)^((p-5)/8) mod p
@@ -457,7 +457,7 @@ std::optional<uint64_t> SqrtModP(uint64_t base, uint64_t prime) {
       uint64_t q = (prime - 5) >> 3;
 
       if (VERBOSE)
-      printf("q: %llu\n", q);
+        printf("q: %llu\n", q);
 
       // 2u
       const Montgomery64 aux7 = rep.Add(aux6, aux6);
@@ -465,8 +465,8 @@ std::optional<uint64_t> SqrtModP(uint64_t base, uint64_t prime) {
       // At this moment aux7 is v in Montgomery notation.
 
       if (VERBOSE)
-      printf("before step2: aux7 %llu aux8 %llu\n",
-             rep.ToInt(aux7), rep.ToInt(aux8));
+        printf("before step2: aux7 %llu aux8 %llu\n",
+               rep.ToInt(aux7), rep.ToInt(aux8));
 
       // Step 2.
       // v^2
@@ -489,7 +489,7 @@ std::optional<uint64_t> SqrtModP(uint64_t base, uint64_t prime) {
     } else {
 
       if (VERBOSE)
-      printf("prime & 7 == %llu\n", prime & 7);
+        printf("prime & 7 == %llu\n", prime & 7);
 
       // prime = 1 (mod 8). Use Shanks' method for modular square roots.
       // Step 1. Select e >= 3, q odd such that p = 2^e * q + 1.
@@ -519,7 +519,7 @@ std::optional<uint64_t> SqrtModP(uint64_t base, uint64_t prime) {
       } while (Jacobi64(x, prime) >= 0);
 
       if (VERBOSE)
-      printf("  x: %d  qq: %llu\n", x, qq);
+        printf("  x: %d  qq: %llu\n", x, qq);
 
       // Step 3.
       // Get z <- x^q (mod p) in Montgomery notation.
@@ -541,11 +541,11 @@ std::optional<uint64_t> SqrtModP(uint64_t base, uint64_t prime) {
       Montgomery64 aux9 = rep.Mult(aux8, aux7);
 
       if (VERBOSE)
-      printf("  Z %llu aux7 %llu aux8 %llu aux9 %llu\n",
-             rep.ToInt(aux5),
-             rep.ToInt(aux7),
-             rep.ToInt(aux8),
-             rep.ToInt(aux9));
+        printf("  Z %llu aux7 %llu aux8 %llu aux9 %llu\n",
+               rep.ToInt(aux5),
+               rep.ToInt(aux7),
+               rep.ToInt(aux8),
+               rep.ToInt(aux9));
 
       // Step 5
       while (!rep.Eq(aux9, rep.One())) {
@@ -565,9 +565,9 @@ std::optional<uint64_t> SqrtModP(uint64_t base, uint64_t prime) {
         // memcmp(aux10, params->R1.data(), NumberLengthBytes) != 0)
 
         if (VERBOSE)
-        printf(
-            "    r %d k %d aux5 %llu aux10 %llu\n",
-            r, k, rep.ToInt(aux5), rep.ToInt(aux10));
+          printf(
+              "    r %d k %d aux5 %llu aux10 %llu\n",
+              r, k, rep.ToInt(aux5), rep.ToInt(aux10));
 
         // Step 7
         // d
@@ -577,8 +577,7 @@ std::optional<uint64_t> SqrtModP(uint64_t base, uint64_t prime) {
           aux10 = rep.Mult(aux10, aux10);
         }
         if (VERBOSE)
-        printf(
-            "    aux10 %llu\n", rep.ToInt(aux10));
+          printf("    aux10 %llu\n", rep.ToInt(aux10));
 
         // y
         aux5 = rep.Mult(aux10, aux10);
@@ -605,7 +604,7 @@ std::optional<uint64_t> SqrtModP(uint64_t base, uint64_t prime) {
     // get the call to Reduce. We skip the multiplication.
     uint64_t res = rep.ToInt(to_convert);
     if (VERBOSE)
-    printf("  returning %llu\n", res);
+      printf("  returning %llu\n", res);
     return {res};
   }
 }

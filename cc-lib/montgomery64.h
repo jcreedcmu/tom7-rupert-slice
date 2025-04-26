@@ -6,7 +6,7 @@
 
 #include "base/int128.h"
 
-// TODO: To cc-lib. Could also support 32 and 128 bit?
+// TODO: Could also support 32 and 128 bit?
 
 // A 64-bit number in montgomery form.
 struct Montgomery64 {

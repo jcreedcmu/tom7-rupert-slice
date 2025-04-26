@@ -19,6 +19,11 @@ ExtendedGCD64(int64_t a, int64_t b);
 std::tuple<int64_t, int64_t, int64_t>
 ReferenceExtendedGCD64(int64_t a, int64_t b);
 
+inline int64_t GCD(int64_t a, int64_t b) {
+  // Note you can also just try std::gcd.
+  return std::get<0>(ExtendedGCD64(a, b));
+}
+
 // compute a^1 mod b    for a,b coprime
 inline int64_t ModularInverse64(int64_t a, int64_t b) {
   // if (a < 0 && b < 0) { a = -a; b = -b; }

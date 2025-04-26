@@ -27,9 +27,20 @@ using namespace std;
   auto aa = (a); \
   auto bb = (b); \
   CHECK(aa == bb) << "Expected equal vectors:\n" << #a << "\n" << #b \
-                  << "\nValues:\n" << Util::Join(aa, "|") << "\n" \
+                  << "\nValues:\n" << Util::Join(aa, "|") << "\n"    \
                   << Util::Join(bb, "|") << "\n";              \
   } while (false)
+
+#define CHECK_OPT_VALUE(a, b) do {                            \
+    auto aa = (a);                                            \
+    auto bb = (b);                                            \
+    CHECK(aa.has_value()) << "Expected optional " << #a       \
+                          << " to have a value.";             \
+    const auto &aav = aa.value();                             \
+    CHECK_EQ(aav, bb) << "For " << #a << " got " << aav       \
+                      << " but wanted " << #b " << = " << bb; \
+  } while (false)
+
 
 static string SlowReadFile(const string &filename) {
   FILE *f = fopen(filename.c_str(), "rb");
@@ -652,6 +663,24 @@ static void TestFormatTime() {
                           tt).c_str());
 }
 
+static void TestParseBinary() {
+  CHECK(!Util::ParseBinary("").has_value());
+  CHECK(!Util::ParseBinary("100a").has_value());
+  CHECK(!Util::ParseBinary("a").has_value());
+  CHECK(!Util::ParseBinary(
+            // too many digits
+            "000000000000000000000000000000000"
+            "000000000000000000000000000000000").has_value());
+
+  CHECK_OPT_VALUE(Util::ParseBinary("101010"), 42u);
+  CHECK_OPT_VALUE(Util::ParseBinary("0"), 0u);
+  CHECK_OPT_VALUE(Util::ParseBinary("1"), 1u);
+  CHECK_OPT_VALUE(Util::ParseBinary(
+                      // 64 one bits
+                      "1111111111111111111111111111111111111111"
+                      "111111111111111111111111"), ~uint64_t(0));
+}
+
 int main(int argc, char **argv) {
   TestItos();
   TestStoi();
@@ -687,6 +716,7 @@ int main(int argc, char **argv) {
   TestChopTo();
   TestFormatTime();
   TestContains();
+  TestParseBinary();
 
   printf("OK\n");
   return 0;
