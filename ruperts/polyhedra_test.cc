@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <numbers>
 #include <optional>
@@ -22,6 +23,7 @@
 #include "image.h"
 #include "randutil.h"
 #include "rendering.h"
+#include "timer.h"
 #include "yocto_matht.h"
 
 using vec2 = yocto::vec<double, 2>;
@@ -604,7 +606,16 @@ static void TestPointLineDistance() {
   vec2 f_pt{7 + std::numbers::sqrt2, std::numbers::sqrt2};
 
   ArcFour rc("test");
-  for (int i = 0; i < 1000; i++) {
+  Timer timer;
+  static constexpr int64_t ITERS = 100000;
+  for (int i = 0; i < ITERS; i++) {
+    // Random point like side point, but on the other side.
+    double oside_dist = RandDouble(&rc) * 10.0 + 0.125;
+    vec2 oside_pt = {
+      RandDouble(&rc) * 7.0,
+      oside_dist,
+    };
+
     double theta = RandDouble(&rc) * 2.0 * std::numbers::pi;
     frame2 frame = rotation_frame2(theta);
     frame.o.x = RandDouble(&rc) * 5 - 2.5;
@@ -615,6 +626,8 @@ static void TestPointLineDistance() {
     vec2 rside_pt = transform_point(frame, side_pt);
     vec2 re_pt = transform_point(frame, e_pt);
     vec2 rf_pt = transform_point(frame, f_pt);
+
+    vec2 roside_pt = transform_point(frame, oside_pt);
 
     // In both orientations.
     CHECK_NEAR(PointLineDistance(rlinea, rlineb, rside_pt), 3.0);
@@ -628,7 +641,12 @@ static void TestPointLineDistance() {
 
     CHECK_NEAR(PointLineDistance(rlinea, rlineb, rlinea), 0.0);
     CHECK_NEAR(PointLineDistance(rlineb, rlinea, rlinea), 0.0);
+
+    CHECK_NEAR(PointLineDistance(rlinea, rlineb, roside_pt), oside_dist);
+    CHECK_NEAR(PointLineDistance(rlineb, rlinea, roside_pt), oside_dist);
   }
+  double spi = timer.Seconds() / ITERS;
+  printf("PointLineDistance time: %s\n", ANSI::Time(spi).c_str());
 }
 
 int main(int argc, char **argv) {

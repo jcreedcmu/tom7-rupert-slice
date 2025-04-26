@@ -341,10 +341,51 @@ inline double SquaredPointLineDistance(
     // Point to test
     const vec2 &pt) {
 
+  #if 0
   const vec2 c = ClosestPointOnSegment(v0, v1, pt);
   const double dx = pt.x - c.x;
   const double dy = pt.y - c.y;
   return dx * dx + dy * dy;
+  #else
+  // This approach is about 10% faster than the above.
+
+  const vec2 edge = v1 - v0;
+
+  const double sqlen = length_squared(edge);
+
+  // For a degnerate segment, there's just one distance to consider.
+  if (sqlen == 0.0) {
+    return distance_squared(pt, v0);
+  }
+
+  const vec2 c = pt - v0;
+
+  // Project p onto the vector.
+  const double dotprod = dot(c, edge);
+
+  if (dotprod <= 0.0) {
+    // Before the starting point.
+    return distance_squared(pt, v0);
+  } else if (dotprod >= sqlen) {
+    // After the ending point.
+    return distance_squared(pt, v1);
+  } else {
+    const double tf = dotprod / sqlen;
+
+    // Between the two points. The closest point on the segment
+    // will be on a line perpendicular to the segment. So we
+    // can actually use the Pythagorean theorem to get a^2 here:
+    //
+    //         pt    c
+    //         | `-.
+    //      a  |    `-.        a^2 + b^2 = c^2
+    //  v1-----x-------v0      so
+    //             b           a^2 = c^2 - b^2
+
+    const double bsquared = tf * dotprod;
+    return length_squared(c) - bsquared;
+  }
+  #endif
 }
 
 double PointLineDistance(
