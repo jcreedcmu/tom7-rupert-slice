@@ -39,6 +39,8 @@ using namespace yocto;
 
 static constexpr int DIGITS = 24;
 
+static constexpr int TARGET_SAMPLES = 1'000'000;
+
 struct TwoPatch {
   static std::string Filename(uint64_t outer_code, uint64_t inner_code) {
     return std::format("{:x}-{:x}.nds", outer_code, inner_code);
@@ -49,7 +51,8 @@ struct TwoPatch {
     boundaries(big_poly),
     small_poly(SmallPoly(big_poly)),
     outer_code(outer_code), inner_code(inner_code),
-    sols(Filename(outer_code, inner_code)) {
+    sols(Filename(outer_code, inner_code)),
+    diameter(Diameter(small_poly)) {
 
     outer_mask = GetCodeMask(boundaries, outer_code);
     inner_mask = GetCodeMask(boundaries, inner_code);
@@ -60,6 +63,7 @@ struct TwoPatch {
     inner_hull = ComputeHullForPatch(boundaries, inner_code, inner_mask,
                                      {"twopatch-inner"});
 
+    start_sols_size = sols.Size();
     {
       MutexLock ml(&mu);
       MaybeStatus();
@@ -76,11 +80,14 @@ struct TwoPatch {
   const Polyhedron small_poly;
   const uint64_t outer_code = 0, inner_code = 0;
   uint64_t outer_mask = 0, inner_mask = 0;
-  double total_sample_sec = 0.0, total_opt_sec = 0.0;
+  double total_sample_sec = 0.0, total_opt_sec = 0.0, total_add_sec = 0.0;
+  NDSolutions<6> sols;
+  size_t start_sols_size = 0;
+  const double diameter = 0.0;
+  Timer run_timer;
 
   std::vector<int> outer_hull, inner_hull;
 
-  NDSolutions<6> sols;
 
   void WorkThread(int thread_idx) {
     ArcFour rc(std::format("{}.{}", time(nullptr), thread_idx));
@@ -116,6 +123,8 @@ struct TwoPatch {
       // better would be to use the inscribed/circumscribed
       // circles to set bounds on the translation.
 
+
+
       // we rotate the inner polygon around zero by theta, and
       // translate it by dx,dy.
       auto Loss = [&outer_poly, &inner_poly](
@@ -149,20 +158,24 @@ struct TwoPatch {
           }
         };
 
-      // XXX get correct translation bounds from polys
+      // PERF: With better bounds on the OD and ID of the
+      // two hulls, we could limit the translation a lot more.
+      const double TMAX = diameter;
+
       static constexpr int D = 3;
       const std::array<double, D> lb =
-        {0.0, -0.15, -0.15};
+        {0.0, -TMAX, -TMAX};
       const std::array<double, D> ub =
-        {2.0 * std::numbers::pi, +0.15, +0.15};
+        {2.0 * std::numbers::pi, +TMAX, +TMAX};
 
       Timer opt_timer;
       constexpr int ATTEMPTS = 100;
       const auto &[args, error] =
         Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 100);
       [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
-      double aps = ATTEMPTS / opt_sec;
+      [[maybe_unused]] double aps = ATTEMPTS / opt_sec;
 
+      Timer add_timer;
       // The "solution" is the same outer frame, but we need to
       // include the 2D rotation and translation in the innter frame.
       const auto &[theta, dx, dy] = args;
@@ -181,11 +194,13 @@ struct TwoPatch {
       key[4] = inner_view.y;
       key[5] = inner_view.z;
       sols.Add(key, error, outer_frame, inner_sol_frame);
+      double add_sec = add_timer.Seconds();
 
       {
         MutexLock ml(&mu);
         total_sample_sec += sample_sec;
         total_opt_sec += opt_sec;
+        total_add_sec += add_sec;
         MaybeStatus();
       }
 
@@ -198,15 +213,21 @@ struct TwoPatch {
     status_per.RunIf([&]() {
         double tot_sec = total_sample_sec + total_opt_sec;
         std::string timing =
-          std::format("{} sample {} opt ({:.2}%)",
+          std::format("{} sample {} opt ({:.2}%) {} add",
                       ANSI::Time(total_sample_sec),
                       ANSI::Time(total_opt_sec),
-                      (100.0 * total_opt_sec) / tot_sec);
+                      (100.0 * total_opt_sec) / tot_sec,
+                      ANSI::Time(total_add_sec));
 
-        std::string counts =
-          std::format("{} sols done.", sols_done.Read());
+        int64_t done = sols_done.Read();
+        std::string bar =
+          ANSI::ProgressBar(done, TARGET_SAMPLES - start_sols_size,
+                            std::format("{} sols here. Save in {}",
+                                        done,
+                                        ANSI::Time(save_per.SecondsLeft())),
+                            run_timer.Seconds());
 
-        status.EmitStatus({timing, counts});
+        status.EmitStatus({timing, bar});
       });
 
     save_per.RunIf([&]() {
@@ -235,7 +256,7 @@ struct TwoPatch {
       threads.emplace_back(&TwoPatch::WorkThread, this, i);
     }
 
-    while (sols.Size() < 10'000'000) {
+    while (sols.Size() < TARGET_SAMPLES) {
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
@@ -255,9 +276,11 @@ struct TwoPatch {
 int main(int argc, char **argv) {
   ANSI::Init();
 
+  // done: 0b0000101000010101110101111011111,0b1101110011101000001011100000101
+
   TwoPatch two_patch(BigScube(DIGITS),
                      0b0000101000010101110101111011111,
-                     0b1101110011101000001011100000101);
+                     0b0000101000010101110101111011111);
   two_patch.Plot();
 
   return 0;

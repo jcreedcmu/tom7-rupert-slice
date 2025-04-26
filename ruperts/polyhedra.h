@@ -449,7 +449,8 @@ std::optional<double> GetClearance(const Polyhedron &poly,
                                    const frame3 &outer_frame,
                                    const frame3 &inner_frame);
 
-// XXX docs
+// Creates an approximate sphere by "triforce" subdivision of the
+// icosahedron with the given depth (exponential).
 TriangularMesh3D ApproximateSphere(int depth);
 
 // Takes ownership of the vertices, which should be a convex hull.

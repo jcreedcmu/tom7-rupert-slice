@@ -556,7 +556,7 @@ void BoundEdges(const Boundaries &boundaries,
   uint64_t mask = GetCodeMask(boundaries, code);
   // mask = mask | (mask << 1);
   // const uint64_t mask = ~0;
-  mask = ~0;
+  // mask = ~0;
 
   printf("For code: %s\n",
          boundaries.ColorMaskedBits(code, mask).c_str());
