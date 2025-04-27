@@ -42,5 +42,8 @@ tree-2d_test.exe : tree-2d_test.o $(CC_LIB_OBJECTS)
 tree-3d_test.exe : tree-3d_test.o $(CC_LIB_OBJECTS)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
+tree-nd_test.exe : tree-nd_test.o $(CC_LIB_OBJECTS)
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
 clean :
 	rm -f *.o *.exe $(CC_LIB_OBJECTS)
