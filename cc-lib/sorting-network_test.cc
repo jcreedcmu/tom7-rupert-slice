@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <array>
 #include <tuple>
+#include <format>
 
 #include "ansi.h"
 #include "base/logging.h"
