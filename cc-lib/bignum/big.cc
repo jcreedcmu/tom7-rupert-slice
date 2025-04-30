@@ -1478,3 +1478,15 @@ BigRat BigRat::Cbrt(const BigRat &in, const BigInt &inv_epsilon) {
     x = std::move(next_x);
   }
 }
+
+BigRat::BigRat(std::string_view s) : BigRat(0) {
+  // Does it have a '/' character?
+  size_t slash = s.find('/');
+  if (slash == std::string_view::npos) {
+    *this = BigRat{BigInt(s)};
+  } else {
+    std::string_view numer = s.substr(0, slash);
+    std::string_view denom = s.substr(slash + 1, std::string_view::npos);
+    *this = BigRat{BigInt(numer), BigInt(denom)};
+  }
+}

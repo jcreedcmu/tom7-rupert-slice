@@ -240,14 +240,14 @@ struct BigInt {
   explicit BigInt(Rep z, std::nullptr_t token) : rep(z) {}
   #endif
 
-public:
+ public:
   // Not recommended! And inherently not portable between
   // representations. But for example you can use this to efficiently
   // create BigInts from arrays of words using mpz_import.
   Rep &GetRep() { return rep; }
   const Rep &GetRep() const { return rep; }
 
-private:
+ private:
   Rep rep{};
 };
 
@@ -257,6 +257,8 @@ struct BigRat {
   inline BigRat() : BigRat(0LL, 1LL) {}
   inline explicit BigRat(int64_t numer, int64_t denom);
   inline explicit BigRat(int64_t numer);
+  // "-123" and "-123/567" are supported.
+  explicit BigRat(std::string_view s);
   inline BigRat(const BigInt &numer, const BigInt &denom);
   inline BigRat(const BigInt &numer);
   // PERF: Could have versions that move numerator/denominator?

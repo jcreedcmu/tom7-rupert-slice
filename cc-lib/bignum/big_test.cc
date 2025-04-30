@@ -23,6 +23,13 @@ using namespace std;
 
 static constexpr bool RUN_BENCHMARKS = false;
 
+#define CHECK_SEQ(a, b) do {                                            \
+    auto aa = (a);                                                      \
+    auto bb = (b);                                                      \
+    CHECK(aa == bb) << "Expected equal strings:\n" << #a << "\n" << #b  \
+                    << "\nValues:\n" << aa << "\n" << bb << "\n";       \
+  } while (false)
+
 static void TestToString() {
   for (int i = -100000; i < 100000; i++) {
     BigInt bi(i);
@@ -94,6 +101,28 @@ static void HashCode() {
   BigInt big(s);
   CHECK(BigInt::HashCode(a) != BigInt::HashCode(big));
   CHECK(BigInt::HashCode(big) == BigInt::HashCode(big));
+}
+
+static void TestRatString() {
+  {
+    BigRat a("123");
+    CHECK_SEQ(a.ToString(), "123");
+  }
+
+  {
+    BigRat b("-4");
+    CHECK_SEQ(b.ToString(), "-4");
+  }
+
+  {
+    BigRat c("41/17");
+    CHECK_SEQ(c.ToString(), "41/17");
+  }
+
+  {
+    BigRat d("-41/17");
+    CHECK_SEQ(d.ToString(), "-41/17");
+  }
 }
 
 static void TestRatFromDouble() {
@@ -1183,6 +1212,7 @@ int main(int argc, char **argv) {
   TestCompare();
   TestRatCompare();
 
+  TestRatString();
   TestRatFromDouble();
   TestToDouble();
   TestRatToDouble();
