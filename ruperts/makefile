@@ -215,8 +215,22 @@ texture-sphere.exe : texture-sphere.o $(OBJECTS)
 	@$(CXX) $^ -o $@ $(LFLAGS)
 	@echo -n "!"
 
+patches_test.exe : patches_test.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+computepatchinfo.exe : computepatchinfo.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
+getmask.exe : getmask.o $(OBJECTS)
+	@$(CXX) $^ -o $@ $(LFLAGS)
+	@echo -n "!"
+
 clean :
 	rm -f *.o *.exe $(OBJECTS)
+
+
 
 ifeq ($(OPT),)
   $(warning Warning: OPT is completely disabled!)

@@ -23,6 +23,7 @@
 #include "base/logging.h"
 #include "bounds.h"
 #include "color-util.h"
+#include "geom/tree-nd.h"
 #include "hashing.h"
 #include "image.h"
 #include "integer-voronoi.h"
@@ -39,6 +40,8 @@ struct NDSolutions {
 
   explicit NDSolutions(std::string_view filename);
 
+  bool Empty() { return Size() == 0; }
+
   void Add(const std::array<double, N> &key, double val,
            const frame3 &outer_frame, const frame3 &inner_frame);
   int64_t Size() {
@@ -46,15 +49,19 @@ struct NDSolutions {
     return data.size();
   }
 
-  // Distance to the closest sample; Euclidean. PERF XXX! Linear time!
+  // Distance to the closest sample; Euclidean.
   double Distance(const std::array<double, N> &key);
+
+  // Aborts if empty.
+  std::tuple<std::array<double, N>, double, frame3, frame3>
+  Closest(const std::array<double, N> &key);
+
   void Save();
 
   // Plot the scores given a single dimension index.
   void Plot1D(int dim,
               int image_width, int image_height,
               std::string_view filename);
-
 
   void Plot1DColor2(int xdim, int cdim1, int cdim2,
                     int image_width, int image_height,
@@ -130,7 +137,12 @@ struct NDSolutions {
 
   std::mutex m;
   std::string filename;
+
+  // PERF: Probably should just store this in the tree directly
+  // to reduce memory pressure.
   std::vector<std::array<double, ROW_SIZE>> data;
+
+  TreeND<double, size_t> index = TreeND<double, size_t>(N);
 };
 
 
@@ -193,20 +205,30 @@ void NDSolutions<N>::Add(
 
   {
     MutexLock ml(&m);
+    size_t idx = data.size();
     data.push_back(std::move(row));
+    index.Insert(key, idx);
   }
 }
 
 template<size_t N>
 double NDSolutions<N>::Distance(const std::array<double, N> &key) {
   MutexLock ml(&m);
-  double min_distance_sq = std::numeric_limits<double>::infinity();
-  for (const auto &row : data) {
-    double dd = SqDist(row, key);
-    min_distance_sq = std::min(min_distance_sq, dd);
-  }
+  if (index.Empty())
+    return std::numeric_limits<double>::infinity();
 
-  return sqrt(min_distance_sq);
+  const auto &[pos, idx, dist] = index.Closest(key);
+  return dist;
+}
+
+template<size_t N>
+auto NDSolutions<N>::Closest(const std::array<double, N> &key) ->
+  std::tuple<std::array<double, N>, double, frame3, frame3> {
+  MutexLock ml(&m);
+  CHECK(!index.Empty());
+
+  const auto &[pos, idx, dist] = index.Closest(key);
+  return DecodeRow(data[idx]);
 }
 
 template<size_t N>
@@ -226,6 +248,12 @@ NDSolutions<N>::NDSolutions(std::string_view filename) : filename(filename) {
       }
       data.push_back(std::move(row));
     }
+  }
+
+  // Then create index.
+  for (size_t idx = 0; idx < data.size(); idx++) {
+    const auto &[key, dist, outer, inner] = DecodeRow(data[idx]);
+    index.Insert(key, idx);
   }
 }
 

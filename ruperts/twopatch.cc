@@ -28,6 +28,7 @@
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
+#include "util.h"
 #include "yocto_matht.h"
 #include "atomic-util.h"
 
@@ -213,7 +214,7 @@ struct TwoPatch {
     status_per.RunIf([&]() {
         double tot_sec = total_sample_sec + total_opt_sec;
         std::string timing =
-          std::format("{} sample {} opt ({:.2}%) {} add",
+          std::format("{} sample {} opt ({:.2g}%) {} add",
                       ANSI::Time(total_sample_sec),
                       ANSI::Time(total_opt_sec),
                       (100.0 * total_opt_sec) / tot_sec,
@@ -272,15 +273,19 @@ struct TwoPatch {
 };
 
 
-
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  // done: 0b0000101000010101110101111011111,0b1101110011101000001011100000101
+  CHECK(argc == 3) << "./twopatch.exe outer_code inner_code\n";
+  std::optional<uint64_t> outer_code = Util::ParseBinary(argv[1]);
+  std::optional<uint64_t> inner_code = Util::ParseBinary(argv[2]);
+  CHECK(outer_code.has_value() && inner_code.has_value());
 
+  // done:
+  // 0b0000101000010101110101111011111,0b1101110011101000001011100000101
+  // 0b0000101000010101110101111011111,0b0000101000010101110101111011111,
   TwoPatch two_patch(BigScube(DIGITS),
-                     0b0000101000010101110101111011111,
-                     0b0000101000010101110101111011111);
+                     outer_code.value(), inner_code.value());
   two_patch.Plot();
 
   return 0;

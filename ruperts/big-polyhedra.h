@@ -23,6 +23,15 @@ struct BigVec3 {
     x(std::move(x)), y(std::move(y)), z(std::move(z)) {}
   BigVec3() {}
   BigRat x = BigRat(0), y = BigRat(0), z = BigRat(0);
+
+  BigRat &operator[](size_t i) {
+    switch (i) {
+    case 0: return x;
+    case 1: return y;
+    case 2: return z;
+    }
+    LOG(FATAL) << "Bad index to BigVec3::operator[]";
+  }
 };
 
 struct BigVec2 {
