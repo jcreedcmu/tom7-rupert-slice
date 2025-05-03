@@ -408,7 +408,7 @@ Mesh2D Shadow(const Polyhedron &p) {
   return mesh;
 }
 
-double SquaredDistanceToPoly(const std::vector<vec2> &poly,
+double SquaredDistanceToPolyRef(const std::vector<vec2> &poly,
                              const vec2 &pt) {
   double best_sqdist = std::numeric_limits<double>::infinity();
   for (int i = 0; i < poly.size(); i++) {
@@ -502,6 +502,64 @@ double HullClearance(const std::vector<vec2> &outer_points,
   return std::sqrt(min_sqdist);
 }
 
+double PolyTester2D::SquaredDistanceToPoly(const vec2 &pt) const {
+  double best_sqdist = std::numeric_limits<double>::infinity();
+  for (int i = 0; i < poly.size(); i++) {
+    const vec2 &v0 = poly[i];
+    const vec2 &v1 = poly[(i + 1) % poly.size()];
+
+    // This is SquaredPointLineDistance, but:
+    //   - (TODO) use precomputed facts
+    //   - We test against the full edge first; if this
+    //     point is not better than our current best, we
+    //     can just reject the edge.
+    const vec2 edge = v1 - v0;
+
+    const double sqlen = length_squared(edge);
+
+    // For a degnerate segment, there's just one distance to consider.
+    if (sqlen == 0.0) {
+      best_sqdist = std::min(best_sqdist, distance_squared(pt, v0));
+      continue;
+    }
+
+    const vec2 c = pt - v0;
+
+    // Project p onto the vector.
+    const double dotprod = dot(c, edge);
+
+    // Get the closest point on the infinite line (see
+    // SquareDPointLineDistance).
+    const double tf = dotprod / sqlen;
+    const double bsquared = tf * dotprod;
+    const double toline = length_squared(c) - bsquared;
+
+    if (toline < best_sqdist) {
+      if (dotprod <= 0.0) {
+        // Before the starting point.
+        best_sqdist = std::min(best_sqdist, distance_squared(pt, v0));
+      } else if (dotprod >= sqlen) {
+        // After the ending point.
+        best_sqdist = std::min(best_sqdist, distance_squared(pt, v1));
+      } else {
+        best_sqdist = toline;
+      }
+    }
+  }
+
+  CHECK(std::isfinite(best_sqdist));
+  return best_sqdist;
+}
+
+
+
+std::optional<double>
+PolyTester2D::SquaredDistanceOutside(const vec2 &pt) const {
+  if (PointInPolygon(pt, poly))
+    return std::nullopt;
+
+  return SquaredDistanceToPoly(pt);
+}
 
 std::vector<int> GiftWrapConvexHull(const std::vector<vec2> &vertices) {
   constexpr bool VERBOSE = false;

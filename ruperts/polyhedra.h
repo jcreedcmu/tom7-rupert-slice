@@ -157,6 +157,24 @@ inline double SignedDistanceToEdge(const vec2 &v0, const vec2 &v1,
   return dist;
 }
 
+// Precomputation for testing points in a polygon. This
+// should be faster if you need to call PointInPolygon
+// many times for the same polygon.
+struct PolyTester2D {
+  PolyTester2D(const std::vector<vec2> &poly) : poly(poly) {
+    // TODO: Precompute.
+  }
+
+  // Returns nullopt if the point is inside. Otherwise, minimum squared
+  // distance to the polygon.
+  std::optional<double> SquaredDistanceOutside(const vec2 &pt) const;
+
+ private:
+  double SquaredDistanceToPoly(const vec2 &pt) const;
+
+  const std::vector<vec2> &poly;
+};
+
 // Rotate (and translate, if the frame contains a translation) the polyhedron.
 // They share the same faces pointer.
 inline Polyhedron Rotate(const Polyhedron &p, const frame3 &frame) {
