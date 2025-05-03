@@ -39,6 +39,12 @@ void WriteWithLock(std::mutex *m, T *t, const T &val) {
   *t = val;
 }
 
+template<class F>
+auto WithLock(std::mutex *m, const F &f) -> decltype(f()) {
+  MutexLock ml(m);
+  return f();
+}
+
 #if __cplusplus >= 201703L
 // Overloads for shared_mutex, if available.
 struct ReadMutexLock {

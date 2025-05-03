@@ -1164,5 +1164,54 @@ void SavePatchInfo(const PatchInfo &info, std::string_view filename) {
 
 
 PatchInfo LoadPatchInfo(std::string_view filename) {
-  LOG(FATAL) << "Unimplemented";
+  PatchInfo info;
+  for (const std::string &raw_line :
+         Util::NormalizeLines(Util::ReadFileToLines(filename))) {
+    std::string line = raw_line;
+    std::string cmd = Util::chop(line);
+    if (cmd == "c") {
+      std::optional<uint64_t> ocode = Util::ParseBinary(Util::chop(line));
+      std::optional<uint64_t> omask = Util::ParseBinary(Util::chop(line));
+      std::string sx = Util::chop(line);
+      std::string sy = Util::chop(line);
+      std::string sz = Util::chop(line);
+      CHECK(ocode.has_value());
+      CHECK(omask.has_value());
+      CHECK(!sz.empty());
+
+      BigVec3 v{BigRat(sx), BigRat(sy), BigRat(sz)};
+      CHECK(!AllZero(v));
+      info.canonical[ocode.value()] = PatchInfo::CanonicalPatch{
+          .code = ocode.value(),
+          .mask = omask.value(),
+          .example = std::move(v),
+        };
+
+    } else if (cmd == "a") {
+      std::optional<uint64_t> ocode = Util::ParseBinary(Util::chop(line));
+      std::optional<uint64_t> omask = Util::ParseBinary(Util::chop(line));
+      std::optional<uint64_t> ocano = Util::ParseBinary(Util::chop(line));
+      uint16_t perm = Util::stoi(line);
+      CHECK(ocode.has_value());
+      CHECK(omask.has_value());
+      CHECK(ocano.has_value());
+      CHECK(perm > 0) << "Bad (probably short) line; perm cannot be zero";
+
+      info.all_codes[ocode.value()] = PatchInfo::SamePatch{
+          .code = ocode.value(),
+          .mask = omask.value(),
+          .canonical_code = ocano.value(),
+          .patch_to_canonical = SignedPermutation(perm),
+        };
+
+    } else {
+      LOG(FATAL) << "Unexpected line: " << line;
+    }
+  }
+
+  for (const auto &[_, same] : info.all_codes) {
+    CHECK(info.canonical.contains(same.canonical_code)) << filename;
+  }
+
+  return info;
 }

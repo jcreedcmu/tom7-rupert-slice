@@ -1,7 +1,9 @@
 
 #include "tree-nd.h"
 
+#include <span>
 #include <string>
+#include <unordered_set>
 
 #include "base/logging.h"
 
@@ -39,6 +41,21 @@ static void TestInts2D() {
   }
 
   tree.DebugPrint();
+
+  std::unordered_set<std::string> saw;
+  tree.App([&saw](std::span<const int> pos, const std::string &s) {
+      CHECK(!saw.contains(s));
+      saw.insert(s);
+      if (s == "i") {
+        CHECK(pos[0] == -99);
+        CHECK(pos[1] == 300);
+        CHECK(pos[2] == 0);
+      }
+    });
+
+  for (const auto &[x, y, z, s] : points) {
+    CHECK(saw.contains(s));
+  }
 
   for (const auto &[x, y, z, s] : points) {
     CHECK(z == 0);

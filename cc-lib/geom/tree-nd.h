@@ -15,6 +15,7 @@
 #include "base/logging.h"
 
 // Maps 3D points to values of type T.
+// This is a classic kd tree without any rebalancing.
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
 struct TreeND {
@@ -46,8 +47,23 @@ struct TreeND {
   void DebugPrint() const;
 
  private:
-  static constexpr size_t MAX_LEAF = 8;
-  using Leaf = std::vector<std::pair<Pos, T>>;
+  static constexpr int MAX_LEAF = 128;
+  struct Leaf {
+    int Size() const { return values.size(); }
+    void Add(std::span<const Num> pos, T t) {
+      for (int i = 0; i < (int)pos.size(); i++) {
+        positions.push_back(pos[i]);
+      }
+      values.push_back(t);
+    }
+
+   private:
+    // Flattened: size * d positions
+    std::vector<Num> positions;
+    std::vector<T> values;
+    friend struct TreeND;
+  };
+
   struct Split {
     // Which axis we are splitting on, in [0, d).
     int axis = 0;
@@ -85,6 +101,42 @@ struct TreeND {
     }
     return true;
   }
+
+  double SplitPoint(const Leaf &leaf, int axis) const {
+    // PERF: Median is likely a better choice.
+    double sum = 0.0;
+    int size = leaf.Size();
+    for (int i = 0; i < size; i++) {
+      sum += leaf.positions[i * d + axis];
+    }
+    return sum / size;
+  }
+
+  std::span<const Num> LeafPos(const Leaf &leaf, int i) const {
+    return std::span<const Num>(leaf.positions.data() + (d * i), d);
+  }
+
+  T LeafData(const Leaf &leaf, int i) const {
+    return leaf.values[i];
+  }
+
+  void LeafEraseAt(Leaf *leaf, int idx) const {
+    if (idx != (int)leaf->values.size() - 1) {
+      std::swap(leaf->values[idx],
+                leaf->values[leaf->values.size() - 1]);
+    }
+    leaf->values.pop_back();
+
+    // And the d positions.
+    if (idx * d != (int)leaf->positions.size() - d) {
+      for (int i = 0; i < d; i++) {
+        leaf->positions[idx * d + i] =
+          leaf->positions[leaf->positions.size() - d + i];
+      }
+    }
+    leaf->positions.resize(leaf->positions.size() - d);
+  }
+
 
   void InsertTo(Node *node, int axis,
                 std::span<const Num> pos, T t);
@@ -161,14 +213,11 @@ bool TreeND<Num, T>::Remove(std::span<const Num> pos) {
 
       } else {
         Leaf *leaf = &std::get<Leaf>(*cursor.get());
-        for (int idx = 0; idx < (int)leaf->size(); /* in loop */) {
-          if (SamePos((*leaf)[idx].first, pos)) {
+        for (int idx = 0; idx < (int)leaf->Size(); /* in loop */) {
+          if (SamePos(LeafPos(*leaf, idx), pos)) {
             // Erase it. We do this by swapping with the last
             // element (if any) and then reducing the size by one.
-            if (idx != (int)leaf->size() - 1) {
-              std::swap((*leaf)[idx], (*leaf)[leaf->size() - 1]);
-            }
-            leaf->pop_back();
+            LeafEraseAt(leaf, idx);
             removed++;
 
             // Keep index where it is, since we haven't looked
@@ -180,7 +229,7 @@ bool TreeND<Num, T>::Remove(std::span<const Num> pos) {
         }
 
         // Clean up empty vectors.
-        if (leaf->empty()) {
+        if (leaf->Size() == 0) {
           cursor.reset(nullptr);
         }
       }
@@ -210,8 +259,10 @@ void TreeND<Num, T>::App(const F &f) const {
         q.push_back(split->greater.get());
 
     } else {
-      for (const auto &[ll, t] : std::get<Leaf>(*node)) {
-        f(ll, t);
+      const Leaf *leaf = &std::get<Leaf>(*node);
+      int size = leaf->Size();
+      for (int i = 0; i < size; i++) {
+        f(LeafPos(*leaf, i), LeafData(*leaf, i));
       }
     }
   }
@@ -259,10 +310,14 @@ TreeND<Num, T>::LookUp(std::span<const Num> pos, double radius) const {
       }
 
     } else {
-      for (const auto &[ppos, t] : std::get<Leaf>(*node)) {
+      const Leaf *leaf = &std::get<Leaf>(*node);
+      int num = leaf->Size();
+      for (int i = 0; i < num; i++) {
+        std::span<const Num> ppos = LeafPos(*leaf, i);
         const double dist = Dist(pos, ppos);
         if (dist <= radius) {
-          out.emplace_back(ppos, t, dist);
+          out.emplace_back(std::vector<Num>(ppos.begin(), ppos.end()),
+                           LeafData(*leaf, i), dist);
         }
       }
     }
@@ -296,33 +351,29 @@ void TreeND<Num, T>::InsertTo(Node *node, int axis,
       }
     } else {
       Leaf *leaf = &std::get<Leaf>(*node);
-      leaf->emplace_back(std::vector<Num>(pos.begin(), pos.end()), t);
+      CHECK((int)pos.size() == d);
+      leaf->Add(pos, t);
 
       // May have exceeded max leaf size.
-      const size_t num = leaf->size();
+      const int num = (int)leaf->Size();
       if (num > MAX_LEAF) {
-
         // We'll replace the node in place, but we'll need
         // the old leaves to do it.
-        std::vector<std::pair<Pos, T>> old = std::move(*leaf);
-        leaf->clear();
+        Leaf old = std::move(*leaf);
 
-        // PERF: Median is likely a better choice.
-        double avg = 0.0;
-        for (const auto &[pos, t_] : old) {
-          avg += pos[axis];
-        }
-        avg /= num;
+        const double split_pt = SplitPoint(old, axis);
 
         CHECK(!std::holds_alternative<Split>(*node));
 
         // Replace contents of the node with a Split.
-        node->template emplace<Split>(axis, avg, nullptr, nullptr);
+        node->template emplace<Split>(axis, split_pt, nullptr, nullptr);
 
         CHECK(std::holds_alternative<Split>(*node));
 
         // Now insert the old contents.
-        for (const auto &[pos, t] : old) {
+        for (int i = 0; i < num; i++) {
+          std::span<const Num> pos = LeafPos(old, i);
+          T t = LeafData(old, i);
           InsertTo(node, axis, pos, t);
         }
       }
@@ -336,7 +387,7 @@ template <class Num, class T>
 requires std::is_arithmetic_v<Num>
 void TreeND<Num, T>::DebugPrint() const {
   std::function<void(const Node*, int)> Rec =
-    [&Rec](const Node *node, int pad) {
+    [this, &Rec](const Node *node, int pad) {
       std::string p(pad, ' ');
       if (const Split *split = std::get_if<Split>(node)) {
         std::cout << p
@@ -354,7 +405,9 @@ void TreeND<Num, T>::DebugPrint() const {
       } else {
         const Leaf *leaf = std::get_if<Leaf>(node);
         CHECK(leaf != nullptr);
-        for (const auto &[pos, t] : *leaf) {
+        for (int i = 0; i < leaf->Size(); i++) {
+          std::span<const Num> pos = LeafPos(*leaf, i);
+          T t = LeafData(*leaf, i);
           std::cout << p << "(";
           for (const Num &a : pos) {
             std::cout << a << ", ";
@@ -375,7 +428,8 @@ TreeND<Num, T>::Closest(std::span<const Num> pos) const {
   CHECK(count != 0) << "Closest can only be called on a non-empty "
     "tree.";
 
-  const std::pair<Pos, T> *best = nullptr;
+  const Leaf *best_leaf = nullptr;
+  int best_leaf_idx = 0;
   double best_sq_dist = 0.0;
 
   // minimum squared distance to the region (from pos), node
@@ -396,7 +450,7 @@ TreeND<Num, T>::Closest(std::span<const Num> pos) const {
     CHECK(node != nullptr);
     // No need to search if every point in there is further than
     // our current best.
-    if (best != nullptr && node_sqdist > best_sq_dist)
+    if (best_leaf != nullptr && node_sqdist > best_sq_dist)
       continue;
 
     if (const Split *split = std::get_if<Split>(node)) {
@@ -407,7 +461,7 @@ TreeND<Num, T>::Closest(std::span<const Num> pos) const {
 
       // We always search the one we're in. But we can also search
       // the other one if it is within our search radius.
-      const bool both = best == nullptr || sq_dist <= best_sq_dist;
+      const bool both = best_leaf == nullptr || sq_dist <= best_sq_dist;
       const bool lesseq = Classify(pos, split->axis, split->value);
 
       // Since we pop from the end, put the node we're in on the queue
@@ -426,19 +480,26 @@ TreeND<Num, T>::Closest(std::span<const Num> pos) const {
         q.emplace_back(0.0, split->greater.get());
       }
     } else {
-      for (const auto &elt : std::get<Leaf>(*node)) {
-        const auto &[pp, tt] = elt;
-        double sq_dist = SqDist(pos, pp);
-        if (best == nullptr || sq_dist < best_sq_dist) {
-          best = &elt;
+
+      const Leaf *leaf = &std::get<Leaf>(*node);
+      int num = leaf->Size();
+      for (int i = 0; i < num; i++) {
+        std::span<const Num> ppos = LeafPos(*leaf, i);
+        double sq_dist = SqDist(pos, ppos);
+        if (best_leaf == nullptr || sq_dist < best_sq_dist) {
+          best_leaf = leaf;
+          best_leaf_idx = i;
           best_sq_dist = sq_dist;
         }
       }
     }
   }
 
-  CHECK(best != nullptr) << "This should find something since count > 0.";
-  return std::make_tuple(std::get<0>(*best), std::get<1>(*best),
+  CHECK(best_leaf != nullptr) << "This should find something since count > 0.";
+
+  std::span<const Num> ppos = LeafPos(*best_leaf, best_leaf_idx);
+  return std::make_tuple(std::vector<Num>(ppos.begin(), ppos.end()),
+                         LeafData(*best_leaf, best_leaf_idx),
                          sqrt(best_sq_dist));
 }
 

@@ -8,6 +8,8 @@ CC_LIB_OBJECTS=../base/logging.o ../base/stringprintf.o ../image.o ../stb_image_
 # CC=x86_64-w64-mingw32-g++
 CXXFLAGS=-march=native -I.. --std=c++20 -O2 -static
 
+CXXFLAGS=-I.. -fsanitize=address -march=native -Wall -Wextra -Wno-unused-parameter -I. --std=c++23 -g -O $(FLTO)
+
 %.o : %.cc *.h makefile
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 	@echo -n "."

@@ -57,6 +57,10 @@ void StatusBar::Progressf(int64_t numer, int64_t denom,
   string result;
   StringAppendV(&result, format, ap);
   va_end(ap);
+  // Remove trailing newlines, since this is a common "mistake"
+  // and ProgressBar does not treat them well.
+  while (!result.empty() && result.back() == '\n')
+    result.pop_back();
   EmitLine(num_lines - 1,
            ANSI::ProgressBar(numer, denom, result,
                              timer.Seconds()));

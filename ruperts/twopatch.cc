@@ -47,16 +47,25 @@ struct TwoPatch {
     return std::format("{:x}-{:x}.nds", outer_code, inner_code);
   }
 
-  TwoPatch(const BigPoly &big_poly,
-           uint64_t outer_code, uint64_t inner_code) :
+  TwoPatch(StatusBar *status,
+           const BigPoly &big_poly,
+           uint64_t outer_code, uint64_t inner_code,
+           uint64_t outer_mask = 0, uint64_t inner_mask = 0) :
+    status(status),
     boundaries(big_poly),
     small_poly(SmallPoly(big_poly)),
     outer_code(outer_code), inner_code(inner_code),
+    outer_mask(outer_mask), inner_mask(inner_mask),
     sols(Filename(outer_code, inner_code)),
     diameter(Diameter(small_poly)) {
 
-    outer_mask = GetCodeMask(boundaries, outer_code);
-    inner_mask = GetCodeMask(boundaries, inner_code);
+    if (outer_mask == 0) {
+      outer_mask = GetCodeMask(boundaries, outer_code);
+    }
+    if (inner_mask == 0) {
+      inner_mask = GetCodeMask(boundaries, inner_code);
+    }
+    CHECK(outer_mask != 0 && inner_mask != 0);
 
     // Just need to compute the hulls once.
     outer_hull = ComputeHullForPatch(boundaries, outer_code, outer_mask,
@@ -71,7 +80,7 @@ struct TwoPatch {
     }
   }
 
-  StatusBar status = StatusBar(2);
+  StatusBar *status = nullptr;
   Periodically status_per = Periodically(1);
   Periodically save_per = Periodically(60 * 5);
 
@@ -96,6 +105,10 @@ struct TwoPatch {
     for (;;) {
       {
         MutexLock ml(&mu);
+        if (sols.Size() >= TARGET_SAMPLES) {
+          should_die = true;
+        }
+
         if (should_die)
           return;
       }
@@ -214,11 +227,12 @@ struct TwoPatch {
     status_per.RunIf([&]() {
         double tot_sec = total_sample_sec + total_opt_sec;
         std::string timing =
-          std::format("{} sample {} opt ({:.2g}%) {} add",
+          std::format("{} sample {} opt ({:.2g}%) {} add. {} sols",
                       ANSI::Time(total_sample_sec),
                       ANSI::Time(total_opt_sec),
                       (100.0 * total_opt_sec) / tot_sec,
-                      ANSI::Time(total_add_sec));
+                      ANSI::Time(total_add_sec),
+                      sols.Size());
 
         int64_t done = sols_done.Read();
         std::string bar =
@@ -228,7 +242,7 @@ struct TwoPatch {
                                         ANSI::Time(save_per.SecondsLeft())),
                             run_timer.Seconds());
 
-        status.EmitStatus({timing, bar});
+        status->EmitStatus({timing, bar});
       });
 
     save_per.RunIf([&]() {
@@ -250,14 +264,21 @@ struct TwoPatch {
     return out;
   }
 
-  void Plot() {
+  void Solve() {
+    sols_done.Reset();
+
     constexpr int NUM_THREADS = 8;
     std::vector<std::thread> threads;
     for (int i = 0; i < NUM_THREADS; i++) {
       threads.emplace_back(&TwoPatch::WorkThread, this, i);
     }
 
-    while (sols.Size() < TARGET_SAMPLES) {
+    for (;;) {
+      {
+        MutexLock ml(&mu);
+        if (sols.Size() >= TARGET_SAMPLES)
+          break;
+      }
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
@@ -268,6 +289,9 @@ struct TwoPatch {
 
     for (std::thread &t : threads) t.join();
     threads.clear();
+
+    sols.Save();
+    status->Printf("Done: Saved %lld sols.\n", (int64_t)sols.Size());
   }
 
 };
@@ -276,17 +300,35 @@ struct TwoPatch {
 int main(int argc, char **argv) {
   ANSI::Init();
 
+  /*
   CHECK(argc == 3) << "./twopatch.exe outer_code inner_code\n";
   std::optional<uint64_t> outer_code = Util::ParseBinary(argv[1]);
   std::optional<uint64_t> inner_code = Util::ParseBinary(argv[2]);
   CHECK(outer_code.has_value() && inner_code.has_value());
+  TwoPatch two_patch(BigScube(DIGITS),
+                     outer_code.value(), inner_code.value());
+  two_patch.Plot();
+  */
+
+  StatusBar status = StatusBar(2);
+
+  PatchInfo patchinfo = LoadPatchInfo("scube-patchinfo.txt");
+  status.Printf("Total to run: %d * %d = %d\n",
+                (int)patchinfo.canonical.size(),
+                (int)patchinfo.canonical.size(),
+                (int)(patchinfo.canonical.size() * patchinfo.canonical.size()));
+  BigPoly scube = BigScube(DIGITS);
+  for (const auto &[code1, canon1] : patchinfo.canonical) {
+    for (const auto &[code2, canon2] : patchinfo.canonical) {
+      TwoPatch two_patch(&status, scube,
+                         code1, code2, canon1.mask, canon2.mask);
+      two_patch.Solve();
+    }
+  }
 
   // done:
   // 0b0000101000010101110101111011111,0b1101110011101000001011100000101
   // 0b0000101000010101110101111011111,0b0000101000010101110101111011111,
-  TwoPatch two_patch(BigScube(DIGITS),
-                     outer_code.value(), inner_code.value());
-  two_patch.Plot();
 
   return 0;
 }

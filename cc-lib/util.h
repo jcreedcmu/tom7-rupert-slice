@@ -125,8 +125,11 @@ struct Util {
 
   [[deprecated]] static unsigned int hash(const string &s);
   // give "/home/tom/" of "/home/tom/.bashrc"
+  // or "/" of "/asdf" (even if asdf is a directory)
   // or "." of "file.txt"
   static string PathOf(string_view s);
+  // Get ".bashrc" of "/home/tom/.bashrc"
+  // or "asdf" of "/asdf" (even if asdf is a directory)
   static string FileOf(string_view s);
   // give "pdf" of "/home/tom/test.pdf"
   // For paths with no ".", returns the empty string.

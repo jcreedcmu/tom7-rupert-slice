@@ -681,6 +681,20 @@ static void TestParseBinary() {
                       "111111111111111111111111"), ~uint64_t(0));
 }
 
+static void TestPathOf() {
+  CHECK_SEQ(Util::PathOf("/asdf"), "/");
+  CHECK_SEQ(Util::PathOf("/asdf/file.txt"), "/asdf/");
+  CHECK_SEQ(Util::PathOf("file.txt"), ".");
+  CHECK_SEQ(Util::PathOf("/asdf/"), "/asdf/");
+}
+
+static void TestFileOf() {
+  CHECK_SEQ(Util::FileOf("/asdf"), "asdf");
+  CHECK_SEQ(Util::FileOf("/asdf/file.txt"), "file.txt");
+  CHECK_SEQ(Util::FileOf("file.txt"), "file.txt");
+  CHECK_SEQ(Util::FileOf("/asdf/"), "");
+}
+
 int main(int argc, char **argv) {
   TestItos();
   TestStoi();
@@ -717,6 +731,8 @@ int main(int argc, char **argv) {
   TestFormatTime();
   TestContains();
   TestParseBinary();
+  TestPathOf();
+  TestFileOf();
 
   printf("OK\n");
   return 0;

@@ -119,6 +119,15 @@ struct ColorUtil {
     GradRGB(1.0f, 0xFFFFFF)
   };
 
+  // ROYGBIV; always visible on black.
+  static constexpr Gradient VISIBLE_SPECTRUM{
+    GradRGB(0.00f, 0xFF0000),
+    GradRGB(0.25f, 0xFFFF00),
+    GradRGB(0.50f, 0x00FF00),
+    GradRGB(0.75f, 0x0000FF),
+    GradRGB(1.00f, 0xFF00FF),
+  };
+
   // TODO: Arrays of color values. A frequent thing I need
   // is "a bunch of distinct colors that look good on a
   // dark background."

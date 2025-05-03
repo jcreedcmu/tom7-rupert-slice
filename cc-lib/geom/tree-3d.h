@@ -1,6 +1,6 @@
 
-#ifndef _CC_LIB_GEOM_TREE_ND_H
-#define _CC_LIB_GEOM_TREE_ND_H
+#ifndef _CC_LIB_GEOM_TREE_3D_H
+#define _CC_LIB_GEOM_TREE_3D_H
 
 #include <cstdio>
 #include <iostream>
@@ -14,14 +14,13 @@
 #include "base/logging.h"
 
 // Maps 3D points to values of type T.
+// Classic octree with no rebalancing.
 template<class Num, class T>
 requires std::is_arithmetic_v<Num>
-struct TreeND {
-  using Pos = std::vector<Num>;
+struct Tree3D {
+  using Pos = std::tuple<Num, Num, Num>;
 
-  TreeND(int d) : d(d) {
-    CHECK(d > 1);
-  }
+  Tree3D();
 
   void Insert(Num x, Num y, Num z, T t);
   void Insert(Pos pos, T t);

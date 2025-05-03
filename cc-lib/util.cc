@@ -610,7 +610,7 @@ string Util::lcase(std::string_view in) {
 string Util::ucase(std::string_view in) {
   string out;
   out.reserve(in.size());
-  for (unsigned int i = 0; i < in.length(); i++) {
+  for (int64_t i = 0; i < (int64_t)in.length(); i++) {
     if (in[i] >= 'a' &&
         in[i] <= 'z') out += (in[i] & (~ 32));
 
@@ -620,7 +620,7 @@ string Util::ucase(std::string_view in) {
 }
 
 string Util::FileOf(string_view s) {
-  for (long long int i = s.length() - 1; i >= 0; i --) {
+  for (int64_t i = s.length() - 1; i >= 0; i--) {
     if (IsDirSep(s[i])) {
       return std::string(s.substr(i + 1, s.length() - (i + 1)));
     }
@@ -633,9 +633,9 @@ string Util::FileOf(string_view s) {
 // both / and \ in practice.
 string Util::PathOf(string_view s) {
   if (s.empty()) return ".";
-  for (long long int i = s.length() - 1; i >= 0; i --) {
+  for (int64_t i = s.length() - 1; i >= 0; i--) {
     if (IsDirSep(s[i])) {
-      return std::string(s.substr(0, i));
+      return std::string(s.substr(0, i + 1));
     }
   }
   return ".";

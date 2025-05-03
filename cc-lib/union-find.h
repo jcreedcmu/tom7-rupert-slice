@@ -5,10 +5,7 @@
 #include <vector>
 
 struct UnionFind {
-  explicit UnionFind(int size) {
-    arr.reserve(size);
-    for (int i = 0; i < size; i++) arr.push_back(-1);
-  }
+  explicit UnionFind(int size) : arr(size, -1) {}
 
   int Find(int a) {
     if (arr[a] == -1) return a;
@@ -18,6 +15,8 @@ struct UnionFind {
   void Union(int a, int b) {
     if (Find(a) != Find(b)) arr[Find(a)] = b;
   }
+
+  int Size() const { return arr.size(); }
 
  private:
   std::vector<int> arr;
