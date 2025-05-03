@@ -14,8 +14,10 @@
 #include <thread>
 #include <vector>
 
+#include "map-util.h"
 #include "ansi.h"
 #include "arcfour.h"
+#include "atomic-util.h"
 #include "big-polyhedra.h"
 #include "bignum/big.h"
 #include "bounds.h"
@@ -25,12 +27,12 @@
 #include "patches.h"
 #include "periodically.h"
 #include "polyhedra.h"
+#include "randutil.h"
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
 #include "util.h"
 #include "yocto_matht.h"
-#include "atomic-util.h"
 
 DECLARE_COUNTERS(sols_done);
 
@@ -267,7 +269,7 @@ struct TwoPatch {
   void Solve() {
     sols_done.Reset();
 
-    constexpr int NUM_THREADS = 8;
+    constexpr int NUM_THREADS = 2;
     std::vector<std::thread> threads;
     for (int i = 0; i < NUM_THREADS; i++) {
       threads.emplace_back(&TwoPatch::WorkThread, this, i);
@@ -313,13 +315,22 @@ int main(int argc, char **argv) {
   StatusBar status = StatusBar(2);
 
   PatchInfo patchinfo = LoadPatchInfo("scube-patchinfo.txt");
-  status.Printf("Total to run: %d * %d = %d\n",
-                (int)patchinfo.canonical.size(),
-                (int)patchinfo.canonical.size(),
-                (int)(patchinfo.canonical.size() * patchinfo.canonical.size()));
+  status.Printf(
+      "Total to run: %d * %d = %d\n",
+      (int)patchinfo.canonical.size(),
+      (int)patchinfo.canonical.size(),
+      (int)(patchinfo.canonical.size() * patchinfo.canonical.size()));
   BigPoly scube = BigScube(DIGITS);
-  for (const auto &[code1, canon1] : patchinfo.canonical) {
-    for (const auto &[code2, canon2] : patchinfo.canonical) {
+
+  ArcFour rc(std::format("{}", time(nullptr)));
+  std::vector<std::pair<uint64_t, PatchInfo::CanonicalPatch>> cc =
+    MapToSortedVec(patchinfo.canonical);
+  Shuffle(&rc, &cc);
+
+  for (int outer = 0; outer < cc.size(); outer++) {
+    const auto &[code1, canon1] = cc[outer];
+    for (int inner = 0; inner < cc.size(); inner++) {
+      const auto &[code2, canon2] = cc[inner];
       TwoPatch two_patch(&status, scube,
                          code1, code2, canon1.mask, canon2.mask);
       two_patch.Solve();
