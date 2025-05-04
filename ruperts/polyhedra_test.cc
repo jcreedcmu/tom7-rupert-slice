@@ -645,9 +645,84 @@ static void TestPointLineDistance() {
     CHECK_NEAR(PointLineDistance(rlinea, rlineb, roside_pt), oside_dist);
     CHECK_NEAR(PointLineDistance(rlineb, rlinea, roside_pt), oside_dist);
   }
+
   double spi = timer.Seconds() / ITERS;
   printf("PointLineDistance time: %s\n", ANSI::Time(spi).c_str());
 }
+
+static void TestPolyTester1() {
+  std::vector<vec2> poly = {
+    vec2{4.0, 7.0},
+    vec2{3.5, 2.0},
+    vec2{-5.0, -4.0},
+    vec2{-2.0, 5.0},
+    vec2{0.0, 6.0},
+  };
+
+  PolyTester2D tester(poly);
+
+  CHECK(tester.IsInside(vec2{0.0, 0.0}));
+  CHECK(tester.IsInside(vec2{0.0, 0.01}));
+  CHECK(tester.IsInside(vec2{0.01, 0.0}));
+  CHECK(tester.IsInside(vec2{0.01, 0.01}));
+  CHECK(tester.IsInside(vec2{-1.0, 5.5}));
+
+  ArcFour rc("deterministic");
+
+  for (int i = 0; i < 10000; i++) {
+    double x = RandDouble(&rc) * 12.0 - 6.0;
+    double y = RandDouble(&rc) * 12.0 - 6.0;
+    vec2 v{x, y};
+
+    std::optional<double> odist =
+      tester.SquaredDistanceOutside(v);
+
+    // Should agree with the standalone functions.
+    if (odist.has_value()) {
+      CHECK_NEAR(
+          SquaredDistanceToPoly(poly, v),
+          odist.value());
+    } else {
+      CHECK(PointInPolygon(v, poly));
+    }
+  }
+}
+
+static void TestPolyTester2() {
+  std::vector<vec2> square = {
+    vec2{-1, -1},
+    vec2{1, -1},
+    vec2{1, 1},
+    vec2{-1, 1},
+  };
+
+  PolyTester2D tester(square);
+
+  CHECK(tester.IsInside(vec2{0.0, 0.0}));
+  CHECK(tester.IsInside(vec2{0.0, 0.01}));
+  CHECK(tester.IsInside(vec2{0.01, 0.0}));
+  CHECK(tester.IsInside(vec2{0.01, 0.01}));
+  CHECK(!tester.IsInside(vec2{-3.0, -1}));
+  CHECK(!tester.IsInside(vec2{-3.0, 0}));
+  CHECK(!tester.IsInside(vec2{-3.0, 1}));
+
+  CHECK_NEAR(
+      tester.SquaredDistanceOutside(vec2{-3.0, -1.0}).value_or(999.0),
+      2.0 * 2.0);
+
+  CHECK_NEAR(
+      tester.SquaredDistanceOutside(vec2{-3.0, -0.8}).value_or(999.0),
+      2.0 * 2.0);
+
+  CHECK_NEAR(
+      tester.SquaredDistanceOutside(vec2{3.0, 0.0}).value_or(999.0),
+      2.0 * 2.0);
+
+  CHECK_NEAR(
+      tester.SquaredDistanceOutside(vec2{0.0, 3.0}).value_or(999.0),
+      2.0 * 2.0);
+}
+
 
 int main(int argc, char **argv) {
   ANSI::Init();
@@ -679,6 +754,9 @@ int main(int argc, char **argv) {
   TestLossRegression();
 
   TestPointLineDistance();
+
+  TestPolyTester1();
+  TestPolyTester2();
 
   printf("OK\n");
   return 0;

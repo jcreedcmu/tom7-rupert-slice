@@ -408,7 +408,7 @@ Mesh2D Shadow(const Polyhedron &p) {
   return mesh;
 }
 
-double SquaredDistanceToPolyRef(const std::vector<vec2> &poly,
+double SquaredDistanceToPoly(const std::vector<vec2> &poly,
                              const vec2 &pt) {
   double best_sqdist = std::numeric_limits<double>::infinity();
   for (int i = 0; i < poly.size(); i++) {
@@ -502,20 +502,39 @@ double HullClearance(const std::vector<vec2> &outer_points,
   return std::sqrt(min_sqdist);
 }
 
+bool PolyTester2D::PointInPolygon(const vec2 &point) const {
+  int winding_number = 0;
+  for (int i = 0; i < poly.size(); i++) {
+    // Check if the ray from the point to infinity intersects the edge
+    const auto &[lo, hi] = ylohi[i];
+    if (point.y > lo && point.y <= hi) {
+      const vec2 &p0 = poly[i];
+      const vec2 &p1 = poly[(i + 1) % poly.size()];
+      if (point.x <= std::max(p0.x, p1.x)) {
+        if (lo != hi) {
+          double vt = (point.y - p0.y) / (p1.y - p0.y);
+          if (point.x < p0.x + vt * (p1.x - p0.x)) {
+            winding_number++;
+          }
+        }
+      }
+    }
+  }
+
+  // Point is inside if the winding number is odd
+  return !!(winding_number & 1);
+}
+
 double PolyTester2D::SquaredDistanceToPoly(const vec2 &pt) const {
   double best_sqdist = std::numeric_limits<double>::infinity();
   for (int i = 0; i < poly.size(); i++) {
     const vec2 &v0 = poly[i];
-    const vec2 &v1 = poly[(i + 1) % poly.size()];
 
-    // This is SquaredPointLineDistance, but:
-    //   - (TODO) use precomputed facts
-    //   - We test against the full edge first; if this
-    //     point is not better than our current best, we
-    //     can just reject the edge.
-    const vec2 edge = v1 - v0;
+    // This is SquaredPointLineDistance, but we use some
+    // precomputed facts.
 
-    const double sqlen = length_squared(edge);
+    const vec2 &edge = edges[i];
+    const double sqlen = edge_sqlens[i];
 
     // For a degnerate segment, there's just one distance to consider.
     if (sqlen == 0.0) {
@@ -528,22 +547,19 @@ double PolyTester2D::SquaredDistanceToPoly(const vec2 &pt) const {
     // Project p onto the vector.
     const double dotprod = dot(c, edge);
 
-    // Get the closest point on the infinite line (see
-    // SquareDPointLineDistance).
-    const double tf = dotprod / sqlen;
-    const double bsquared = tf * dotprod;
-    const double toline = length_squared(c) - bsquared;
+    if (dotprod <= 0.0) {
+      // Before the starting point.
+      best_sqdist = std::min(best_sqdist, distance_squared(pt, v0));
+    } else if (dotprod >= sqlen) {
+      // After the ending point.
+      const vec2 &v1 = poly[(i + 1) % poly.size()];
+      best_sqdist = std::min(best_sqdist, distance_squared(pt, v1));
+    } else {
+      const double tf = dotprod / sqlen;
 
-    if (toline < best_sqdist) {
-      if (dotprod <= 0.0) {
-        // Before the starting point.
-        best_sqdist = std::min(best_sqdist, distance_squared(pt, v0));
-      } else if (dotprod >= sqlen) {
-        // After the ending point.
-        best_sqdist = std::min(best_sqdist, distance_squared(pt, v1));
-      } else {
-        best_sqdist = toline;
-      }
+      const double bsquared = tf * dotprod;
+      const double sqdist = length_squared(c) - bsquared;
+      best_sqdist = std::min(best_sqdist, sqdist);
     }
   }
 
@@ -555,8 +571,9 @@ double PolyTester2D::SquaredDistanceToPoly(const vec2 &pt) const {
 
 std::optional<double>
 PolyTester2D::SquaredDistanceOutside(const vec2 &pt) const {
-  if (PointInPolygon(pt, poly))
+  if (PointInPolygon(pt)) {
     return std::nullopt;
+  }
 
   return SquaredDistanceToPoly(pt);
 }
@@ -580,9 +597,8 @@ std::vector<int> GiftWrapConvexHull(const std::vector<vec2> &vertices) {
   // points can cause tests to behave in countergeometric ways.
   std::vector<bool> used(vertices.size(), false);
 
-  // Find the starting point. This must be a point on
-  // the convex hull. The leftmost bottommost point is
-  // one.
+  // Find the starting point. This must be a point on the convex hull.
+  // The leftmost bottommost point is one.
   const int start = [&]() {
       int besti = 0;
       for (int i = 1; i < vertices.size(); i++) {

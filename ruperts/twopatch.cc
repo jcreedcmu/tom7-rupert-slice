@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "map-util.h"
@@ -34,15 +35,19 @@
 #include "util.h"
 #include "yocto_matht.h"
 
-DECLARE_COUNTERS(sols_done);
+DECLARE_COUNTERS(sols_done, pairs_done);
 
 // Look for solutions that involve the two specific patches.
 // Plot them on both outer and inner patches.
 using namespace yocto;
 
+static constexpr int NUM_THREADS = 8;
+
 static constexpr int DIGITS = 24;
 
 static constexpr int TARGET_SAMPLES = 1'000'000;
+
+static constexpr int TOTAL_PAIRS = 31 * 31;
 
 struct TwoPatch {
   static std::string Filename(uint64_t outer_code, uint64_t inner_code) {
@@ -61,6 +66,14 @@ struct TwoPatch {
     sols(Filename(outer_code, inner_code)),
     diameter(Diameter(small_poly)) {
 
+    if (sols.Size() >= TARGET_SAMPLES) {
+      pairs_done++;
+      status->Printf(ACYAN("%s") ": Already have %lld samples.\n",
+                     Filename(outer_code, inner_code).c_str(),
+                     (int64_t)sols.Size());
+      return;
+    }
+
     if (outer_mask == 0) {
       outer_mask = GetCodeMask(boundaries, outer_code);
     }
@@ -70,10 +83,8 @@ struct TwoPatch {
     CHECK(outer_mask != 0 && inner_mask != 0);
 
     // Just need to compute the hulls once.
-    outer_hull = ComputeHullForPatch(boundaries, outer_code, outer_mask,
-                                     {"twopatch-outer"});
-    inner_hull = ComputeHullForPatch(boundaries, inner_code, inner_mask,
-                                     {"twopatch-inner"});
+    outer_hull = ComputeHullForPatch(boundaries, outer_code, outer_mask, {});
+    inner_hull = ComputeHullForPatch(boundaries, inner_code, inner_mask, {});
 
     start_sols_size = sols.Size();
     {
@@ -94,7 +105,7 @@ struct TwoPatch {
   uint64_t outer_mask = 0, inner_mask = 0;
   double total_sample_sec = 0.0, total_opt_sec = 0.0, total_add_sec = 0.0;
   NDSolutions<6> sols;
-  size_t start_sols_size = 0;
+  int64_t start_sols_size = 0;
   const double diameter = 0.0;
   Timer run_timer;
 
@@ -139,12 +150,12 @@ struct TwoPatch {
       // better would be to use the inscribed/circumscribed
       // circles to set bounds on the translation.
 
-
+      PolyTester2D outer_tester(outer_poly);
 
       // we rotate the inner polygon around zero by theta, and
       // translate it by dx,dy.
-      auto Loss = [&outer_poly, &inner_poly](
-          const std::array<double, 3> args) {
+      auto Loss = [&outer_tester, &inner_poly](
+          const std::array<double, 3> &args) {
           const auto &[theta, dx, dy] = args;
           frame2 iframe = rotation_frame2(theta);
           iframe.o = {dx, dy};
@@ -157,11 +168,12 @@ struct TwoPatch {
             // Is the out point in the hull? If not,
             // compute its distance.
 
-            if (!PointInPolygon(v_out, outer_poly)) {
+            std::optional<double> osqdist =
+              outer_tester.SquaredDistanceOutside(v_out);
+
+            if (osqdist.has_value()) {
               outside++;
-              min_sqdistance =
-                std::min(min_sqdistance,
-                         SquaredDistanceToPoly(outer_poly, v_out));
+              min_sqdistance = std::min(min_sqdistance, osqdist.value());
             }
           }
 
@@ -193,7 +205,7 @@ struct TwoPatch {
 
       Timer add_timer;
       // The "solution" is the same outer frame, but we need to
-      // include the 2D rotation and translation in the innter frame.
+      // include the 2D rotation and translation in the inner frame.
       const auto &[theta, dx, dy] = args;
       const frame3 inner_sol_frame =
         translation_frame(vec3{dx, dy, 0}) *
@@ -228,23 +240,35 @@ struct TwoPatch {
   void MaybeStatus() {
     status_per.RunIf([&]() {
         double tot_sec = total_sample_sec + total_opt_sec;
+
+        std::string oline =
+          std::format("{:016x} = {}",
+                       outer_code,
+                       boundaries.ColorMaskedBits(outer_code, outer_mask));
+        std::string iline =
+          std::format("{:016x} = {}",
+                      inner_code,
+                      boundaries.ColorMaskedBits(inner_code, inner_mask));
+
         std::string timing =
-          std::format("{} sample {} opt ({:.2g}%) {} add. {} sols",
+          std::format(AGREY("[") ACYAN("{}") "/" AWHITE("{}") AGREY("]") " "
+                      "{} sample {} opt ({:.2g}%) {} add",
+                      pairs_done.Read(), TOTAL_PAIRS,
                       ANSI::Time(total_sample_sec),
                       ANSI::Time(total_opt_sec),
                       (100.0 * total_opt_sec) / tot_sec,
-                      ANSI::Time(total_add_sec),
-                      sols.Size());
+                      ANSI::Time(total_add_sec));
 
-        int64_t done = sols_done.Read();
+        int64_t numer = sols_done.Read();
+        int64_t denom = std::max(TARGET_SAMPLES - start_sols_size, int64_t{0});
         std::string bar =
-          ANSI::ProgressBar(done, TARGET_SAMPLES - start_sols_size,
-                            std::format("{} sols here. Save in {}",
-                                        done,
+          ANSI::ProgressBar(numer, denom,
+                            std::format("{} total. Save in {}",
+                                        sols.Size(),
                                         ANSI::Time(save_per.SecondsLeft())),
                             run_timer.Seconds());
 
-        status->EmitStatus({timing, bar});
+        status->EmitStatus({oline, iline, timing, bar});
       });
 
     save_per.RunIf([&]() {
@@ -259,7 +283,6 @@ struct TwoPatch {
     for (int hidx = 0; hidx < hull.size(); hidx++) {
       int vidx = hull[hidx];
       const vec3 &v_in = small_poly.vertices[vidx];
-      // PERF: Don't need z coordinate.
       const vec3 v_out = transform_point(frame, v_in);
       out[hidx] = vec2{v_out.x, v_out.y};
     }
@@ -269,7 +292,12 @@ struct TwoPatch {
   void Solve() {
     sols_done.Reset();
 
-    constexpr int NUM_THREADS = 2;
+    if (sols.Size() >= TARGET_SAMPLES) {
+      // There's nothing to do, and we didn't even initialize
+      // fully!
+      return;
+    }
+
     std::vector<std::thread> threads;
     for (int i = 0; i < NUM_THREADS; i++) {
       threads.emplace_back(&TwoPatch::WorkThread, this, i);
@@ -294,6 +322,7 @@ struct TwoPatch {
 
     sols.Save();
     status->Printf("Done: Saved %lld sols.\n", (int64_t)sols.Size());
+    pairs_done++;
   }
 
 };
@@ -312,7 +341,7 @@ int main(int argc, char **argv) {
   two_patch.Plot();
   */
 
-  StatusBar status = StatusBar(2);
+  StatusBar status = StatusBar(4);
 
   PatchInfo patchinfo = LoadPatchInfo("scube-patchinfo.txt");
   status.Printf(
@@ -325,9 +354,9 @@ int main(int argc, char **argv) {
   ArcFour rc(std::format("{}", time(nullptr)));
   std::vector<std::pair<uint64_t, PatchInfo::CanonicalPatch>> cc =
     MapToSortedVec(patchinfo.canonical);
-  Shuffle(&rc, &cc);
+  // Shuffle(&rc, &cc);
 
-  for (int outer = 0; outer < cc.size(); outer++) {
+  for (int outer = 26; outer < cc.size(); outer++) {
     const auto &[code1, canon1] = cc[outer];
     for (int inner = 0; inner < cc.size(); inner++) {
       const auto &[code2, canon2] = cc[inner];

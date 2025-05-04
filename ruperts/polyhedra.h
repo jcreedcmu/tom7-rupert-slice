@@ -163,17 +163,45 @@ inline double SignedDistanceToEdge(const vec2 &v0, const vec2 &v1,
 struct PolyTester2D {
   PolyTester2D(const std::vector<vec2> &poly) : poly(poly) {
     // TODO: Precompute.
+    edges.reserve(poly.size());
+    edge_sqlens.reserve(poly.size());
+    ylohi.reserve(poly.size());
+    for (int i = 0; i < poly.size(); i++) {
+      const vec2 &v0 = poly[i];
+      const vec2 &v1 = poly[(i + 1) % poly.size()];
+      const vec2 edge = v1 - v0;
+      const double sqlen = length_squared(edge);
+      edges.push_back(edge);
+      edge_sqlens.push_back(sqlen);
+      double lo = v0.y, hi = v1.y;
+      if (hi < lo) std::swap(lo, hi);
+      ylohi.emplace_back(lo, hi);
+    }
+
   }
 
   // Returns nullopt if the point is inside. Otherwise, minimum squared
   // distance to the polygon.
   std::optional<double> SquaredDistanceOutside(const vec2 &pt) const;
 
+  bool IsInside(const vec2 &pt) const {
+    return !SquaredDistanceOutside(pt).has_value();
+  }
+
  private:
   double SquaredDistanceToPoly(const vec2 &pt) const;
+  bool PointInPolygon(const vec2 &point) const;
 
   const std::vector<vec2> &poly;
+  // parallel to the vertices. Represents the edge from the vertex
+  // to the next one.
+  std::vector<vec2> edges;
+  std::vector<double> edge_sqlens;
+
+  // For an edge, the bounding box (just y dimension).
+  std::vector<std::pair<double, double>> ylohi;
 };
+
 
 // Rotate (and translate, if the frame contains a translation) the polyhedron.
 // They share the same faces pointer.
