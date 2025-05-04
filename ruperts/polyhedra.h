@@ -161,21 +161,29 @@ inline double SignedDistanceToEdge(const vec2 &v0, const vec2 &v1,
 // should be faster if you need to call PointInPolygon
 // many times for the same polygon.
 struct PolyTester2D {
+  // The polygon must be convex, and must include the origin.
+  // These conditions are not checked.
   PolyTester2D(const std::vector<vec2> &poly) : poly(poly) {
     // TODO: Precompute.
     edges.reserve(poly.size());
+    // endy.reserve(poly.size());
     edge_sqlens.reserve(poly.size());
+    #if 0
     ylohi.reserve(poly.size());
+    #endif
     for (int i = 0; i < poly.size(); i++) {
       const vec2 &v0 = poly[i];
       const vec2 &v1 = poly[(i + 1) % poly.size()];
       const vec2 edge = v1 - v0;
+      // endy.push_back(v1.y);
       const double sqlen = length_squared(edge);
       edges.push_back(edge);
       edge_sqlens.push_back(sqlen);
+      #if 0
       double lo = v0.y, hi = v1.y;
       if (hi < lo) std::swap(lo, hi);
       ylohi.emplace_back(lo, hi);
+      #endif
     }
 
   }
@@ -198,8 +206,13 @@ struct PolyTester2D {
   std::vector<vec2> edges;
   std::vector<double> edge_sqlens;
 
+  // the y coordinate of the end of the edge.
+  // std::vector<double> endy;
+
+  #if 0
   // For an edge, the bounding box (just y dimension).
   std::vector<std::pair<double, double>> ylohi;
+  #endif
 };
 
 

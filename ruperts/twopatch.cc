@@ -151,6 +151,7 @@ struct TwoPatch {
       // circles to set bounds on the translation.
 
       PolyTester2D outer_tester(outer_poly);
+      CHECK(outer_tester.IsInside(vec2{0, 0}));
 
       // we rotate the inner polygon around zero by theta, and
       // translate it by dx,dy.
@@ -341,6 +342,9 @@ int main(int argc, char **argv) {
   two_patch.Plot();
   */
 
+  int start_outer = 0;
+  if (argc == 2) start_outer = atoi(argv[1]);
+
   StatusBar status = StatusBar(4);
 
   PatchInfo patchinfo = LoadPatchInfo("scube-patchinfo.txt");
@@ -356,7 +360,7 @@ int main(int argc, char **argv) {
     MapToSortedVec(patchinfo.canonical);
   // Shuffle(&rc, &cc);
 
-  for (int outer = 26; outer < cc.size(); outer++) {
+  for (int outer = start_outer; outer < cc.size(); outer++) {
     const auto &[code1, canon1] = cc[outer];
     for (int inner = 0; inner < cc.size(); inner++) {
       const auto &[code2, canon2] = cc[inner];

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <format>
 #include <numbers>
 #include <optional>
 #include <string>
@@ -683,7 +684,9 @@ static void TestPolyTester1() {
           SquaredDistanceToPoly(poly, v),
           odist.value());
     } else {
-      CHECK(PointInPolygon(v, poly));
+      CHECK(PointInPolygon(v, poly)) << "\n" <<
+        std::format("point #{}: ({:.17g}, {:.17g})\n",
+                    i, x, y);
     }
   }
 }

@@ -502,10 +502,12 @@ double HullClearance(const std::vector<vec2> &outer_points,
   return std::sqrt(min_sqdist);
 }
 
+#if 0
 bool PolyTester2D::PointInPolygon(const vec2 &point) const {
   int winding_number = 0;
   for (int i = 0; i < poly.size(); i++) {
-    // Check if the ray from the point to infinity intersects the edge
+    // Check if the ray from the point to infinity intersects the edge.
+    // y coordinates of this edge, sorted lo <= hi.
     const auto &[lo, hi] = ylohi[i];
     if (point.y > lo && point.y <= hi) {
       const vec2 &p0 = poly[i];
@@ -524,6 +526,58 @@ bool PolyTester2D::PointInPolygon(const vec2 &point) const {
   // Point is inside if the winding number is odd
   return !!(winding_number & 1);
 }
+#else
+
+bool PolyTester2D::PointInPolygon(const vec2 &point) const {
+  int winding_number = 0;
+
+
+  for (int i = 0; i < poly.size(); ++i) {
+    const vec2 &p0 = poly[i];
+    // const vec2 &p1 = poly[(i == poly.size() - 1) ? 0 : (i + 1)];
+
+    // const vec2 edge = p1 - p0;
+    const vec2 &edge = edges[i];
+
+    // This is p1.y
+    // double p1y = endy[i];
+
+    // from v0 to the test point.
+    vec2 dv = point - p0;
+
+    // We use the same cross product regardless.
+    // cross product = a - b
+    const double cross_a = edge.x * dv.y;
+    const double cross_b = edge.y * dv.x;
+
+    // Here we want to compare point.y and p1.y, without having to
+    // look up p1. Both dv and edge are vectors rooted at v0 (that are
+    // equal to point and p1, respectively), so dv.y and edge.y have
+    // the same relationship.
+
+    // p0.y <= point.y
+    if (0.0 <= dv.y) {
+      // p1y > point.y
+      if (edge.y > dv.y) {
+        // Upward crossing
+        if (cross_a > cross_b) {
+          winding_number++;
+        }
+      }
+    } else {
+      // p1y <= point.y
+      if (edge.y <= dv.y) {
+        // Downward crossing
+        if (cross_a < cross_b) {
+          winding_number--;
+        }
+      }
+    }
+  }
+
+  return winding_number != 0; // Non-zero winding number means inside
+}
+#endif
 
 double PolyTester2D::SquaredDistanceToPoly(const vec2 &pt) const {
   double best_sqdist = std::numeric_limits<double>::infinity();
