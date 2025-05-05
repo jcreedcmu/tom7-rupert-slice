@@ -223,7 +223,9 @@ frame3 FrameFromViewPos(const vec3 &view) {
     .o = vec3{0, 0, 0},
   };
 
-  return frame;
+  // The convention was opposite of what ViewPosFromNonUnitQuat
+  // did, so invert this. (PERF)
+  return inverse(frame);
 }
 
 BigQuat RandomBigQuaternion(ArcFour *rc) {
@@ -530,12 +532,16 @@ std::vector<int> ComputeHullForPatch(
   }
 
   BigRat area = SignedAreaOfHull(full_shadow, hull);
-  printf("Area for example hull: %.17g\n", area.ToDouble());
+  if (render_hull_filebase.has_value()) {
+    printf("Area for example hull: %.17g\n", area.ToDouble());
+  }
 
   if (BigRat::Sign(area) == -1) {
     VectorReverse(&hull);
     area = SignedAreaOfHull(full_shadow, hull);
-    printf("Reversed hull to get area: %.17g\n", area.ToDouble());
+    if (render_hull_filebase.has_value()) {
+      printf("Reversed hull to get area: %.17g\n", area.ToDouble());
+    }
   }
 
   CHECK(BigRat::Sign(area) == 1);

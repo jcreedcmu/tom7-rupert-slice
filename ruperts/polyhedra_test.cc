@@ -151,7 +151,7 @@ static void CheckHullProperties(int line_num,
                  << ": Bad hull (" << err << ")";
     };
 
-  if (!IsConvex(v, hull)) {
+  if (!IsHullConvex(v, hull)) {
     FailWithImage("not convex");
   }
 
@@ -659,6 +659,7 @@ static void TestPolyTester1() {
     vec2{3.5, 2.0},
     vec2{4.0, 7.0},
   };
+  CHECK(IsPolyConvex(poly));
   CHECK(SignedAreaOfConvexPoly(poly) > 0.0);
   CHECK(IsConvexAndScreenClockwise(poly));
 
@@ -700,6 +701,7 @@ static void TestPolyTester2() {
     vec2{1, 1},
     vec2{-1, 1},
   };
+  CHECK(IsPolyConvex(square));
   CHECK(IsConvexAndScreenClockwise(square));
   CHECK(SignedAreaOfConvexPoly(square) > 0.0);
 

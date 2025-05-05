@@ -22,12 +22,6 @@
 #include "polyhedra.h"
 #include "yocto_matht.h"
 
-inline vec3 QuaternionToSpherePoint(const quat4 &q) {
-  // The z-column of the rotation matrix represents the rotated Z-axis.
-  // PERF: You can skip computing most of this because of the zeroes.
-  return transform_point(rotation_frame(normalize(q)), vec3{0, 0, 1});
-}
-
 using vec3 = yocto::vec<double, 3>;
 
 struct Boundaries {
@@ -155,6 +149,10 @@ uint64_t GetCodeMask(const Boundaries &boundaries, uint64_t code,
 
 // Compute an arbitrary rotation frame for a view position
 // (not unit). The view position may not be on the z axis.
+// The rotation frame transforms the view position *to*
+// the Z axis (this matches how we treat a quaternion as a
+// view position by applying the quaternion's rotation to
+// the polyhedron).
 frame3 FrameFromViewPos(const vec3 &view);
 
 // Random non-unit quaternion.

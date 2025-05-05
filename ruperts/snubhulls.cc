@@ -290,6 +290,15 @@ static void GeneratePatch(const Boundaries &boundaries,
 }
 #endif
 
+// Note I may have some mixup between the rotation and its inverse.
+// I deleted other uses of this function. Check carefully if you use
+// this again.
+inline vec3 QuaternionToSpherePoint(const quat4 &q) {
+  // The z-column of the rotation matrix represents the rotated Z-axis.
+  // PERF: You can skip computing most of this because of the zeroes.
+  return transform_point(rotation_frame(normalize(q)), vec3{0, 0, 1});
+}
+
 static vec3 RandomPointOnSphere(ArcFour *rc) {
   const quat4 small_quat = normalize(RandomQuaternion(rc));
   return QuaternionToSpherePoint(small_quat);

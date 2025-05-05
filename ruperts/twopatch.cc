@@ -43,8 +43,8 @@ DECLARE_COUNTERS(sols_done, pairs_done);
 // Plot them on both outer and inner patches.
 using namespace yocto;
 
-// static constexpr int NUM_THREADS = 8;
-static constexpr int NUM_THREADS = 1;
+static constexpr int NUM_THREADS = 8;
+// static constexpr int NUM_THREADS = 1;
 
 static constexpr int DIGITS = 24;
 

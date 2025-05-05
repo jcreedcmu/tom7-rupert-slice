@@ -165,6 +165,19 @@ void Rendering::RenderMesh(const Mesh2D &mesh) {
   }
 }
 
+void Rendering::RenderPolygon(const std::vector<vec2> &poly,
+                           uint32_t color) {
+  for (int i = 0; i < poly.size(); i++) {
+    const vec2 &a = poly[i];
+    const vec2 &b = poly[(i + 1) % poly.size()];
+
+    const auto &[ax, ay] = ToScreen(a);
+    const auto &[bx, by] = ToScreen(b);
+    img.BlendThickLine32(ax, ay, bx, by, 3.0, color);
+  }
+}
+
+
 void Rendering::RenderBadPoints(const Mesh2D &sinner, const Mesh2D &souter) {
   for (const vec2 &v : sinner.vertices) {
     if (!InMesh(souter, v)) {

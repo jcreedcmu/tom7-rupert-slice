@@ -17,7 +17,6 @@
 
 #include "arcfour.h"
 #include "base/logging.h"
-#include "polyhedra.h"
 #include "randutil.h"
 #include "mesh.h"
 #include "yocto_matht.h"
@@ -245,8 +244,10 @@ inline Mesh2D Translate(const Mesh2D &m, const vec2 &t) {
   return ret;
 }
 
-bool IsConvex(const std::vector<vec2> &points,
-              const std::vector<int> &polygon);
+bool IsHullConvex(const std::vector<vec2> &points,
+                  const std::vector<int> &polygon);
+
+bool IsPolyConvex(const std::vector<vec2> &poly);
 
 // Screen clockwise = cartesian CCW.
 bool IsConvexAndScreenClockwise(const std::vector<vec2> &poly);

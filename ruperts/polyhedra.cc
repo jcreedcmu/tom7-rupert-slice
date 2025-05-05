@@ -1172,7 +1172,7 @@ double PlanarityError(const Polyhedron &p) {
   return error;
 }
 
-bool IsConvex(const std::vector<vec2> &vertices,
+bool IsHullConvex(const std::vector<vec2> &vertices,
               const std::vector<int> &polygon) {
   if (polygon.size() <= 3) return true;
   std::optional<int> s;
@@ -1180,6 +1180,27 @@ bool IsConvex(const std::vector<vec2> &vertices,
     const vec2 &p0 = vertices[polygon[i]];
     const vec2 &p1 = vertices[polygon[(i + 1) % polygon.size()]];
     const vec2 &p2 = vertices[polygon[(i + 2) % polygon.size()]];
+
+    vec2 e1 = p1 - p0;
+    vec2 e2 = p2 - p1;
+
+    double cx = cross(e1, e2);
+    if (std::abs(cx) < 1e-10) continue;
+    int sign = sgn(cx);
+    if (s.has_value() && s.value() != sign)
+      return false;
+    s = {sign};
+  }
+  return true;
+}
+
+bool IsPolyConvex(const std::vector<vec2> &poly) {
+  if (poly.size() < 3) return false;
+  std::optional<int> s;
+  for (int i = 0; i < poly.size(); i++) {
+    const vec2 &p0 = poly[i];
+    const vec2 &p1 = poly[(i + 1) % poly.size()];
+    const vec2 &p2 = poly[(i + 2) % poly.size()];
 
     vec2 e1 = p1 - p0;
     vec2 e2 = p2 - p1;

@@ -41,12 +41,6 @@ static constexpr ViewParameterization view_parameterization =
 
 static constexpr bool POINT_CONSTS = false;
 
-[[maybe_unused]]
-static vec3 RandomPointOnSphere(ArcFour *rc) {
-  const quat4 small_quat = normalize(RandomQuaternion(rc));
-  return QuaternionToSpherePoint(small_quat);
-}
-
 Z3Vec3 NewUnitVector(std::string *out, std::string_view name_hint) {
   #if 1
   Z3Vec3 v = NewVec3(out, name_hint);

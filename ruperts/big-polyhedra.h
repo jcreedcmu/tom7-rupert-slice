@@ -255,6 +255,11 @@ BigFrame NonUnitRotationFrame(const BigQuat &v);
 // Returns a rational position on the view sphere,
 // with an unspecified rotation around that axis.
 // The quat does not need to be unit-length.
+//
+// This view position is such that applying the rotation
+// described by the quaternion moves the view position
+// *to* the Z axis (0, 0, 1). Be careful not to mix this
+// up with a rotation *from* the Z axis to the position.
 BigVec3 ViewPosFromNonUnitQuat(const BigQuat &q);
 
 inline BigVec3 operator*(const BigVec3 &a, BigRat b) {

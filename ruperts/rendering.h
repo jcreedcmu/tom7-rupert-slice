@@ -35,6 +35,9 @@ struct Rendering {
   void RenderTriangle(const Mesh2D &mesh, int ai, int bi, int ci,
                       uint32_t color);
 
+  void RenderPolygon(const std::vector<vec2> &poly,
+                     uint32_t color);
+
   void DarkenBG();
 
   void Save(const std::string &filename, bool verbose = true);
