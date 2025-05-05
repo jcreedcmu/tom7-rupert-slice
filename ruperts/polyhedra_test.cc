@@ -653,12 +653,14 @@ static void TestPointLineDistance() {
 
 static void TestPolyTester1() {
   std::vector<vec2> poly = {
-    vec2{4.0, 7.0},
-    vec2{3.5, 2.0},
-    vec2{-5.0, -4.0},
-    vec2{-2.0, 5.0},
     vec2{0.0, 6.0},
+    vec2{-2.0, 5.0},
+    vec2{-5.0, -4.0},
+    vec2{3.5, 2.0},
+    vec2{4.0, 7.0},
   };
+  CHECK(SignedAreaOfConvexPoly(poly) > 0.0);
+  CHECK(IsConvexAndScreenClockwise(poly));
 
   PolyTester2D tester(poly);
 
@@ -698,6 +700,8 @@ static void TestPolyTester2() {
     vec2{1, 1},
     vec2{-1, 1},
   };
+  CHECK(IsConvexAndScreenClockwise(square));
+  CHECK(SignedAreaOfConvexPoly(square) > 0.0);
 
   PolyTester2D tester(square);
 
@@ -723,6 +727,22 @@ static void TestPolyTester2() {
 
   CHECK_NEAR(
       tester.SquaredDistanceOutside(vec2{0.0, 3.0}).value_or(999.0),
+      2.0 * 2.0);
+
+  CHECK_NEAR(
+      tester.SquaredDistanceOutside(vec2{1.0, 3.0}).value_or(999.0),
+      2.0 * 2.0);
+
+  CHECK_NEAR(
+      tester.SquaredDistanceOutside(vec2{-1.0, 3.0}).value_or(999.0),
+      2.0 * 2.0);
+
+  CHECK_NEAR(
+      tester.SquaredDistanceOutside(vec2{1.0, -3.0}).value_or(999.0),
+      2.0 * 2.0);
+
+  CHECK_NEAR(
+      tester.SquaredDistanceOutside(vec2{-1.0, -3.0}).value_or(999.0),
       2.0 * 2.0);
 }
 

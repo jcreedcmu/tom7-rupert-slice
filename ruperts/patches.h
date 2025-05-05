@@ -185,5 +185,4 @@ std::vector<int> ComputeHullForPatch(
     // renders debug output if set (don't include extension)
     std::optional<std::string> render_hull_filebase);
 
-
 #endif

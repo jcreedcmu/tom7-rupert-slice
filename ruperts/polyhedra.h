@@ -17,6 +17,7 @@
 
 #include "arcfour.h"
 #include "base/logging.h"
+#include "polyhedra.h"
 #include "randutil.h"
 #include "mesh.h"
 #include "yocto_matht.h"
@@ -160,32 +161,38 @@ inline double SignedDistanceToEdge(const vec2 &v0, const vec2 &v1,
 // Precomputation for testing points in a polygon. This
 // should be faster if you need to call PointInPolygon
 // many times for the same polygon.
+double SignedAreaOfConvexPoly(const std::vector<vec2> &points);
+bool IsConvexAndScreenClockwise(const std::vector<vec2> &poly);
+#define POLYTESTER_USE_BB 0
 struct PolyTester2D {
-  // The polygon must be convex, and must include the origin.
-  // These conditions are not checked.
+  static constexpr bool SELF_CHECK = false;
+
+  // The polygon must be convex, screen clockwise, and must include
+  // the origin. These conditions are not checked.
   PolyTester2D(const std::vector<vec2> &poly) : poly(poly) {
+    if (SELF_CHECK) {
+      CHECK(SignedAreaOfConvexPoly(poly) > 0.0);
+      CHECK(IsConvexAndScreenClockwise(poly));
+    }
+
     // TODO: Precompute.
     edges.reserve(poly.size());
-    // endy.reserve(poly.size());
     edge_sqlens.reserve(poly.size());
-    #if 0
-    ylohi.reserve(poly.size());
-    #endif
+
     for (int i = 0; i < poly.size(); i++) {
       const vec2 &v0 = poly[i];
       const vec2 &v1 = poly[(i + 1) % poly.size()];
       const vec2 edge = v1 - v0;
-      // endy.push_back(v1.y);
       const double sqlen = length_squared(edge);
       edges.push_back(edge);
       edge_sqlens.push_back(sqlen);
-      #if 0
-      double lo = v0.y, hi = v1.y;
-      if (hi < lo) std::swap(lo, hi);
-      ylohi.emplace_back(lo, hi);
+      #if POLYTESTER_USE_BB
+      min_x = std::min(min_x, v0.x);
+      max_x = std::max(max_x, v0.x);
+      min_y = std::min(min_y, v0.y);
+      max_y = std::max(max_y, v0.y);
       #endif
     }
-
   }
 
   // Returns nullopt if the point is inside. Otherwise, minimum squared
@@ -206,12 +213,12 @@ struct PolyTester2D {
   std::vector<vec2> edges;
   std::vector<double> edge_sqlens;
 
-  // the y coordinate of the end of the edge.
-  // std::vector<double> endy;
-
-  #if 0
-  // For an edge, the bounding box (just y dimension).
-  std::vector<std::pair<double, double>> ylohi;
+  #if POLYTESTER_USE_BB
+  // Bounding box.
+  double min_x = std::numeric_limits<double>::infinity();
+  double max_x = -std::numeric_limits<double>::infinity();
+  double min_y = std::numeric_limits<double>::infinity();
+  double max_y = -std::numeric_limits<double>::infinity();
   #endif
 };
 
@@ -240,6 +247,9 @@ inline Mesh2D Translate(const Mesh2D &m, const vec2 &t) {
 
 bool IsConvex(const std::vector<vec2> &points,
               const std::vector<int> &polygon);
+
+// Screen clockwise = cartesian CCW.
+bool IsConvexAndScreenClockwise(const std::vector<vec2> &poly);
 
 // Maximum distance between any two points.
 // Note: This is non-standard.
@@ -308,7 +318,8 @@ std::vector<int> QuickHull(const std::vector<vec2> &v);
 // The area of the convex hull; should also work for any simple
 // polygon.
 double AreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull);
-// Positive if clockwise, winding order; negative for ccw.
+// Positive if screen clockwise (cartesian ccw) winding order;
+// negative for screen ccw (cartesian cw).
 double SignedAreaOfHull(const Mesh2D &mesh, const std::vector<int> &hull);
 // Same, but with the points directly.
 double SignedAreaOfConvexPoly(const std::vector<vec2> &points);

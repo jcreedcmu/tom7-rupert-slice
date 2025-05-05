@@ -503,38 +503,21 @@ double HullClearance(const std::vector<vec2> &outer_points,
 }
 
 #if 0
+
 bool PolyTester2D::PointInPolygon(const vec2 &point) const {
   int winding_number = 0;
+
+  #if POLYTESTER_USE_BB
+  if (point.x < min_x) return false;
+  if (point.x > max_x) return false;
+
+  if (point.y < min_y) return false;
+  if (point.y > max_y) return false;
+  #endif
+
   for (int i = 0; i < poly.size(); i++) {
-    // Check if the ray from the point to infinity intersects the edge.
-    // y coordinates of this edge, sorted lo <= hi.
-    const auto &[lo, hi] = ylohi[i];
-    if (point.y > lo && point.y <= hi) {
-      const vec2 &p0 = poly[i];
-      const vec2 &p1 = poly[(i + 1) % poly.size()];
-      if (point.x <= std::max(p0.x, p1.x)) {
-        if (lo != hi) {
-          double vt = (point.y - p0.y) / (p1.y - p0.y);
-          if (point.x < p0.x + vt * (p1.x - p0.x)) {
-            winding_number++;
-          }
-        }
-      }
-    }
-  }
-
-  // Point is inside if the winding number is odd
-  return !!(winding_number & 1);
-}
-#else
-
-bool PolyTester2D::PointInPolygon(const vec2 &point) const {
-  int winding_number = 0;
-
-
-  for (int i = 0; i < poly.size(); ++i) {
     const vec2 &p0 = poly[i];
-    // const vec2 &p1 = poly[(i == poly.size() - 1) ? 0 : (i + 1)];
+    // p1 would be the next vertex, wrapping around
 
     // const vec2 edge = p1 - p0;
     const vec2 &edge = edges[i];
@@ -543,7 +526,7 @@ bool PolyTester2D::PointInPolygon(const vec2 &point) const {
     // double p1y = endy[i];
 
     // from v0 to the test point.
-    vec2 dv = point - p0;
+    const vec2 dv = point - p0;
 
     // We use the same cross product regardless.
     // cross product = a - b
@@ -577,6 +560,34 @@ bool PolyTester2D::PointInPolygon(const vec2 &point) const {
 
   return winding_number != 0; // Non-zero winding number means inside
 }
+#else
+
+bool PolyTester2D::PointInPolygon(const vec2 &point) const {
+  #if POLYTESTER_USE_BB
+  if (point.x < min_x) return false;
+  if (point.x > max_x) return false;
+
+  if (point.y < min_y) return false;
+  if (point.y > max_y) return false;
+  #endif
+
+  for (int i = 0; i < poly.size(); i++) {
+    const vec2 &v0 = poly[i];
+    const vec2 &edge = edges[i];
+    const vec2 pt_vec = point - v0;
+
+    // Cross product: edge.x * pt_vec.y - edge.y * pt_vec.x
+    // If negative, then the point is on the wrong side of the edge.
+    if (edge.x * pt_vec.y < edge.y * pt_vec.x) {
+      return false;
+    }
+  }
+
+  // If the point was not clearly outside any edge, it's inside or on
+  // the boundary.
+  return true;
+}
+
 #endif
 
 double PolyTester2D::SquaredDistanceToPoly(const vec2 &pt) const {
@@ -888,8 +899,8 @@ std::vector<int> GrahamScan(const std::vector<vec2> &vertices) {
     const Point &point = points[i];
 
     while (hull.size() >= 2 && CCW(hull[hull.size() - 2],
-                                          hull[hull.size() - 1],
-                                          point.idx)) {
+                                   hull[hull.size() - 1],
+                                   point.idx)) {
       hull.pop_back();
     }
 
@@ -1180,6 +1191,34 @@ bool IsConvex(const std::vector<vec2> &vertices,
       return false;
     s = {sign};
   }
+  return true;
+}
+
+bool IsConvexAndScreenClockwise(const std::vector<vec2> &poly) {
+  if (poly.size() < 3) return false;
+
+  for (int i = 0; i < poly.size(); i++) {
+    const vec2 &va = poly[i];
+    const vec2 &vb = poly[(i + 1) % poly.size()];
+    const vec2 &vc = poly[(i + 2) % poly.size()];
+
+    double cx = cross(vb - va, vc - vb);
+    if (cx < -1.0e-10) {
+      #if 0
+      printf("[%d] No, because %.11g < 0. For:\n"
+             "%s\n"
+             "%s\n"
+             "%s\n",
+             i,
+             cx,
+             VecString(va).c_str(),
+             VecString(vb).c_str(),
+             VecString(vc).c_str());
+      #endif
+      return false;
+    }
+  }
+
   return true;
 }
 

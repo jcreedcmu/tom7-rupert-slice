@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <format>
 #include <mutex>
@@ -15,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/stringprintf.h"
 #include "map-util.h"
 #include "ansi.h"
 #include "arcfour.h"
@@ -41,13 +43,22 @@ DECLARE_COUNTERS(sols_done, pairs_done);
 // Plot them on both outer and inner patches.
 using namespace yocto;
 
-static constexpr int NUM_THREADS = 8;
+// static constexpr int NUM_THREADS = 8;
+static constexpr int NUM_THREADS = 1;
 
 static constexpr int DIGITS = 24;
 
 static constexpr int TARGET_SAMPLES = 1'000'000;
 
 static constexpr int TOTAL_PAIRS = 31 * 31;
+
+std::string PolyString(const std::vector<vec2> &poly) {
+  std::string ret;
+  for (const vec2 &v : poly) {
+    AppendFormat(&ret, "  ({:.17g}, {:.17g})\n", v.x, v.y);
+  }
+  return ret;
+}
 
 struct TwoPatch {
   static std::string Filename(uint64_t outer_code, uint64_t inner_code) {
@@ -149,6 +160,10 @@ struct TwoPatch {
       // have already removed the interior points). Probably
       // better would be to use the inscribed/circumscribed
       // circles to set bounds on the translation.
+
+      // PERF unnecessary!
+      CHECK(SignedAreaOfConvexPoly(outer_poly) > 0.0);
+      CHECK(IsConvexAndScreenClockwise(outer_poly)) << PolyString(outer_poly);
 
       PolyTester2D outer_tester(outer_poly);
       CHECK(outer_tester.IsInside(vec2{0, 0}));

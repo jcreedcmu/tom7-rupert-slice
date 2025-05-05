@@ -353,7 +353,7 @@ BigMesh2D RotateAndProject(const BigFrame &f, const BigPoly &poly);
 Polyhedron SmallPoly(const BigPoly &big);
 Mesh2D SmallMesh(const BigMesh2D &big);
 
-// Positive if clockwise, winding order; negative for ccw.
+// Positive if clockwise winding order; negative for ccw.
 BigRat SignedAreaOfHull(const BigMesh2D &mesh, const std::vector<int> &hull);
 // Same, but with the points directly.
 BigRat SignedAreaOfConvexPoly(const std::vector<BigVec2> &points);
