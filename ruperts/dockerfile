@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1.6
+
+# Note: Build from the current directory like this:
+# docker build -t tmp -f ruperts/dockerfile ..
+# (Passing .. as the build context, because it also needs
+# to package cc-lib and other dependencies.)
+
+FROM ubuntu:24.04
+
+LABEL description="twopatch, first try"
+
+# avoid prompts during apt install
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN <<EOT
+  set -e
+  apt-get update
+  apt-get install -y --no-install-recommends \
+    clang-19 libc++-19-dev libc++abi-19-dev build-essential libgmp-dev zlib1g-dev opencl-headers ocl-icd-opencl-dev
+	
+  update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
+  update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
+
+  rm -rf /var/lib/apt/lists/*
+EOT
+
+# dependencies
+COPY cc-lib /tom7misc/cc-lib/
+COPY sqlite /tom7misc/sqlite/
+COPY codec /tom7misc/codec/
+
+# Source for this project
+COPY ruperts/*.cc ruperts/*.h ruperts/makefile ruperts/*.txt /tom7misc/ruperts/
+
+
+WORKDIR /tom7misc/ruperts/
+
+# RUN make -j 8 twopatch.exe
+
+# Command to run your executable when the container starts
+# This assumes 'twopatch.exe' is created in the WORKDIR (/app)
+
+# CMD ["./twopatch.exe"]
+
+CMD ["bash"]

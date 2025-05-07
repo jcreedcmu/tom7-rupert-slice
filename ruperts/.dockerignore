@@ -1,0 +1,14 @@
+*.exe
+*~
+*.nds
+*.png
+*.sqlite
+*.mov
+*.stl
+*.o
+core
+talk
+viewer
+paper
+posterity
+Dockerfile
