@@ -4,7 +4,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <format>
@@ -12,25 +11,24 @@
 #include <numbers>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "base/stringprintf.h"
-#include "map-util.h"
 #include "ansi.h"
 #include "arcfour.h"
 #include "atomic-util.h"
+#include "base/stringprintf.h"
 #include "big-polyhedra.h"
-#include "bignum/big.h"
-#include "bounds.h"
-#include "image.h"
+#include "hashing.h"
+#include "map-util.h"
 #include "nd-solutions.h"
 #include "opt/opt.h"
 #include "patches.h"
 #include "periodically.h"
 #include "polyhedra.h"
-#include "randutil.h"
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
@@ -50,6 +48,8 @@ static constexpr int DIGITS = 24;
 
 static constexpr int TARGET_SAMPLES = 1'000'000;
 
+// XXX Specific to snub cube.
+static constexpr int TOTAL_PATCHES = 31;
 static constexpr int TOTAL_PAIRS = 31 * 31;
 
 std::string PolyString(const std::vector<vec2> &poly) {
@@ -59,6 +59,34 @@ std::string PolyString(const std::vector<vec2> &poly) {
   }
   return ret;
 }
+
+// Avoid redoing work by storing the completed set here.
+struct PatchStatus {
+  std::unordered_set<std::pair<int, int>,
+                     Hashing<std::pair<int, int>>> reserved;
+  std::unordered_set<std::pair<int, int>,
+                     Hashing<std::pair<int, int>>> done;
+
+  PatchStatus(std::string_view filename) {
+    for (const std::string &original_line :
+           Util::NormalizeLines(Util::ReadFileToLines(filename))) {
+      std::string_view line = original_line;
+      std::string_view cmd = Util::Chop(&line);
+      std::string_view so = Util::Chop(&line);
+      std::string_view si = Util::Chop(&line);
+      CHECK(!so.empty() && !si.empty()) << "Bad line " << original_line;
+      int o = atoi(std::string(so).c_str());
+      int i = atoi(std::string(si).c_str());
+      if (cmd == "reserved") {
+        reserved.insert(std::make_pair(o, i));
+      } else if (cmd == "done") {
+        done.insert(std::make_pair(o, i));
+      } else {
+        CHECK(false) << "Bad command: " << original_line;
+      }
+    }
+  }
+};
 
 struct TwoPatch {
   static std::string Filename(uint64_t outer_code, uint64_t inner_code) {
@@ -79,7 +107,7 @@ struct TwoPatch {
 
     if (sols.Size() >= TARGET_SAMPLES) {
       pairs_done++;
-      status->Printf(ACYAN("%s") ": Already have %lld samples.\n",
+      status->Printf(ACYAN("%s") ": Already have %lld samples.",
                      Filename(outer_code, inner_code).c_str(),
                      (int64_t)sols.Size());
       return;
@@ -164,6 +192,9 @@ struct TwoPatch {
       // PERF unnecessary!
       CHECK(SignedAreaOfConvexPoly(outer_poly) > 0.0);
       CHECK(IsConvexAndScreenClockwise(outer_poly)) << PolyString(outer_poly);
+
+      CHECK(SignedAreaOfConvexPoly(inner_poly) > 0.0);
+      CHECK(IsConvexAndScreenClockwise(inner_poly)) << PolyString(inner_poly);
 
       PolyTester2D outer_tester(outer_poly);
       CHECK(outer_tester.IsInside(vec2{0, 0}));
@@ -258,11 +289,11 @@ struct TwoPatch {
         double tot_sec = total_sample_sec + total_opt_sec;
 
         std::string oline =
-          std::format("{:016x} = {}",
+          std::format(AWHITE("outer") " {:016x} = {}",
                        outer_code,
                        boundaries.ColorMaskedBits(outer_code, outer_mask));
         std::string iline =
-          std::format("{:016x} = {}",
+          std::format(AWHITE("inner") " {:016x} = {}",
                       inner_code,
                       boundaries.ColorMaskedBits(inner_code, inner_mask));
 
@@ -337,7 +368,10 @@ struct TwoPatch {
     threads.clear();
 
     sols.Save();
-    status->Printf("Done: Saved %lld sols.\n", (int64_t)sols.Size());
+    status->Printf("Done in %s: Saved %lld sols to %s",
+                   ANSI::Time(run_timer.Seconds()).c_str(),
+                   (int64_t)sols.Size(),
+                   Filename(outer_code, inner_code).c_str());
     pairs_done++;
   }
 
@@ -364,7 +398,7 @@ int main(int argc, char **argv) {
 
   PatchInfo patchinfo = LoadPatchInfo("scube-patchinfo.txt");
   status.Printf(
-      "Total to run: %d * %d = %d\n",
+      "Total to run: %d * %d = %d",
       (int)patchinfo.canonical.size(),
       (int)patchinfo.canonical.size(),
       (int)(patchinfo.canonical.size() * patchinfo.canonical.size()));

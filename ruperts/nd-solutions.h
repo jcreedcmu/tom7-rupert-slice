@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -132,6 +133,8 @@ struct NDSolutions {
     return std::make_tuple(key, score, outer, inner);
   }
 
+  // Holding lock.
+  void CreateIndex();
 
   static constexpr char MAGIC[] = "NdS1";
 
@@ -142,7 +145,10 @@ struct NDSolutions {
   // to reduce memory pressure.
   std::vector<std::array<double, ROW_SIZE>> data;
 
-  TreeND<double, size_t> index = TreeND<double, size_t>(N);
+  // The index (kd tree), which we generate lazily. Once it
+  // exists, it is updated incrementally (some uses do not look
+  // up points at all).
+  std::unique_ptr<TreeND<double, size_t>> index;
 };
 
 
@@ -183,6 +189,17 @@ void NDSolutions<N>::Save() {
 }
 
 template<size_t N>
+void NDSolutions<N>::CreateIndex() {
+  CHECK(index.get() == nullptr);
+  index.reset(new TreeND<double, size_t>(N));
+
+  for (size_t idx = 0; idx < data.size(); idx++) {
+    const auto &[key, dist, outer, inner] = DecodeRow(data[idx]);
+    index->Insert(key, idx);
+  }
+}
+
+template<size_t N>
 void NDSolutions<N>::Add(
     const std::array<double, N> &key, double val,
     const frame3 &outer_frame, const frame3 &inner_frame) {
@@ -207,17 +224,22 @@ void NDSolutions<N>::Add(
     MutexLock ml(&m);
     size_t idx = data.size();
     data.push_back(std::move(row));
-    index.Insert(key, idx);
+    if (index.get() != nullptr) {
+      index->Insert(key, idx);
+    }
   }
 }
 
 template<size_t N>
 double NDSolutions<N>::Distance(const std::array<double, N> &key) {
   MutexLock ml(&m);
-  if (index.Empty())
+  if (index.get() == nullptr)
+    CreateIndex();
+
+  if (index->Empty())
     return std::numeric_limits<double>::infinity();
 
-  const auto &[pos, idx, dist] = index.Closest(key);
+  const auto &[pos, idx, dist] = index->Closest(key);
   return dist;
 }
 
@@ -225,9 +247,13 @@ template<size_t N>
 auto NDSolutions<N>::Closest(const std::array<double, N> &key) ->
   std::tuple<std::array<double, N>, double, frame3, frame3> {
   MutexLock ml(&m);
-  CHECK(!index.Empty());
 
-  const auto &[pos, idx, dist] = index.Closest(key);
+  if (index.get() == nullptr)
+    CreateIndex();
+
+  CHECK(!index->Empty());
+
+  const auto &[pos, idx, dist] = index->Closest(key);
   return DecodeRow(data[idx]);
 }
 
@@ -250,11 +276,7 @@ NDSolutions<N>::NDSolutions(std::string_view filename) : filename(filename) {
     }
   }
 
-  // Then create index.
-  for (size_t idx = 0; idx < data.size(); idx++) {
-    const auto &[key, dist, outer, inner] = DecodeRow(data[idx]);
-    index.Insert(key, idx);
-  }
+  // Index is created on demand.
 }
 
 template<size_t N>
