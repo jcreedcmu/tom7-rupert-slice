@@ -626,6 +626,45 @@ static void TestChop() {
   }
 }
 
+static void TestChopStringView() {
+  {
+    string str = "  hello world";
+    std::string_view s = str;
+    CHECK_EQ(Util::Chop(&s), "hello");
+    CHECK_EQ(s, " world");
+    CHECK_EQ(str, "  hello world");
+  }
+
+  {
+    string str = "  hello";
+    std::string_view s = str;
+    CHECK_EQ(Util::Chop(&s), "hello");
+    CHECK_EQ(s, "") << s;
+  }
+
+  {
+    string str = "hello";
+    std::string_view s = str;
+    CHECK_EQ(Util::Chop(&s), "hello");
+    CHECK_EQ(s, "");
+  }
+
+  {
+    string str = "   ";
+    std::string_view s = str;
+    CHECK_EQ(Util::Chop(&s), "");
+    CHECK_EQ(s, "");
+  }
+
+  {
+    string str = "";
+    std::string_view s = str;
+    CHECK_EQ(Util::Chop(&s), "");
+    CHECK_EQ(s, "");
+  }
+}
+
+
 static void TestChopTo() {
   {
     string s = "hello,world";
@@ -727,6 +766,7 @@ int main(int argc, char **argv) {
   TestRemoveChars();
   TestLoseWhiteL();
   TestChop();
+  TestChopStringView();
   TestChopTo();
   TestFormatTime();
   TestContains();

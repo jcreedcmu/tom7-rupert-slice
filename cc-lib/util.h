@@ -208,6 +208,8 @@ struct Util {
      of line, modifying line. eventually returns ""
      and line becomes empty. */
   static string chop(string &line);
+  // Same, but for a string view.
+  static std::string_view Chop(std::string_view *line);
 
   static double ParseDouble(std::string_view s,
                             double default_value = 0.0);

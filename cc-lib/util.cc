@@ -780,6 +780,29 @@ string Util::chop(string &line) {
   return "";
 }
 
+std::string_view Util::Chop(std::string_view *line) {
+  std::string_view ret = *line;
+
+  // Remove prefix whitespace from both.
+  while (!ret.empty() && ret[0] == ' ') {
+    ret.remove_prefix(1);
+    line->remove_prefix(1);
+  }
+
+  // Now find non-whitespace character.
+  const auto pos = ret.find(' ');
+  if (pos == std::string_view::npos) {
+    // Whole string. Line becomes empty.
+    line->remove_prefix(line->size());
+    return ret;
+  }
+
+  ret = ret.substr(0, pos);
+  line->remove_prefix(pos);
+  return ret;
+}
+
+
 optional<double> Util::ParseDoubleOpt(std::string_view s) {
   // To get rid of leading and trailing whitespace. strtod will skip
   // it anyway, but we want to be able to check that the whole
