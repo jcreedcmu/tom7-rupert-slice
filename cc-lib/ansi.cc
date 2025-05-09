@@ -2,15 +2,16 @@
 #include "ansi.h"
 
 #include <algorithm>
-#include <cstdlib>
-#include <string>
 #include <cmath>
 #include <cstdint>
-#include <tuple>
-#include <vector>
-#include <utility>
-#include <string_view>
+#include <cstdlib>
+#include <format>
 #include <span>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+#include <vector>
 
 #ifdef __MINGW32__
 #include <windows.h>
@@ -133,22 +134,20 @@ std::string ANSI::BackgroundRGB32(uint32_t rgba) {
 }
 
 std::string ANSI::Time(double seconds) {
-  char result[64] = {};
-  printf("Seconds: %.1f\n", seconds);
   if (seconds < 0.000001) {
-    snprintf(result, 64, AYELLOW("%.3f") "ns", seconds * 1'000'000'000.0);
+    return std::format(AYELLOW("{:.3f}") "ns", seconds * 1'000'000'000.0);
   } else if (seconds < 0.001) {
-    snprintf(result, 64, AYELLOW("%.3f") "μs", seconds * 1'000'000.0);
+    return std::format(AYELLOW("{:.3f}") "μs", seconds * 1'000'000.0);
   } else if (seconds < 1.0) {
-    snprintf(result, 64, AYELLOW("%.2f") "ms", seconds * 1000.0);
+    return std::format(AYELLOW("{:.2f}") "ms", seconds * 1000.0);
   } else if (seconds < 60.0) {
-    snprintf(result, 64, AYELLOW("%.3f") "s", seconds);
+    return std::format(AYELLOW("{:.3f}") "s", seconds);
   } else if (seconds < 60.0 * 60.0) {
     int sec = std::round(seconds);
     int omin = sec / 60;
     int osec = sec % 60;
-    snprintf(result, 64, AYELLOW("%d") "m" AYELLOW("%02d") "s",
-             omin, osec);
+    return std::format(AYELLOW("{}") "m" AYELLOW("{:02}") "s",
+                       omin, osec);
   } else {
     int sec = std::round(seconds);
     int ohour = sec / 3600;
@@ -156,21 +155,19 @@ std::string ANSI::Time(double seconds) {
     int omin = sec / 60;
     int osec = sec % 60;
     if (ohour <= 24) {
-      snprintf(result, 64, AYELLOW("%d") "h"
-               AYELLOW("%d") "m"
-               AYELLOW("%02d") "s",
-               ohour, omin, osec);
+      return std::format(AYELLOW("{}") "h"
+                         AYELLOW("{}") "m"
+                         AYELLOW("{:02}") "s",
+                         ohour, omin, osec);
     } else {
-      printf("ohour: %d\n", ohour);
       int odays = ohour / 24;
       ohour %= 24;
-      snprintf(result, 64, AYELLOW("%d") "d"
-               AYELLOW("%d") "h"
-               AYELLOW("%d") "m",
-               odays, ohour, omin);
+      return std::format(AYELLOW("{}") "d"
+                         AYELLOW("{}") "h"
+                         AYELLOW("{}") "m",
+                         odays, ohour, omin);
     }
   }
-  return (string)result;
 }
 
 std::string ANSI::StripCodes(const std::string &s) {

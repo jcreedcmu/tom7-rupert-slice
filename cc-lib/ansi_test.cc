@@ -196,6 +196,10 @@ static void TestDecompose() {
 
 }
 
+static void TestTime() {
+  CHECK(ANSI::StripCodes(ANSI::Time(61.0)) == "1m01s");
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
 
@@ -205,6 +209,7 @@ int main(int argc, char **argv) {
   TestComposite();
   TestRasterize();
   TestDecompose();
+  TestTime();
 
   printf(AGREEN("OK") "\n");
   return 0;
