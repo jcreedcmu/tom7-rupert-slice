@@ -4,7 +4,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <format>
 #include <mutex>
@@ -49,8 +51,16 @@ static constexpr int DIGITS = 24;
 static constexpr int TARGET_SAMPLES = 1'000'000;
 
 // XXX Specific to snub cube.
-static constexpr int TOTAL_PATCHES = 31;
-static constexpr int TOTAL_PAIRS = 31 * 31;
+[[maybe_unused]]
+static constexpr int TOTAL_PATCHES = 36;
+static constexpr int TOTAL_PAIRS = TOTAL_PATCHES * TOTAL_PATCHES;
+
+static constexpr std::string_view PATCH_INFO_FILE =
+  "scube-patchinfo.txt";
+static constexpr std::string_view PATCH_STATUS_FILE =
+  "scube-patchstatus.txt";
+
+
 
 std::string PolyString(const std::vector<vec2> &poly) {
   std::string ret;
@@ -379,6 +389,94 @@ struct TwoPatch {
 
 };
 
+static void Info() {
+  PatchInfo patchinfo = LoadPatchInfo(PATCH_INFO_FILE);
+  std::vector<std::pair<uint64_t, PatchInfo::CanonicalPatch>> cc =
+    MapToSortedVec(patchinfo.canonical);
+  for (int idx = 0; idx < cc.size(); idx++) {
+    const auto &[code, _] = cc[idx];
+    printf("%d: %llx\n", idx, code);
+  }
+}
+
+static void UpdateStatus() {
+  StatusBar status(1);
+  PatchInfo patchinfo = LoadPatchInfo(PATCH_INFO_FILE);
+
+  std::vector<std::pair<uint64_t, PatchInfo::CanonicalPatch>> cc =
+    MapToSortedVec(patchinfo.canonical);
+
+  status.Printf("Radix: %d\n", cc.size());
+
+  std::string out;
+  int done = 0, partial = 0;
+  for (int outer = 0; outer < cc.size(); outer++) {
+    const auto &[outer_code, canon1] = cc[outer];
+    for (int inner = 0; inner < cc.size(); inner++) {
+      const auto &[inner_code, canon2] = cc[inner];
+
+      std::string filename = TwoPatch::Filename(outer_code, inner_code);
+      NDSolutions<6> sols{filename};
+      if (!sols.Empty()) {
+        if (sols.Size() > TARGET_SAMPLES) {
+          AppendFormat(&out, "done {} {}\n", outer, inner);
+          status.Printf("%d %d done.", outer, inner);
+          done++;
+        } else {
+          AppendFormat(&out, "reserved {} {}\n", outer, inner);
+          status.Printf("%d %d %.2f%%", outer, inner,
+                        (sols.Size() * 100.0) / TARGET_SAMPLES);
+          partial++;
+        }
+      }
+    }
+    status.Progressf(outer, cc.size(), "Checking solutions...");
+  }
+
+  Util::WriteFile(PATCH_STATUS_FILE, out);
+  printf("All done. %d/%d done, %d partial\n",
+         done, TOTAL_PAIRS, partial);
+}
+
+static void RunWork(StatusBar *status, int start_outer) {
+  PatchInfo patchinfo = LoadPatchInfo(PATCH_INFO_FILE);
+  status->Printf(
+      "Total to run: %d * %d = %d",
+      (int)patchinfo.canonical.size(),
+      (int)patchinfo.canonical.size(),
+      (int)(patchinfo.canonical.size() * patchinfo.canonical.size()));
+  BigPoly scube = BigScube(DIGITS);
+
+  ArcFour rc(std::format("{}", time(nullptr)));
+  std::vector<std::pair<uint64_t, PatchInfo::CanonicalPatch>> cc =
+    MapToSortedVec(patchinfo.canonical);
+  // Shuffle(&rc, &cc);
+
+  PatchStatus patch_status(PATCH_STATUS_FILE);
+
+  for (int outer = start_outer; outer < cc.size(); outer++) {
+    const auto &[code1, canon1] = cc[outer];
+    for (int inner = 0; inner < cc.size(); inner++) {
+      const auto &[code2, canon2] = cc[inner];
+      // Skip it if it is registered as complete.
+      if (patch_status.done.contains(std::make_pair(outer, inner)))
+        continue;
+
+      // If it is reserved, then only try it if we have
+      // the file.
+      if (patch_status.reserved.contains(std::make_pair(outer, inner))) {
+        if (!Util::ExistsFile(TwoPatch::Filename(code1, code2))) {
+          status->Printf("%llx %llx is reserved but not by us.");
+          continue;
+        }
+      }
+
+      TwoPatch two_patch(status, scube,
+                         code1, code2, canon1.mask, canon2.mask);
+      two_patch.Solve();
+    }
+  }
+}
 
 int main(int argc, char **argv) {
   ANSI::Init();
@@ -393,33 +491,19 @@ int main(int argc, char **argv) {
   two_patch.Plot();
   */
 
+  if (argc == 2 && 0 == strcmp(argv[1], "info")) {
+    Info();
+    return 0;
+  } else if (argc == 2 && 0 == strcmp(argv[1], "updatestatus")) {
+    UpdateStatus();
+    return 0;
+  }
+
   int start_outer = 0;
   if (argc == 2) start_outer = atoi(argv[1]);
 
   StatusBar status = StatusBar(4);
-
-  PatchInfo patchinfo = LoadPatchInfo("scube-patchinfo.txt");
-  status.Printf(
-      "Total to run: %d * %d = %d",
-      (int)patchinfo.canonical.size(),
-      (int)patchinfo.canonical.size(),
-      (int)(patchinfo.canonical.size() * patchinfo.canonical.size()));
-  BigPoly scube = BigScube(DIGITS);
-
-  ArcFour rc(std::format("{}", time(nullptr)));
-  std::vector<std::pair<uint64_t, PatchInfo::CanonicalPatch>> cc =
-    MapToSortedVec(patchinfo.canonical);
-  // Shuffle(&rc, &cc);
-
-  for (int outer = start_outer; outer < cc.size(); outer++) {
-    const auto &[code1, canon1] = cc[outer];
-    for (int inner = 0; inner < cc.size(); inner++) {
-      const auto &[code2, canon2] = cc[inner];
-      TwoPatch two_patch(&status, scube,
-                         code1, code2, canon1.mask, canon2.mask);
-      two_patch.Solve();
-    }
-  }
+  RunWork(&status, start_outer);
 
   // done:
   // 0b0000101000010101110101111011111,0b1101110011101000001011100000101
