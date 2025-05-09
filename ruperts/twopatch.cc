@@ -297,7 +297,7 @@ struct TwoPatch {
   void MaybeStatus() {
     status_per.RunIf([&]() {
         double tot_sec = total_sample_sec + total_opt_sec + total_add_sec;
-	double wall_sec = run_timer.Seconds();
+  double wall_sec = run_timer.Seconds();
         int64_t numer = sols_done.Read();
         int64_t denom = std::max(TARGET_SAMPLES - start_sols_size, int64_t{0});
 
@@ -466,7 +466,8 @@ static void RunWork(StatusBar *status, int start_outer) {
       // the file.
       if (patch_status.reserved.contains(std::make_pair(outer, inner))) {
         if (!Util::ExistsFile(TwoPatch::Filename(code1, code2))) {
-          status->Printf("%llx %llx is reserved but not by us.");
+          status->Printf("%llx %llx is reserved but not by us.",
+                         code1, code2);
           continue;
         }
       }
