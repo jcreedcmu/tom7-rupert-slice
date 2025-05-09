@@ -134,6 +134,7 @@ std::string ANSI::BackgroundRGB32(uint32_t rgba) {
 
 std::string ANSI::Time(double seconds) {
   char result[64] = {};
+  printf("Seconds: %.1f\n", seconds);
   if (seconds < 0.000001) {
     snprintf(result, 64, AYELLOW("%.3f") "ns", seconds * 1'000'000'000.0);
   } else if (seconds < 0.001) {
@@ -160,6 +161,7 @@ std::string ANSI::Time(double seconds) {
                AYELLOW("%02d") "s",
                ohour, omin, osec);
     } else {
+      printf("ohour: %d\n", ohour);
       int odays = ohour / 24;
       ohour %= 24;
       snprintf(result, 64, AYELLOW("%d") "d"
@@ -207,7 +209,9 @@ std::string ANSI::ProgressBar(uint64_t numer, uint64_t denom,
 
   double spe = numer > 0 ? seconds / numer : 1.0;
   double remaining_sec = (denom - numer) * spe;
-  string eta = Time(remaining_sec);
+  string eta =
+    (std::isfinite(remaining_sec) && remaining_sec >= 0.0) ?
+    Time(remaining_sec) : std::string("∞");
   int eta_len = StringWidth(eta);
 
   int bar_width = options.full_width - 2 - 1 - eta_len;

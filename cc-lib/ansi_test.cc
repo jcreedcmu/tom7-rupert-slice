@@ -14,9 +14,12 @@
 using namespace std;
 
 static void TestProgress() {
+  // Note that this will not match the display, since it is
+  // calculating 927/1979ths worth of progress in that amount of time.
+  const double sec = 45.0 * 3600.0 * 24.0 * 365.25;
   printf("%s\n", ANSI::ProgressBar(927, 1979,
                                    "a " AYELLOW("~\\_(ツ)_/~") " birthday boy",
-                                   45.0 * 3600.0 * 24.0 * 365.25).c_str());
+                                   sec).c_str());
 }
 
 static std::string Escaped(const std::string &ansi) {
