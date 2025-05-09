@@ -41,7 +41,7 @@ DECLARE_COUNTERS(sols_done, pairs_done);
 // Plot them on both outer and inner patches.
 using namespace yocto;
 
-static constexpr int NUM_THREADS = 8;
+static constexpr int NUM_THREADS = 15;
 // static constexpr int NUM_THREADS = 1;
 
 static constexpr int DIGITS = 24;
@@ -286,7 +286,10 @@ struct TwoPatch {
   // With lock.
   void MaybeStatus() {
     status_per.RunIf([&]() {
-        double tot_sec = total_sample_sec + total_opt_sec;
+        double tot_sec = total_sample_sec + total_opt_sec + total_add_sec;
+	double wall_sec = run_timer.Seconds();
+        int64_t numer = sols_done.Read();
+        int64_t denom = std::max(TARGET_SAMPLES - start_sols_size, int64_t{0});
 
         std::string oline =
           std::format(AWHITE("outer") " {:016x} = {}",
@@ -299,21 +302,20 @@ struct TwoPatch {
 
         std::string timing =
           std::format(AGREY("[") ACYAN("{}") "/" AWHITE("{}") AGREY("]") " "
-                      "{} sample {} opt ({:.2g}%) {} add",
+                      "{} sample {} opt ({:.2f}%) {} add {:.2f}/sec",
                       pairs_done.Read(), TOTAL_PAIRS,
                       ANSI::Time(total_sample_sec),
                       ANSI::Time(total_opt_sec),
                       (100.0 * total_opt_sec) / tot_sec,
-                      ANSI::Time(total_add_sec));
+                      ANSI::Time(total_add_sec),
+                      numer / wall_sec);
 
-        int64_t numer = sols_done.Read();
-        int64_t denom = std::max(TARGET_SAMPLES - start_sols_size, int64_t{0});
         std::string bar =
           ANSI::ProgressBar(numer, denom,
                             std::format("{} total. Save in {}",
                                         sols.Size(),
                                         ANSI::Time(save_per.SecondsLeft())),
-                            run_timer.Seconds());
+                            wall_sec);
 
         status->EmitStatus({oline, iline, timing, bar});
       });
