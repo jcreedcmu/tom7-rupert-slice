@@ -31,7 +31,9 @@ done 0 29
 done 0 30
 done 0 31
 done 0 32
-reserved 0 33
+done 0 33
+done 0 34
+reserved 0 35
 done 9 0
 done 11 0
 done 11 1
@@ -49,6 +51,7 @@ done 11 12
 done 11 13
 done 11 14
 reserved 11 15
+reserved 13 0
 done 16 0
 reserved 16 1
 done 20 0
@@ -82,7 +85,9 @@ done 20 27
 done 20 28
 done 20 29
 done 20 30
-reserved 20 31
+done 20 31
+done 20 32
+reserved 20 33
 done 26 0
 done 26 1
 done 26 2

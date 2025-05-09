@@ -43,8 +43,16 @@ DECLARE_COUNTERS(sols_done, pairs_done);
 // Plot them on both outer and inner patches.
 using namespace yocto;
 
-static constexpr int NUM_THREADS = 15;
+static constexpr int NUM_THREADS = 8;
 // static constexpr int NUM_THREADS = 1;
+
+// See howmanyrep.cc to plot how this affects the error.
+// Putting aside the large relative error when we get within
+// discretization error of zero, we typically reach within
+// 1/2048 of the best error (of 200 attempts) after about 6
+// attempts. Then after about 38 attempts we're within 1/2048
+// of the best error achieved after 6 attempts.
+static constexpr int ATTEMPTS = 50;
 
 static constexpr int DIGITS = 24;
 
@@ -254,9 +262,8 @@ struct TwoPatch {
         {2.0 * std::numbers::pi, +TMAX, +TMAX};
 
       Timer opt_timer;
-      constexpr int ATTEMPTS = 100;
       const auto &[args, error] =
-        Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 100);
+        Opt::Minimize<D>(Loss, lb, ub, 1000, 2, ATTEMPTS);
       [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
       [[maybe_unused]] double aps = ATTEMPTS / opt_sec;
 
@@ -297,7 +304,7 @@ struct TwoPatch {
   void MaybeStatus() {
     status_per.RunIf([&]() {
         double tot_sec = total_sample_sec + total_opt_sec + total_add_sec;
-  double wall_sec = run_timer.Seconds();
+        double wall_sec = run_timer.Seconds();
         int64_t numer = sols_done.Read();
         int64_t denom = std::max(TARGET_SAMPLES - start_sols_size, int64_t{0});
 
