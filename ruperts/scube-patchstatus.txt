@@ -64,6 +64,8 @@ done 6 16
 done 6 17
 done 6 18
 done 6 19
+done 6 20
+reserved 6 21
 done 9 0
 done 11 0
 done 11 1
@@ -176,6 +178,7 @@ done 18 11
 done 18 12
 done 18 13
 done 18 14
+reserved 18 15
 done 20 0
 done 20 1
 done 20 2

@@ -506,13 +506,14 @@ static void RunWork(StatusBar *status, int start_outer) {
       if (CLOUD) {
         status->Printf("Copy to storage bucket.\n");
         std::string cmd = std::format(
-            "gcloud storage cp {} gs://tom7-ruperts/ && "
+            "gsutil cp {} gs://tom7-ruperts/ && "
             "rm -f {}",
             filename, filename);
+        status->Printf(AGREY("%s"), cmd.c_str());
         if (0 == std::system(cmd.c_str())) {
-          status->Printf(AGREEN("OK") "\n");
+          status->Printf(AGREEN("OK"));
         } else {
-          status->Printf(ARED("FAILED") "\n\n\n");
+          status->Printf(ARED("FAILED"));
         }
 
         // Either way, add it to the done set.
