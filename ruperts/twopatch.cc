@@ -1,8 +1,10 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -68,6 +70,13 @@ static constexpr std::string_view PATCH_INFO_FILE =
 static constexpr std::string_view PATCH_STATUS_FILE =
   "scube-patchstatus.txt";
 
+static_assert(__cplusplus >= 202002L, "This code requires C++20.");
+static std::atomic_flag terminated;
+extern "C" void HandleSigTerm(int sig) {
+  if (sig == SIGTERM) {
+    terminated.test_and_set();
+  }
+}
 
 
 std::string PolyString(const std::vector<vec2> &poly) {
@@ -178,6 +187,9 @@ struct TwoPatch {
         if (sols.Size() >= TARGET_SAMPLES) {
           should_die = true;
         }
+
+        if (terminated.test())
+          should_die = true;
 
         if (should_die)
           return;
@@ -374,6 +386,9 @@ struct TwoPatch {
         MutexLock ml(&mu);
         if (sols.Size() >= TARGET_SAMPLES)
           break;
+
+        if (terminated.test())
+          break;
       }
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
@@ -509,6 +524,8 @@ int main(int argc, char **argv) {
 
   int start_outer = 0;
   if (argc == 2) start_outer = atoi(argv[1]);
+
+  std::signal(SIGTERM, HandleSigTerm);
 
   StatusBar status = StatusBar(4);
   RunWork(&status, start_outer);
