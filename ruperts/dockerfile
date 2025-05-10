@@ -16,8 +16,8 @@ RUN <<EOT
   set -e
   apt-get update
   apt-get install -y --no-install-recommends \
-    clang-19 libc++-19-dev libc++abi-19-dev build-essential libgmp-dev zlib1g-dev opencl-headers ocl-icd-opencl-dev
-	
+    clang-19 libc++-19-dev libc++abi-19-dev build-essential libgmp-dev zlib1g-dev opencl-headers ocl-icd-opencl-dev subversion
+
   update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
   update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
 
