@@ -48,6 +48,8 @@ using namespace yocto;
 static constexpr int NUM_THREADS = 8;
 // static constexpr int NUM_THREADS = 1;
 
+static constexpr bool CLOUD = false;
+
 // See howmanyrep.cc to plot how this affects the error.
 // Putting aside the large relative error when we get within
 // discretization error of zero, we typically reach within
@@ -67,7 +69,7 @@ static constexpr int TOTAL_PAIRS = TOTAL_PATCHES * TOTAL_PATCHES;
 
 static constexpr std::string_view PATCH_INFO_FILE =
   "scube-patchinfo.txt";
-static constexpr std::string_view PATCH_STATUS_FILE =
+static const char *PATCH_STATUS_FILE =
   "scube-patchstatus.txt";
 
 static_assert(__cplusplus >= 202002L, "This code requires C++20.");
@@ -402,10 +404,11 @@ struct TwoPatch {
     threads.clear();
 
     sols.Save();
+    std::string filename = Filename(outer_code, inner_code);
     status->Printf("Done in %s: Saved %lld sols to %s",
                    ANSI::Time(run_timer.Seconds()).c_str(),
                    (int64_t)sols.Size(),
-                   Filename(outer_code, inner_code).c_str());
+                   filename.c_str());
     pairs_done++;
   }
 
@@ -484,10 +487,12 @@ static void RunWork(StatusBar *status, int start_outer) {
       if (patch_status.done.contains(std::make_pair(outer, inner)))
         continue;
 
+      std::string filename = TwoPatch::Filename(code1, code2);
+
       // If it is reserved, then only try it if we have
       // the file.
       if (patch_status.reserved.contains(std::make_pair(outer, inner))) {
-        if (!Util::ExistsFile(TwoPatch::Filename(code1, code2))) {
+        if (!Util::ExistsFile(filename)) {
           status->Printf("%llx %llx is reserved but not by us.",
                          code1, code2);
           continue;
@@ -497,6 +502,28 @@ static void RunWork(StatusBar *status, int start_outer) {
       TwoPatch two_patch(status, scube,
                          code1, code2, canon1.mask, canon2.mask);
       two_patch.Solve();
+
+      if (CLOUD) {
+        status->Printf("Copy to storage bucket.\n");
+        std::string cmd = std::format(
+            "gcloud storage cp {} gs://tom7-ruperts/ && "
+            "rm -f {}",
+            filename, filename);
+        if (0 == std::system(cmd.c_str())) {
+          status->Printf(AGREEN("OK") "\n");
+        } else {
+          status->Printf(ARED("FAILED") "\n\n\n");
+        }
+
+        // Either way, add it to the done set.
+        patch_status.done.insert(std::make_pair(outer, inner));
+        {
+          FILE *f = fopen(PATCH_STATUS_FILE, "a");
+          fprintf(f, "done %d %d\n", outer, inner);
+          fclose(f);
+        }
+      }
+
     }
   }
 }
