@@ -122,10 +122,12 @@ struct TwoPatch {
     return std::format("{:x}-{:x}.nds", outer_code, inner_code);
   }
 
-  TwoPatch(StatusBar *status,
+  TwoPatch(std::string_view what,
+           StatusBar *status,
            const BigPoly &big_poly,
            uint64_t outer_code, uint64_t inner_code,
            uint64_t outer_mask = 0, uint64_t inner_mask = 0) :
+    what(what),
     status(status),
     boundaries(big_poly),
     small_poly(SmallPoly(big_poly)),
@@ -161,6 +163,7 @@ struct TwoPatch {
     }
   }
 
+  const std::string_view what;
   StatusBar *status = nullptr;
   Periodically status_per = Periodically(1);
   Periodically save_per = Periodically(60 * 5);
@@ -343,7 +346,10 @@ struct TwoPatch {
 
         std::string bar =
           ANSI::ProgressBar(numer, denom,
-                            std::format("{} total. Save in {}",
+                            std::format(ACYAN("|")
+                                        AWHITE("{}")
+                                        ACYAN("|") " {} total. Save in {}",
+                                        what,
                                         sols.Size(),
                                         ANSI::Time(save_per.SecondsLeft())),
                             wall_sec);
@@ -433,10 +439,13 @@ static void UpdateStatus() {
 
   status.Printf("Radix: %d\n", cc.size());
 
+  std::string matrix;
+
   std::string out;
   int done = 0, partial = 0;
   for (int outer = 0; outer < cc.size(); outer++) {
     const auto &[outer_code, canon1] = cc[outer];
+    matrix += std::format(AGREY("{:02}") " ", outer);
     for (int inner = 0; inner < cc.size(); inner++) {
       const auto &[inner_code, canon2] = cc[inner];
 
@@ -444,25 +453,32 @@ static void UpdateStatus() {
       // NDSolutions<6> sols{filename};
       const std::size_t nsols =
         NDSolutions<6>::SolutionsInFile(filename).value_or(0);
-      if (nsols != 0) {
+      if (nsols == 0) {
+        matrix += AGREY("-");
+      } else {
         if (nsols > TARGET_SAMPLES) {
           AppendFormat(&out, "done {} {}\n", outer, inner);
           status.Printf("%d %d done.", outer, inner);
           done++;
+          matrix += AGREEN("⏹");
         } else {
           AppendFormat(&out, "reserved {} {}\n", outer, inner);
           status.Printf("%d %d %.2f%%", outer, inner,
                         (nsols * 100.0) / TARGET_SAMPLES);
           partial++;
+          matrix += AYELLOW("∘");
         }
       }
     }
+    matrix += "\n";
     status.Progressf(outer, cc.size(), "Checking solutions...");
   }
 
   Util::WriteFile(PATCH_STATUS_FILE, out);
   printf("All done. %d/%d done, %d partial\n",
          done, TOTAL_PAIRS, partial);
+
+  printf("%s\n", matrix.c_str());
 }
 
 static void RunWork(StatusBar *status, int start_outer) {
@@ -486,8 +502,9 @@ static void RunWork(StatusBar *status, int start_outer) {
     for (int inner = 0; inner < cc.size(); inner++) {
       const auto &[code2, canon2] = cc[inner];
       // Skip it if it is registered as complete.
-      if (patch_status.done.contains(std::make_pair(outer, inner)))
+      if (patch_status.done.contains(std::make_pair(outer, inner))) {
         continue;
+      }
 
       std::string filename = TwoPatch::Filename(code1, code2);
 
@@ -501,7 +518,8 @@ static void RunWork(StatusBar *status, int start_outer) {
         }
       }
 
-      TwoPatch two_patch(status, scube,
+      std::string what = std::format("{}.{}", outer, inner);
+      TwoPatch two_patch(what, status, scube,
                          code1, code2, canon1.mask, canon2.mask);
       two_patch.Solve();
 
