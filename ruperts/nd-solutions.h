@@ -10,15 +10,18 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <tuple>
+#include <unordered_set>
 #include <utility>
 #include <vector>
-#include <unordered_set>
 
 #include "auto-histo.h"
 #include "base/logging.h"
@@ -40,6 +43,11 @@ struct NDSolutions {
   using vec3 = yocto::vec<double, 3>;
 
   explicit NDSolutions(std::string_view filename);
+
+  // Same as NDSolutions(filename).Size(), but much faster
+  // because it doesn't need to read the whole file.
+  static std::optional<size_t> SolutionsInFile(std::string_view filename,
+                                               std::string *error = nullptr);
 
   bool Empty() { return Size() == 0; }
 
@@ -277,6 +285,37 @@ NDSolutions<N>::NDSolutions(std::string_view filename) : filename(filename) {
   }
 
   // Index is created on demand.
+}
+
+template<size_t N>
+std::optional<size_t>
+NDSolutions<N>::SolutionsInFile(std::string_view filename,
+                                std::string *error) {
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  ec.clear();
+
+  std::uintmax_t size = fs::file_size(filename, ec);
+  if (ec) {
+    if (error != nullptr) *error = "Couldn't get file size";
+    return std::nullopt;
+  }
+
+  // Check header.
+  if (!Util::HasMagic(filename, std::string_view(MAGIC, 4))) {
+    if (error != nullptr) *error = "Bad header";
+    return std::nullopt;
+  }
+
+  if ((size - 4) % (8 * ROW_SIZE) != 0) {
+    if (error != nullptr) *error = "Incorrect size";
+    return std::nullopt;
+  }
+
+  size -= 4;
+  size /= (8 * ROW_SIZE);
+
+  return {size};
 }
 
 template<size_t N>

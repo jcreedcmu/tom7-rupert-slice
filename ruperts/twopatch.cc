@@ -441,16 +441,18 @@ static void UpdateStatus() {
       const auto &[inner_code, canon2] = cc[inner];
 
       std::string filename = TwoPatch::Filename(outer_code, inner_code);
-      NDSolutions<6> sols{filename};
-      if (!sols.Empty()) {
-        if (sols.Size() > TARGET_SAMPLES) {
+      // NDSolutions<6> sols{filename};
+      const std::size_t nsols =
+        NDSolutions<6>::SolutionsInFile(filename).value_or(0);
+      if (nsols != 0) {
+        if (nsols > TARGET_SAMPLES) {
           AppendFormat(&out, "done {} {}\n", outer, inner);
           status.Printf("%d %d done.", outer, inner);
           done++;
         } else {
           AppendFormat(&out, "reserved {} {}\n", outer, inner);
           status.Printf("%d %d %.2f%%", outer, inner,
-                        (sols.Size() * 100.0) / TARGET_SAMPLES);
+                        (nsols * 100.0) / TARGET_SAMPLES);
           partial++;
         }
       }
