@@ -526,7 +526,7 @@ static void RunWork(StatusBar *status, int start_outer) {
       if (CLOUD) {
         status->Printf("Copy to storage bucket.\n");
         std::string cmd = std::format(
-            "gsutil cp {} gs://tom7-ruperts/ && "
+            "gsutil -q cp {} gs://tom7-ruperts/ && "
             "rm -f {}",
             filename, filename);
         status->Printf(AGREY("%s"), cmd.c_str());
