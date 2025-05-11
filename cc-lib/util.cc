@@ -464,7 +464,7 @@ vector<uint8> Util::ReadFileBytes(std::string_view filename) {
 }
 
 
-static bool HasMagicF(FILE *f, const string &mag) {
+static bool HasMagicF(FILE *f, std::string_view mag) {
   char *hdr = (char*)malloc(mag.length());
   if (!hdr) return false;
 
@@ -485,8 +485,8 @@ static bool HasMagicF(FILE *f, const string &mag) {
   return true;
 }
 
-bool Util::HasMagic(string s, const string &mag) {
-  FILE *f = fopen(s.c_str(), "rb");
+bool Util::HasMagic(std::string_view s, std::string_view mag) {
+  FILE *f = fopen(std::string(s).c_str(), "rb");
   if (!f) return false;
 
   bool hm = HasMagicF(f, mag);
@@ -495,11 +495,11 @@ bool Util::HasMagic(string s, const string &mag) {
   return hm;
 }
 
-string Util::ReadFileMagic(string s, const string &mag) {
+string Util::ReadFileMagic(std::string_view s, std::string_view mag) {
   if (isdir(s)) return "";
   if (s == "") return "";
 
-  FILE *f = fopen(s.c_str(), "rb");
+  FILE *f = fopen(std::string(s).c_str(), "rb");
 
   if (!f) return "";
 
@@ -510,7 +510,8 @@ string Util::ReadFileMagic(string s, const string &mag) {
   }
 
   // OK, now just read file.
-  return ReadAndCloseFile<string>(f, &mag);
+  std::string mag_string{mag};
+  return ReadAndCloseFile<std::string>(f, &mag_string);
 }
 
 bool Util::WriteFile(std::string_view fn, std::string_view s) {

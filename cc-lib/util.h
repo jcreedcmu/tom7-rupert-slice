@@ -120,8 +120,8 @@ struct Util {
   static string sizes(int i);
 
   /* only read if the file begins with the magic string */
-  static bool HasMagic(string filename, const string &magic);
-  static string ReadFileMagic(string filename, const string &magic);
+  static bool HasMagic(std::string_view filename, std::string_view magic);
+  static string ReadFileMagic(std::string_view filename, std::string_view magic);
 
   [[deprecated]] static unsigned int hash(const string &s);
   // give "/home/tom/" of "/home/tom/.bashrc"
