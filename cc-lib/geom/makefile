@@ -1,7 +1,7 @@
 
 default : latlon_test.exe bezier_test.exe hilbert-curve_test.exe tree-2d_test.exe
 
-CC_LIB_OBJECTS=../base/logging.o ../base/stringprintf.o ../image.o ../stb_image_write.o ../stb_image.o ../arcfour.o
+CC_LIB_OBJECTS=../base/logging.o ../base/stringprintf.o ../image.o ../stb_image_write.o ../stb_image.o ../arcfour.o ../status-bar.o ../ansi.o ../util.o
 
 # for 64 bits on windows
 # CXX=x86_64-w64-mingw32-g++

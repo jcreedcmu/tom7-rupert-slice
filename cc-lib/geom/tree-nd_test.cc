@@ -5,7 +5,12 @@
 #include <string>
 #include <unordered_set>
 
+#include "ansi.h"
+#include "arcfour.h"
 #include "base/logging.h"
+#include "periodically.h"
+#include "randutil.h"
+#include "status-bar.h"
 
 static std::vector<int> Pos3(int x, int y, int z) {
   return std::vector<int>({x, y, z});
@@ -207,10 +212,94 @@ static void TestInts3D() {
   CHECK(tree.Empty());
 }
 
+static void TestDouble3D() {
+  ArcFour rc("deterministic");
+
+  using vec3 = std::vector<double>;
+  auto Vec3 = [](double x, double y, double z) -> vec3 {
+      return vec3{{x, y, z}};
+    };
+
+  auto Distance = [](const vec3 &a, const vec3 &b) {
+      auto dx = a[0] - b[0];
+      auto dy = a[1] - b[1];
+      auto dz = a[2] - b[2];
+      return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+
+  double lookup_sec = 0.0;
+
+  StatusBar status(1);
+  Periodically status_per(1.0);
+  static constexpr int NUM_PASSES = 300;
+  for (int pass = 0; pass < NUM_PASSES; pass++) {
+    TreeND<double, int> tree(3);
+
+    std::vector<std::pair<vec3, int>> points;
+    for (int i = 0; i < 1000; i++) {
+      double x = RandDouble(&rc) * 4 - 2;
+      double y = RandDouble(&rc) * 4 - 2;
+      double z = RandDouble(&rc) * 4 - 2;
+
+      // 1/3 of the time, all on a sphere
+      if (pass % 3 == 0) {
+        double norm = Distance(Vec3(0, 0, 0), Vec3(x, y, z));
+        x /= norm;
+        y /= norm;
+        z /= norm;
+      }
+
+      vec3 v = Vec3(x, y, z);
+      points.emplace_back(v, i);
+      tree.Insert(v, i);
+    }
+
+    CHECK(tree.Size() == points.size());
+
+    Timer lookup_timer;
+    for (const auto &[pos, idx] : points) {
+      // Note that there could technically be duplicate points.
+      const auto &[pp, ii, dd] = tree.Closest(pos);
+      CHECK(std::abs(dd) < 1.0e-6);
+      CHECK(Distance(points[ii].first, pos) < 1.0e-6);
+    }
+    lookup_sec += lookup_timer.Seconds();
+
+    // Random points
+    for (int r = 0; r < 1000; r++) {
+      double x = RandDouble(&rc) * 4 - 2;
+      double y = RandDouble(&rc) * 4 - 2;
+      double z = RandDouble(&rc) * 4 - 2;
+      vec3 v = Vec3(x, y, z);
+
+      Timer tt;
+      const auto &[pp, ii, dd] = tree.Closest(v);
+      lookup_sec += tt.Seconds();
+      CHECK(std::abs(dd - Distance(v, pp)) < 1.0e-6);
+
+      // Make sure nothing is strictly closer
+      for (const auto &[pos, idx] : points) {
+        if (idx == ii) continue;
+        CHECK(Distance(v, pos) >= dd);
+      }
+    }
+
+    // XXX check LookUp too.
+    status_per.RunIf([&]() {
+        status.Progressf(pass, NUM_PASSES, "Testing...");
+      });
+  }
+
+  printf("Total Closest time: %s\n", ANSI::Time(lookup_sec).c_str());
+}
+
 int main(int argc, char **argv) {
+  ANSI::Init();
 
   TestInts2D();
   TestInts3D();
+
+  TestDouble3D();
 
   // TODO: Some random tests?
 
