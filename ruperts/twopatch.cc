@@ -481,7 +481,7 @@ static void UpdateStatus() {
   printf("%s\n", matrix.c_str());
 }
 
-static void RunWork(StatusBar *status, int start_outer) {
+static void RunWork(StatusBar *status, int start_outer, int start_inner) {
   PatchInfo patchinfo = LoadPatchInfo(PATCH_INFO_FILE);
   status->Printf(
       "Total to run: %d * %d = %d",
@@ -499,7 +499,7 @@ static void RunWork(StatusBar *status, int start_outer) {
 
   for (int outer = start_outer; outer < cc.size(); outer++) {
     const auto &[code1, canon1] = cc[outer];
-    for (int inner = 0; inner < cc.size(); inner++) {
+    for (int inner = start_inner; inner < cc.size(); inner++) {
       const auto &[code2, canon2] = cc[inner];
       // Skip it if it is registered as complete.
       if (patch_status.done.contains(std::make_pair(outer, inner))) {
@@ -544,8 +544,10 @@ static void RunWork(StatusBar *status, int start_outer) {
           fclose(f);
         }
       }
-
     }
+
+    // Only for the first row.
+    start_inner = 0;
   }
 }
 
@@ -571,12 +573,14 @@ int main(int argc, char **argv) {
   }
 
   int start_outer = 0;
-  if (argc == 2) start_outer = atoi(argv[1]);
+  int start_inner = 0;
+  if (argc >= 2) start_outer = atoi(argv[1]);
+  if (argc >= 3) start_inner = atoi(argv[2]);
 
   std::signal(SIGTERM, HandleSigTerm);
 
   StatusBar status = StatusBar(4);
-  RunWork(&status, start_outer);
+  RunWork(&status, start_outer, start_inner);
 
   // done:
   // 0b0000101000010101110101111011111,0b1101110011101000001011100000101
