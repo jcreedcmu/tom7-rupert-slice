@@ -27,8 +27,8 @@ CC_LIB=../cc-lib
 CODEC=../codec
 SQLITE=../sqlite
 
-# OPT=-O3 -flto=thin
-OPT=-O -g
+OPT=-O3 -flto=thin
+# OPT=-O -g
 # ASAN=-g -fsanitize=address -fsanitize=undefined
 # OPT=-O
 
