@@ -81,7 +81,8 @@ done 2 7
 done 2 8
 done 2 9
 done 2 10
-reserved 2 11
+done 2 11
+reserved 2 12
 done 2 25
 done 2 26
 done 2 27
@@ -318,6 +319,12 @@ done 9 5
 done 9 6
 done 9 7
 done 9 8
+reserved 9 9
+done 9 14
+done 9 15
+done 9 16
+done 9 17
+done 10 5
 done 10 10
 done 10 11
 done 10 12
@@ -327,6 +334,10 @@ done 10 15
 done 10 16
 done 10 17
 reserved 10 18
+done 10 19
+done 10 20
+done 10 21
+done 10 22
 done 10 30
 done 10 31
 reserved 10 32
@@ -454,6 +465,10 @@ done 15 4
 done 15 5
 done 15 6
 reserved 15 7
+done 15 15
+done 15 16
+done 15 17
+done 15 18
 done 15 20
 done 15 21
 done 15 22
@@ -866,6 +881,7 @@ done 28 4
 done 28 5
 done 28 6
 reserved 28 7
+done 28 16
 done 28 28
 done 28 29
 done 28 30
@@ -1071,6 +1087,7 @@ done 34 13
 done 34 14
 done 34 15
 done 34 16
+reserved 34 17
 done 34 29
 done 35 14
 done 35 15
@@ -1080,3 +1097,7 @@ done 35 18
 done 35 19
 done 35 20
 done 35 21
+done 35 22
+done 35 23
+done 35 24
+reserved 35 25
