@@ -21,7 +21,7 @@ StatusBar::StatusBar(int num_lines) : num_lines(num_lines) {
   prev_status_lines.resize(num_lines);
 }
 
-void StatusBar::Printf(const char* format, ...) PRINTF_ATTRIBUTE(1, 2) {
+void StatusBar::Printf(const char *format, ...) {
   va_list ap;
   va_start(ap, format);
   string result;
@@ -41,7 +41,7 @@ void StatusBar::Emit(const std::string &s) {
   EmitStatusLinesWithLock(prev_status_lines);
 }
 
-void StatusBar::Statusf(const char* format, ...) PRINTF_ATTRIBUTE(1, 2) {
+void StatusBar::Statusf(const char *format, ...) {
   va_list ap;
   va_start(ap, format);
   string result;

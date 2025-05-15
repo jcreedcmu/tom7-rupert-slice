@@ -284,27 +284,44 @@
 
 #endif  // cygwin
 
-// GCC-specific features
+// Non-standard but widely-supported attributes.
+#if (defined(__clang__) || defined(COMPILER_GCC3) || defined(COMPILER_ICC) || defined(OS_MACOSX))
 
-#if (defined(COMPILER_GCC3) || defined(COMPILER_ICC) || defined(OS_MACOSX))
-
-//
 // Tell the compiler to do printf format string checking if the
 // compiler supports it; see the 'format' attribute in
 // <http://gcc.gnu.org/onlinedocs/gcc-4.3.0/gcc/Function-Attributes.html>.
 //
 // e.g. printf would be marked PRINTF_ATTRIBUTE(1, 2) since the 1st arg
 // is the format string and the 2nd onward are the arguments. sprintf
-// would be marked PRINTF_ATTRIBUTE(2, 3).
-//
-// N.B.: As the GCC manual states, "[s]ince non-static C++ methods
-// have an implicit 'this' argument, the arguments of such methods
-// should be counted from two, not one."
-//
+// would be marked PRINTF_ATTRIBUTE(2, 3). For functions that are
+// (non-static) members of objects with an implicit 'this' parameter,
+// use PRINTF_ATTRIBUTE_MEMBER.
 #define PRINTF_ATTRIBUTE(string_index, first_to_check) \
     __attribute__((__format__ (__printf__, string_index, first_to_check)))
 #define SCANF_ATTRIBUTE(string_index, first_to_check) \
     __attribute__((__format__ (__scanf__, string_index, first_to_check)))
+
+// N.B.: As the GCC manual states, "[s]ince non-static C++ methods
+// have an implicit 'this' argument, the arguments of such methods
+// should be counted from two, not one."
+#define PRINTF_ATTRIBUTE_MEMBER(string_index, first_to_check) \
+  PRINTF_ATTRIBUTE(string_index + 1, first_to_check + 1)
+#define SCANF_ATTRIBUTE_MEMBER(string_index, first_to_check) \
+  SCANF_ATTRIBUTE(string_index + 1, first_to_check + 1)
+
+#else
+// Not known to be supported.
+
+#define PRINTF_ATTRIBUTE(string_index, first_to_check)
+#define SCANF_ATTRIBUTE(string_index, first_to_check)
+#define PRINTF_ATTRIBUTE_MEMBER(string_index, first_to_check)
+#define SCANF_ATTRIBUTE_MEMBER(string_index, first_to_check)
+
+#endif  // widely supported attributes
+
+
+// GCC-specific features
+#if (defined(COMPILER_GCC3) || defined(COMPILER_ICC) || defined(OS_MACOSX))
 
 //
 // Prevent the compiler from padding a structure to natural alignment
@@ -568,8 +585,6 @@ extern int posix_memalign(void **memptr, size_t alignment, size_t size);
 
 #else   // not GCC
 
-#define PRINTF_ATTRIBUTE(string_index, first_to_check)
-#define SCANF_ATTRIBUTE(string_index, first_to_check)
 #define PACKED
 #define CACHELINE_ALIGNED
 #define ATTRIBUTE_UNUSED

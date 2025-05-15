@@ -268,7 +268,7 @@ static void SplitStress() {
     int z = 0;
     for (uint64_t pt : pts) {
       z++;
-      string data = StringPrintf("%llu", z);
+      string data = StringPrintf("%d", z);
       cover.SplitRight(pt, data);
       cover.CheckInvariants();
       CHECK_EQ(data, cover.GetPoint(pt).data);

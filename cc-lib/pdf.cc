@@ -2759,8 +2759,7 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
   // If greyscale, we can make this smaller with "0 g" to "1 g" (white).
   if (r == g && r == b) {
     if (r == 0) {
-      StringAppendF(&str, "0 g ",
-                    PDF_COLOR_FLOAT(r));
+      StringAppendF(&str, "0 g ");
     } else {
       StringAppendF(&str, "%s g ",
                     Float(PDF_COLOR_FLOAT(r)).c_str());

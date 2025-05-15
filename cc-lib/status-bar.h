@@ -24,14 +24,14 @@ struct StatusBar {
   // Each of these immediately outputs to the screen.
 
   // Prints lines above the status bar. Adds trailing newline if not present.
-  void Printf(const char* format, ...); PRINTF_ATTRIBUTE(1, 2);
+  void Printf(const char *format, ...) PRINTF_ATTRIBUTE_MEMBER(1, 2);
 
   // Prints lines above the status bar. Adds trailing newline if not present.
   void Emit(const std::string &s);
 
   // Update the status bar. This should be done in one call that
   // contains num_lines lines. Trailing newline not necessary.
-  void Statusf(const char* format, ...) PRINTF_ATTRIBUTE(1, 2);
+  void Statusf(const char *format, ...) PRINTF_ATTRIBUTE_MEMBER(1, 2);
 
   // Update the status bar with a string, which should contain num_lines
   // lines.
@@ -42,8 +42,8 @@ struct StatusBar {
   // This is a convenience method since it is a very common use.
   // Uses the time since the status bar object was created. If you
   // want something else, just call Emit(ANSI::ProgressBar(...)).
-  void Progressf(int64_t numer, int64_t denom, const char *format, ...);
-  PRINTF_ATTRIBUTE(3, 4);
+  void Progressf(int64_t numer, int64_t denom, const char *format, ...)
+  PRINTF_ATTRIBUTE_MEMBER(3, 4);
 
   // TODO: Finish(), which replaces the final line of status with
   // "complete" progress bar, giving the total time?
@@ -52,7 +52,7 @@ struct StatusBar {
   // in [0, num_lines). Immediately outputs the entire status bar, so
   // you should prefer one of the above routines if you are building the
   // entire bar.
-  void LineStatusf(int idx, const char *format, ...) PRINTF_ATTRIBUTE(2, 3);
+  void LineStatusf(int idx, const char *format, ...) PRINTF_ATTRIBUTE_MEMBER(2, 3);
   void EmitLine(int idx, const std::string &s);
 
   // Set every status line empty; keeps any lines above.

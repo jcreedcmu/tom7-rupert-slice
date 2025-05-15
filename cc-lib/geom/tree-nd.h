@@ -3,14 +3,15 @@
 #define _CC_LIB_GEOM_TREE_ND_H
 
 #include <cstdio>
+#include <functional>
 #include <iostream>
 #include <memory>
+#include <queue>
 #include <span>
-#include <variant>
-#include <utility>
-#include <vector>
 #include <tuple>
-#include <functional>
+#include <utility>
+#include <variant>
+#include <vector>
 
 #include "base/logging.h"
 
@@ -430,28 +431,33 @@ TreeND<Num, T>::Closest(std::span<const Num> pos) const {
 
   const Leaf *best_leaf = nullptr;
   int best_leaf_idx = 0;
-  double best_sq_dist = 0.0;
+  double best_sq_dist = std::numeric_limits<double>::infinity();
 
-  // minimum squared distance to the region (from pos), node
+  // lower bound on the squared distance to the region (from pos), node
+  //
+  // We use a heap because we want to check closer regions first;
+  // whenever we find a point this gives us a new lower bound.
   //
   // PERF: We could actually keep the distance to the corner,
   // rather than the axis.
-  //
-  // PERF: This would be better as a heap so that we can check
-  // the closest nodes first. Since we reject regions that are
-  // further than our best, checking close ones first is much
-  // faster.
-  std::vector<std::pair<double, const Node *>> q = {{0.0, root.get()}};
+  using Elt = std::pair<double, const Node *>;
+  std::priority_queue<Elt, std::vector<Elt>, std::greater<Elt>> q;
+
+  q.push({0.0, root.get()});
 
   while (!q.empty()) {
-    double node_sqdist = q.back().first;
-    const Node *node = q.back().second;
-    q.pop_back();
+    const double node_sqdist = q.top().first;
+    const Node *node = q.top().second;
+
+    q.pop();
+
+    // Since this is the node with the smallest lower bound remaining
+    // in the heap, we are done.
+    if (node_sqdist >= best_sq_dist) {
+      break;
+    }
+
     CHECK(node != nullptr);
-    // No need to search if every point in there is further than
-    // our current best.
-    if (best_leaf != nullptr && node_sqdist > best_sq_dist)
-      continue;
 
     if (const Split *split = std::get_if<Split>(node)) {
       // Get the minimum distance between the lookup point and
@@ -459,25 +465,27 @@ TreeND<Num, T>::Closest(std::span<const Num> pos) const {
       double sdist = split->value - pos[split->axis];
       double sq_dist = sdist * sdist;
 
+      // Note we may be close to the split plane, but far from
+      // the parent node (different axis); take the max.
+      const double other_dist = std::max(sq_dist, node_sqdist);
+
       // We always search the one we're in. But we can also search
       // the other one if it is within our search radius.
-      const bool both = best_leaf == nullptr || sq_dist <= best_sq_dist;
+      const bool both = best_leaf == nullptr || other_dist <= best_sq_dist;
       const bool lesseq = Classify(pos, split->axis, split->value);
 
-      // Since we pop from the end, put the node we're in on the queue
-      // last, so that it's searched first.
       if (both) {
         // Insert the other one (if non-empty), as it is close enough.
         if (const Node *other =
             lesseq ? split->greater.get() : split->lesseq.get()) {
-          q.emplace_back(sq_dist, other);
+          q.emplace(other_dist, other);
         }
       }
 
       if (lesseq && split->lesseq.get() != nullptr) {
-        q.emplace_back(0.0, split->lesseq.get());
+        q.emplace(node_sqdist, split->lesseq.get());
       } else if (!lesseq && split->greater.get() != nullptr) {
-        q.emplace_back(0.0, split->greater.get());
+        q.emplace(node_sqdist, split->greater.get());
       }
     } else {
 
