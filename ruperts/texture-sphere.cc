@@ -166,6 +166,50 @@ struct Texture {
   ImageRGBA image;
 };
 
+// UDIM textures store more than one unit square, which can also be of
+// different resolution.
+struct UDimTexture {
+  UDimTexture() {}
+
+  // The image is always square; power of two is conventional.
+  std::pair<int, int> Allocate(int side_pixels) {
+    CHECK(side_pixels > 0);
+    int size = (int)textures.size();
+    CHECK(size < 9000);
+    textures.emplace_back(side_pixels, side_pixels);
+    return UnpackUV(size);
+  }
+
+  // From an index in the textures vector.
+  static std::pair<int, int> UnpackUV(int index) {
+    int u = index % 10;
+    int v = index / 10;
+    return std::make_pair(u, v);
+  }
+
+  static int PackUV(int u, int v) {
+    return v * 10 + u;
+  }
+
+  // Always a four-digit number in [1001, 9999].
+  static int Filenum(int u, int v) {
+    CHECK(u >= 0 && v >= 0 && u < 10 && v < 899);
+    return 1001 + (v * 10) + u;
+  }
+
+  Texture &Texture(int u, int v) {
+    CHECK(u >= 0 && v >= 0 && u < 10);
+    int idx = PackUV(u, v);
+    CHECK(idx < textures.size());
+    return textures[idx];
+  }
+
+ private:
+  // Row-major. There are always 10 columns (max U is 10.0), but V can
+  // go to about 900.
+  std::vector<Texture> textures;
+};
+
 static vec3 BarycentricCoords(const vec2 &p, const vec2 &a, const vec2 &b,
                               const vec2 &c) {
   vec2 v0 = b - a, v1 = c - a, v2 = p - a;
@@ -192,6 +236,172 @@ static vec3 BarycentricCoords(const vec2 &p, const vec2 &a, const vec2 &b,
   return {u, v, w};
 }
 
+struct TexturedTriangle {
+  Texture texture;
+  std::tuple<vec2, vec2, vec2> uvs;
+};
+
+static constexpr TRIANGLE_TEXTURE_EDGE = 1024;
+TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
+                                    int triangle_idx) {
+  const auto &[a, b, c] = mesh.triangles[triangle_idx];
+  const vec3 &va = mesh.vertices[a];
+  const vec3 &vb = mesh.vertices[b];
+  const vec3 &vc = mesh.vertices[c];
+
+  // Arbitrarily treat a as the home vertex.
+  vec3 edge1 = vb - va;
+  vec3 edge2 = vc - va;
+
+  double edge1_len_sq = length_squared(edge1);
+  double edge2_len_sq = length_squared(edge2);
+
+  // Calculate the normal vector before normalization.
+  vec3 triangle_perp = cross(edge1, edge2);
+  double normal_len_sq = length_squared(triangle_perp);
+
+  // If the triangle is degenerate, output zeroes for the uv
+  // coordinates.
+  if (normal_len_sq < 1.0e-18 ||
+      edge1_len_sq < 1.0e-18 || edge2_len_sq < 1.0e-18) {
+    TexturedTriangle tex{
+      .texture = Texture(1, 1),
+      .uvs = {vec2{0,0}, vec2{0,0}, vec2{0,0}}
+    };
+    return tex;
+  }
+
+  const vec3 triangle_normal = triangle_perp / sqrt(normal_len_sq);
+
+  // Create an orthonormal basis (u_axis, v_axis) in the triangle's
+  // plane.
+  vec3 u_axis;
+
+  // Choose the longer edge for defining u_axis for better stability.
+  // Note: Always choosing edge1 to try to track down the bug!
+  if (true || edge1_len_sq >= edge2_len_sq) {
+    u_axis = edge1 / sqrt(edge1_len_sq);
+  } else {
+    u_axis = edge2 / sqrt(edge2_len_sq);
+  }
+
+  // Choose v axis to be perpendicular to normal and u axes (both unit).
+  vec3 v_axis = cross(triangle_normal, u_axis);
+
+  // Project vertices onto the 2D basis. va is the origin.
+  vec2 pa{0.0, 0.0};
+  vec2 pb{dot(edge1, u_axis), dot(edge1, v_axis)};
+  vec2 pc{dot(edge2, u_axis), dot(edge2, v_axis)};
+
+  double area = 0.5 * std::abs(pb.x * pc.y - pb.y * pc.x);
+
+  if (area < 1e-12f) {
+    ret.uvs.emplace_back(vec2{0,0}, vec2{0,0}, vec2{0,0});
+    continue;
+  }
+
+  double scale = sqrt(TARGET_PIXELS_PER_TRIANGLE / area);
+
+  // Calculate scaled 2D vertices (local pixel coordinates for the patch).
+  vec2 uva = pa * scale;
+  vec2 uvb = pb * scale;
+  vec2 uvc = pc * scale;
+
+  // uv bounding box.
+  double min_x_local = std::min({uva.x, uvb.x, uvc.x});
+  double max_x_local = std::max({uva.x, uvb.x, uvc.x});
+  double min_y_local = std::min({uva.y, uvb.y, uvc.y});
+  double max_y_local = std::max({uva.y, uvb.y, uvc.y});
+
+  // Dimensions of the patch's bounding box in pixels.
+  double patch_width_f = max_x_local - min_x_local;
+  double patch_height_f = max_y_local - min_y_local;
+  int patch_width = (int)std::ceil(patch_width_f);
+  int patch_height = (int)std::ceil(patch_height_f);
+
+  // Translate local UVs so the min corner is at (0,0).
+  vec2 local_origin_offset = {min_x_local, min_y_local};
+  uva -= local_origin_offset;
+  uvb -= local_origin_offset;
+  uvc -= local_origin_offset;
+
+  const auto [xoff, yoff] = texture.Allocate(patch_width, patch_height);
+  vec2 offset{(double)xoff, (double)yoff};
+
+  // Pixel coordinates in texture. We'll remap these to [0, 1] after
+  // we know the final texture dimensions.
+  vec2 texture_uva = offset + uva;
+  vec2 texture_uvb = offset + uvb;
+  vec2 texture_uvc = offset + uvc;
+
+  // Rasterize the triangle patch into the atlas.
+  // Calculate integer bounds for rasterization loop in atlas space.
+  int start_x = (int)std::floor(offset.x);
+  int end_x = (int)std::ceil(offset.x + patch_width_f);
+  int start_y = (int)std::floor(offset.y);
+  int end_y = (int)std::ceil(offset.y + patch_height_f);
+
+  // Clamp loop bounds to texture dimensions.
+  start_x = std::max(0, start_x);
+  end_x = std::min(texture.image.Width(), end_x);
+  start_y = std::max(0, start_y);
+  end_y = std::min(texture.image.Height(), end_y);
+
+  // Guard parallel access to texture.
+  std::mutex mu;
+  Texture texture(TRIANGLE_TEXTURE_EDGE, TRIANGLE_TEXTURE_EDGE);
+
+  if (end_y > start_y && end_x > start_x) {
+    ParallelComp2D(
+        end_x - start_x,
+        end_y - start_y,
+        [&](int64_t ox, int64_t oy) {
+          const int px = ox + start_x;
+          const int py = oy + start_y;
+
+          // Center of the current pixel in atlas coordinates.
+          vec2 p_atlas = {(float)px + 0.5, (float)py + 0.5};
+          // Convert pixel center to local patch coordinates.
+          vec2 p_local = p_atlas - offset;
+
+          // Calculate barycentric coordinates relative to the local
+          // patch UVs.
+          vec3 bary =
+            BarycentricCoords(p_local, uva, uvb, uvc);
+
+          // Check if the pixel center is inside the triangle.
+          double epsilon = 1e-4f;
+          if (bary.x >= -epsilon &&
+              bary.y >= -epsilon &&
+              bary.z >= -epsilon) {
+            // Clamp weights to ensure they are valid [0, 1] multipliers.
+            bary = {
+              .x = std::clamp(bary.x, 0.0, 1.0),
+              .y = std::clamp(bary.y, 0.0, 1.0),
+              .z = std::clamp(bary.z, 0.0, 1.0),
+            };
+
+            // The whole point is to get the original 3D coordinate,
+            // which we can then project to the sphere.
+            vec3 p = normalize(va * bary.x + vb * bary.y + vc * bary.z);
+
+            uint32_t color = sphere_map->GetRGBA(p);
+            {
+              MutexLock ml(&mu);
+              texture.SetPixel32(px, py, color);
+            }
+          }
+        },
+        8);
+  }
+
+  return TexturedTriangle{
+    .texture = std::move(texture),
+    // XX should probably remap here.
+    .uvs = { texture_uva, texture_uvb, texture_uvc },
+  };
+}
+
 // Generate a "sphere" as a pair of OBJ+MTL files.
 static TexturedMesh TextureSphere(SphereMap *sphere_map) {
   TexturedMesh ret;
@@ -214,158 +424,10 @@ static TexturedMesh TextureSphere(SphereMap *sphere_map) {
 
   for (int triangle_idx = 0; triangle_idx < ret.mesh.triangles.size();
        triangle_idx++) {
-    const auto &[a, b, c] = ret.mesh.triangles[triangle_idx];
-    const vec3 &va = ret.mesh.vertices[a];
-    const vec3 &vb = ret.mesh.vertices[b];
-    const vec3 &vc = ret.mesh.vertices[c];
 
-    // Arbitrarily treat a as the home vertex.
-    vec3 edge1 = vb - va;
-    vec3 edge2 = vc - va;
-
-    double edge1_len_sq = length_squared(edge1);
-    double edge2_len_sq = length_squared(edge2);
-
-    // Calculate the normal vector before normalization.
-    vec3 triangle_perp = cross(edge1, edge2);
-    double normal_len_sq = length_squared(triangle_perp);
-
-    // If the triangle is degenerate, output zeroes for the uv
-    // coordinates.
-    if (normal_len_sq < 1.0e-18 ||
-        edge1_len_sq < 1.0e-18 || edge2_len_sq < 1.0e-18) {
-      ret.uvs.emplace_back(vec2{0,0}, vec2{0,0}, vec2{0,0});
-      continue;
-    }
-
-    const vec3 triangle_normal = triangle_perp / sqrt(normal_len_sq);
-
-    // Create an orthonormal basis (u_axis, v_axis) in the triangle's
-    // plane.
-    vec3 u_axis;
-
-    // Choose the longer edge for defining u_axis for better stability.
-    // Note: Always choosing edge1 to try to track down the bug!
-    if (true || edge1_len_sq >= edge2_len_sq) {
-      u_axis = edge1 / sqrt(edge1_len_sq);
-    } else {
-      u_axis = edge2 / sqrt(edge2_len_sq);
-    }
-
-    // Choose v axis to be perpendicular to normal and u axes (both unit).
-    vec3 v_axis = cross(triangle_normal, u_axis);
-
-    // Project vertices onto the 2D basis. va is the origin.
-    vec2 pa{0.0, 0.0};
-    vec2 pb{dot(edge1, u_axis), dot(edge1, v_axis)};
-    vec2 pc{dot(edge2, u_axis), dot(edge2, v_axis)};
-
-    double area = 0.5 * std::abs(pb.x * pc.y - pb.y * pc.x);
-
-    if (area < 1e-12f) {
-      ret.uvs.emplace_back(vec2{0,0}, vec2{0,0}, vec2{0,0});
-      continue;
-    }
-
-    double scale = sqrt(TARGET_PIXELS_PER_TRIANGLE / area);
-
-    // Calculate scaled 2D vertices (local pixel coordinates for the patch).
-    vec2 uva = pa * scale;
-    vec2 uvb = pb * scale;
-    vec2 uvc = pc * scale;
-
-    // uv bounding box.
-    double min_x_local = std::min({uva.x, uvb.x, uvc.x});
-    double max_x_local = std::max({uva.x, uvb.x, uvc.x});
-    double min_y_local = std::min({uva.y, uvb.y, uvc.y});
-    double max_y_local = std::max({uva.y, uvb.y, uvc.y});
-
-    // Dimensions of the patch's bounding box in pixels.
-    double patch_width_f = max_x_local - min_x_local;
-    double patch_height_f = max_y_local - min_y_local;
-    int patch_width = (int)std::ceil(patch_width_f);
-    int patch_height = (int)std::ceil(patch_height_f);
-
-    // Translate local UVs so the min corner is at (0,0).
-    vec2 local_origin_offset = {min_x_local, min_y_local};
-    uva -= local_origin_offset;
-    uvb -= local_origin_offset;
-    uvc -= local_origin_offset;
-
-    const auto [xoff, yoff] = texture.Allocate(patch_width, patch_height);
-    vec2 offset{(double)xoff, (double)yoff};
-
-    // Pixel coordinates in texture. We'll remap these to [0, 1] after
-    // we know the final texture dimensions.
-    vec2 texture_uva = offset + uva;
-    vec2 texture_uvb = offset + uvb;
-    vec2 texture_uvc = offset + uvc;
-    ret.uvs.emplace_back(texture_uva, texture_uvb, texture_uvc);
-
-    // Rasterize the triangle patch into the atlas.
-    // Calculate integer bounds for rasterization loop in atlas space.
-    int start_x = (int)std::floor(offset.x);
-    int end_x = (int)std::ceil(offset.x + patch_width_f);
-    int start_y = (int)std::floor(offset.y);
-    int end_y = (int)std::ceil(offset.y + patch_height_f);
-
-    // Clamp loop bounds to texture dimensions.
-    start_x = std::max(0, start_x);
-    end_x = std::min(texture.image.Width(), end_x);
-    start_y = std::max(0, start_y);
-    end_y = std::min(texture.image.Height(), end_y);
-
-    // Guard parallel access to texture.
-    std::mutex mu;
-
-    if (end_y > start_y && end_x > start_x) {
-      ParallelComp2D(
-          end_x - start_x,
-          end_y - start_y,
-          [&](int64_t ox, int64_t oy) {
-            const int px = ox + start_x;
-            const int py = oy + start_y;
-
-            // Center of the current pixel in atlas coordinates.
-            vec2 p_atlas = {(float)px + 0.5, (float)py + 0.5};
-            // Convert pixel center to local patch coordinates.
-            vec2 p_local = p_atlas - offset;
-
-            // Calculate barycentric coordinates relative to the local
-            // patch UVs.
-            vec3 bary =
-              BarycentricCoords(p_local, uva, uvb, uvc);
-
-            // Check if the pixel center is inside the triangle.
-            double epsilon = 1e-4f;
-            if (bary.x >= -epsilon &&
-                bary.y >= -epsilon &&
-                bary.z >= -epsilon) {
-              // Clamp weights to ensure they are valid [0, 1] multipliers.
-              bary = {
-                .x = std::clamp(bary.x, 0.0, 1.0),
-                .y = std::clamp(bary.y, 0.0, 1.0),
-                .z = std::clamp(bary.z, 0.0, 1.0),
-              };
-
-              // The whole point is to get the original 3D coordinate,
-              // which we can then project to the sphere.
-              vec3 p = normalize(va * bary.x + vb * bary.y + vc * bary.z);
-
-              uint32_t color = sphere_map->GetRGBA(p);
-              {
-                MutexLock ml(&mu);
-                texture.SetPixel32(px, py, color);
-              }
-            }
-          },
-          8);
-    }
-
-    for (int py = start_y; py < end_y; py++) {
-      for (int px = start_x; px < end_x; px++) {
-      }
-    }
+    TexturedTriangle tex = TextureOneTriangle(triangle_idx);
+    // XXX copy tex into UDims.
+    LOG(FATAL) << "Broken in refactoring";
 
     status_per.RunIf([&]() {
         status.Progressf(triangle_idx,
