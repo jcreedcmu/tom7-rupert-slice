@@ -29,21 +29,10 @@ struct Mesh3D {
   std::vector<std::vector<int>> faces;
 };
 
-struct TexturedMesh {
-  using vec2 = yocto::vec<double, 2>;
-  TriangularMesh3D mesh;
-  // Parallel with triangles. The uv coordinates of each vertex.
-  std::vector<std::tuple<vec2, vec2, vec2>> uvs;
-  ImageRGBA texture;
-};
-
 TriangularMesh3D LoadSTL(std::string_view filename);
 
 void SaveAsSTL(const TriangularMesh3D &mesh, std::string_view filename,
                std::string_view name = "", bool quiet = false);
-
-// Writes base.obj and base.mtl.
-void SaveAsOBJ(const TexturedMesh &tmesh, std::string_view filename_base);
 
 // TODO: Facetize TriangularMesh3D into Mesh3D?
 

@@ -160,6 +160,17 @@ struct vec<T, 1> {
 
 template <typename T>
 struct vec<T, 2> {
+#if 0
+  // TODO: Would be nice to have conversions from pairs etc,
+  // but then we lose aggregate initialization.
+  // one trick could be to have a pure aggregate ExplicitVecArg
+  // and constructors/assignment operators that take that.
+  constexpr vec() {}
+  constexpr vec(T x, T y) : x(x), y(y) {}
+  constexpr vec(const vec &other) : x(other.x), y(other.y) {}
+  constexpr vec(std::pair<T, T> &p) : x(p.x), y(p.y) {}
+#endif
+
   T x = 0;
   T y = 0;
 

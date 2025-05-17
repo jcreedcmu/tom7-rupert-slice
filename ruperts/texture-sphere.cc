@@ -33,13 +33,20 @@
 #include "polyhedra.h"
 #include "randutil.h"
 #include "status-bar.h"
+#include "textured-mesh.h"
 #include "threadutil.h"
 #include "timer.h"
 #include "yocto_matht.h"
 
 using namespace yocto;
 
+#define USE_ND 1
+
 static constexpr int DIGITS = 24;
+
+static inline vec2 VecFromPair(const std::pair<double, double> &p) {
+  return vec2{.x = p.first, .y = p.second};
+}
 
 // Color map for spherical coordinates.
 struct SphereMap {
@@ -58,99 +65,150 @@ struct SphereMap {
   virtual ~SphereMap() {}
 };
 
-#define USE_ND 1
+// Lazy scoremap using canonical patches.
+struct ScoreMap {
+  using Tree = TreeND<double, double>;
 
-#if 0
-struct TwoPatchOuterSphereMap : public SphereMap {
-  TwoPatchOuterSphereMap() {
-    PatchInfo patch_info = LoadPatchInfo("scube-patchinfo.txt");
-    AutoHisto histo(100000);
+  // PERF: Can do more fine-grained locking!
+  std::mutex m;
 
-    StatusBar status(1);
-    int progress = 0;
-
-    std::vector<std::pair<uint64_t, PatchInfo::CanonicalPatch>> cc =
-      MapToSortedVec(patch_info.canonical);
-
-    min_bound = std::numeric_limits<double>::infinity();
-    max_bound = -std::numeric_limits<double>::infinity();
-
-    for (const auto &[ocode, opatch] : cc) {
-      for (const auto &[icode, ipatch] : cc) {
-        std::string filename = TwoPatchFilename(ocode, icode);
-        NDSolutions<6> shard(filename);
-        status.Printf("Shard %s has %lld", filename.c_str(), shard.Size());
-        for (int i = 0; i < shard.Size(); i++) {
-          const auto &[key, score, outer_, inner_] = shard[i];
-          // As the outer view.
-          #if USE_ND
-          tree.Insert(std::span(key.data(), 3), score);
-          #else
-          tree.Insert(key[0], key[1], key[2], score);
-          #endif
-          min_bound = std::min(min_bound, score);
-          max_bound = std::max(max_bound, score);
-          histo.Observe(score);
-        }
-      }
-      progress++;
-      status.Progressf(progress, patch_info.canonical.size(),
-                       "Loaded %lld", tree.Size());
-
-      status.Printf("Histo:\n"
-                    "%s\n",
-                    histo.SimpleANSI(32).c_str());
-    }
-
-    bound_span = max_bound - min_bound;
-    printf("%lld samples total.\n", tree.Size());
-    printf("Spanning %.17g\n"
-           "Min: %s%.17g" ANSI_RESET "\n"
-           "Max: %s%.17g" ANSI_RESET "\n",
-           bound_span,
-           ANSI::ForegroundRGB32(ColorScore(min_bound)).c_str(), min_bound,
-           ANSI::ForegroundRGB32(ColorScore(max_bound)).c_str(), max_bound);
-
-    printf("Histo:\n"
-           "%s\n",
-           histo.SimpleANSI(32).c_str());
-
-    {
-      Timer sample_timer;
-      uint32_t c = GetRGBA(vec3{1.0, 0.0, 0.0});
-      printf("One sample took %s; got %08x\n",
-             ANSI::Time(sample_timer.Seconds()).c_str(), c);
-    }
+  ScoreMap(PatchInfo patch_info) :
+    patch_info(patch_info), poly(BigScube(DIGITS)), boundaries(poly) {
   }
 
-  uint32_t ColorScore(double score) {
+  double ClosestScore(const vec3 &v) {
+    // PERF
+    uint64_t code = boundaries.GetCode(v);
+
+    auto sit = patch_info.all_codes.find(code);
+    CHECK(sit != patch_info.all_codes.end());
+
+    uint64_t canon_code = sit->second.canonical_code;
+    vec3 canon_v = sit->second.patch_to_canonical.TransformPoint(v);
+
+    return ClosestScoreCanonical(canon_code, canon_v);
+  }
+
+  double ClosestScoreCanonical(uint64_t canon_code,
+                               const vec3 &canon_v) {
+    Tree *tree = nullptr;
+    m.lock();
+    auto it = trees.find(canon_code);
+    if (it == trees.end()) {
+      Timer timer;
+      printf("Load new tree for %llx\n", canon_code);
+      tree = new Tree(3);
+      trees[canon_code].reset(tree);
+
+      // Insert all of the files in that patch.
+      int64_t entries = 0;
+      std::vector<std::unique_ptr<NDSolutions<6>>> shards;
+
+      for (const auto &[icode, ipatch] : patch_info.canonical) {
+        std::string filename = TwoPatchFilename(canon_code, icode);
+        auto shard = std::make_unique<NDSolutions<6>>(filename);
+        entries += shard->Size();
+        shards.emplace_back(std::move(shard));
+      }
+
+      std::vector<std::pair<std::array<double, 3>, double>> batch;
+      batch.reserve(entries);
+
+      for (auto &shard : shards) {
+        for (int i = 0; i < shard->Size(); i++) {
+          const auto &[key, score, outer_, inner_] = (*shard)[i];
+          // As the outer view.
+          // tree->Insert(std::span(key.data(), 3), score);
+          batch.emplace_back(SliceArray<0, 3>(key), score);
+        }
+      }
+
+      printf("Init batch size (%lld):\n", (int64_t)batch.size());
+      // ugh...
+      std::vector<std::pair<std::span<const double>, double>> batch_arg;
+      batch_arg.reserve(batch.size());
+      for (const auto &[key, val] : batch) {
+        batch_arg.emplace_back(std::span<const double>(key.data(), 3), val);
+      }
+      tree->InitBatch(std::move(batch_arg));
+
+      printf("Loaded new tree (%lld entries) in %s.\n",
+             entries,
+             ANSI::Time(timer.Seconds()).c_str());
+      m.unlock();
+
+    } else {
+      m.unlock();
+      tree = it->second.get();
+    }
+
+    CHECK(tree != nullptr);
+
+    const auto &[pos, score, dist] = tree->Closest(canon_v);
+
+    #if 0
+    Timer sample_timer;
+    auto dcr = tree->DebugClosest(canon_v);
+    const auto &[pos, score, dist] = dcr.res;
+
+    printf("One sample took %s; got\n"
+           "Score: %.17g\n"
+           "Dist: %.17g\n",
+           ANSI::Time(sample_timer.Seconds()).c_str(), score, dist);
+
+    printf("leaves_searched: %lld (%.5f%%)\n",
+           dcr.leaves_searched,
+           (dcr.leaves_searched * 100.0) / tree->Size());
+    printf("new_best: %lld\n", dcr.new_best);
+    printf("max_depth: %lld\n", dcr.max_depth);
+    printf("heap_pops: %lld\n", dcr.heap_pops);
+    printf("max_heap_size: %lld\n", dcr.max_heap_size);
+    printf("-----------------\n");
+    #endif
+
+    return score;
+  }
+
+  std::unordered_map<uint64_t, std::unique_ptr<Tree>> trees;
+
+  PatchInfo patch_info;
+  BigPoly poly;
+  Boundaries boundaries;
+};
+
+
+struct TwoPatchOuterSphereMap : public SphereMap {
+  // Precomputed, since we don't want to have to load all shards
+  // just to get the bounds.
+  static constexpr double min_score = 4.3511678576336583e-15;
+  static constexpr double max_score = 4.8285280901252183e-08;
+  static constexpr double bound_span = max_score - min_score;
+
+  TwoPatchOuterSphereMap() : score_map(LoadPatchInfo("scube-patchinfo.txt")) {
+
+  }
+
+  uint32_t ColorScore(double score) const {
     return ColorUtil::LinearGradient32(ColorUtil::VISIBLE_SPECTRUM,
-                                       (score - min_bound) / bound_span);
+                                       (score - min_score) / bound_span);
   }
 
   uint32_t GetRGBA(const vec3 &v) override {
-    if (tree.Empty()) return 0;
-
-    #if USE_ND
-    const auto &[pos, score, dist] = tree.Closest(v);
-    #else
-    const auto &[pos, score, dist] = tree.Closest(v.x, v.y, v.z);
-    #endif
-    return ColorScore(score);
+    return ColorScore(score_map.ClosestScore(v));
   }
 
  private:
-  double min_bound = 0, max_bound = 0, bound_span = 0;
-  #if USE_ND
-  TreeND<double, double> tree = TreeND<double, double>(3);
-  #else
-  Tree3D<double, double> tree;
-  #endif
+  ScoreMap score_map;
 };
 
+#if 0
 struct Texture {
-  Texture() : image(1, 1) {}
+  Texture() : Texture(1, 1) {}
   Texture(int width, int height) : image(width, height) {}
+  Texture(Texture &&other) = default;
+  Texture(const Texture &other) = default;
+  Texture &operator=(const Texture &other) = default;
+  Texture &operator=(Texture &&other) = default;
 
   std::pair<int, int> Allocate(int width, int height) {
     if (xpos + width > MAX_WIDTH) {
@@ -187,50 +245,7 @@ struct Texture {
 
   ImageRGBA image;
 };
-
-// UDIM textures store more than one unit square, which can also be of
-// different resolution.
-struct UDimTexture {
-  UDimTexture() {}
-
-  // The image is always square; power of two is conventional.
-  std::pair<int, int> Allocate(int side_pixels) {
-    CHECK(side_pixels > 0);
-    int size = (int)textures.size();
-    CHECK(size < 9000);
-    textures.emplace_back(side_pixels, side_pixels);
-    return UnpackUV(size);
-  }
-
-  // From an index in the textures vector.
-  static std::pair<int, int> UnpackUV(int index) {
-    int u = index % 10;
-    int v = index / 10;
-    return std::make_pair(u, v);
-  }
-
-  static int PackUV(int u, int v) {
-    return v * 10 + u;
-  }
-
-  // Always a four-digit number in [1001, 9999].
-  static int Filenum(int u, int v) {
-    CHECK(u >= 0 && v >= 0 && u < 10 && v < 899);
-    return 1001 + (v * 10) + u;
-  }
-
-  Texture &Texture(int u, int v) {
-    CHECK(u >= 0 && v >= 0 && u < 10);
-    int idx = PackUV(u, v);
-    CHECK(idx < textures.size());
-    return textures[idx];
-  }
-
- private:
-  // Row-major. There are always 10 columns (max U is 10.0), but V can
-  // go to about 900.
-  std::vector<Texture> textures;
-};
+#endif
 
 static vec3 BarycentricCoords(const vec2 &p, const vec2 &a, const vec2 &b,
                               const vec2 &c) {
@@ -259,12 +274,13 @@ static vec3 BarycentricCoords(const vec2 &p, const vec2 &a, const vec2 &b,
 }
 
 struct TexturedTriangle {
-  Texture texture;
+  ImageRGBA texture;
   std::tuple<vec2, vec2, vec2> uvs;
 };
 
-static constexpr int TRIANGLE_TEXTURE_EDGE = 1024;
+static constexpr int TRIANGLE_TEXTURE_EDGE = 32;
 TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
+                                    SphereMap *sphere_map,
                                     int triangle_idx) {
   const auto &[a, b, c] = mesh.triangles[triangle_idx];
   const vec3 &va = mesh.vertices[a];
@@ -285,9 +301,10 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
   // If the triangle is degenerate, output zeroes for the uv
   // coordinates.
   if (normal_len_sq < 1.0e-18 ||
-      edge1_len_sq < 1.0e-18 || edge2_len_sq < 1.0e-18) {
+      edge1_len_sq < 1.0e-18 ||
+      edge2_len_sq < 1.0e-18) {
     TexturedTriangle tex{
-      .texture = Texture(),
+      .texture = ImageRGBA(),
       .uvs = {vec2{0,0}, vec2{0,0}, vec2{0,0}}
     };
     return tex;
@@ -317,72 +334,37 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
 
   double area = 0.5 * std::abs(pb.x * pc.y - pb.y * pc.x);
 
-  if (area < 1e-12f) {
+  if (area < 1.0e-12) {
     TexturedTriangle tex{
-      .texture = Texture(1, 1),
+      .texture = ImageRGBA(1, 1),
       .uvs = {vec2{0,0}, vec2{0,0}, vec2{0,0}}
     };
     return tex;
   }
 
-  // Approximate number of pixels of texture data we
-  // try to get per triangle. XXX: Use the texture size.
-  constexpr int TARGET_PIXELS_PER_TRIANGLE = 256 * 256;
-  // constexpr int TARGET_PIXELS_PER_TRIANGLE = 32 * 32;
+  // Use the bounding box to determine the scale.
+  Bounds bounds;
+  bounds.Bound(pa);
+  bounds.Bound(pb);
+  bounds.Bound(pc);
 
-  double scale = sqrt(TARGET_PIXELS_PER_TRIANGLE / area);
-
-  // Calculate scaled 2D vertices (local pixel coordinates for the patch).
-  vec2 uva = pa * scale;
-  vec2 uvb = pb * scale;
-  vec2 uvc = pc * scale;
-
-  // uv bounding box.
-  double min_x_local = std::min({uva.x, uvb.x, uvc.x});
-  double max_x_local = std::max({uva.x, uvb.x, uvc.x});
-  double min_y_local = std::min({uva.y, uvb.y, uvc.y});
-  double max_y_local = std::max({uva.y, uvb.y, uvc.y});
-
-  // Dimensions of the patch's bounding box in pixels.
-  double patch_width_f = max_x_local - min_x_local;
-  double patch_height_f = max_y_local - min_y_local;
-  int patch_width = (int)std::ceil(patch_width_f);
-  int patch_height = (int)std::ceil(patch_height_f);
-
-  // Translate local UVs so the min corner is at (0,0).
-  vec2 local_origin_offset = {min_x_local, min_y_local};
-  uva -= local_origin_offset;
-  uvb -= local_origin_offset;
-  uvc -= local_origin_offset;
-
-  Texture texture(TRIANGLE_TEXTURE_EDGE,
-                  TRIANGLE_TEXTURE_EDGE);
-
-  // const auto [xoff, yoff] = texture.Allocate(patch_width, patch_height);
-  // vec2 offset{(double)xoff, (double)yoff};
-
-  // Pixel coordinates in texture. We'll remap these to [0, 1] after
-  // we know the final texture dimensions.
-  vec2 texture_uva = offset + uva;
-  vec2 texture_uvb = offset + uvb;
-  vec2 texture_uvc = offset + uvc;
-
-  // Rasterize the triangle patch into the atlas.
-  // Calculate integer bounds for rasterization loop in atlas space.
-  int start_x = (int)std::floor(offset.x);
-  int end_x = (int)std::ceil(offset.x + patch_width_f);
-  int start_y = (int)std::floor(offset.y);
-  int end_y = (int)std::ceil(offset.y + patch_height_f);
-
-  // Clamp loop bounds to texture dimensions.
-  start_x = std::max(0, start_x);
-  end_x = std::min(texture.image.Width(), end_x);
-  start_y = std::max(0, start_y);
-  end_y = std::min(texture.image.Height(), end_y);
-
-  // Guard parallel access to texture.
   std::mutex mu;
-  Texture texture(TRIANGLE_TEXTURE_EDGE, TRIANGLE_TEXTURE_EDGE);
+  ImageRGBA texture(TRIANGLE_TEXTURE_EDGE, TRIANGLE_TEXTURE_EDGE);
+
+  Bounds::Scaler scaler = bounds.ScaleToFit(TRIANGLE_TEXTURE_EDGE,
+                                            TRIANGLE_TEXTURE_EDGE);
+
+  // Calculate scaled 2D vertices (pixel coordinates in the texture).
+  vec2 pxa = VecFromPair(scaler.Scale(pa));
+  vec2 pxb = VecFromPair(scaler.Scale(pb));
+  vec2 pxc = VecFromPair(scaler.Scale(pc));
+
+  // Bounds in pixel space.
+  int start_x = (int)std::floor(scaler.ScaleX(bounds.MinX()));
+  int start_y = (int)std::floor(scaler.ScaleY(bounds.MinY()));
+  int end_x = (int)std::ceil(scaler.ScaleX(bounds.MaxX()));
+  int end_y = (int)std::ceil(scaler.ScaleY(bounds.MaxY()));
+
 
   if (end_y > start_y && end_x > start_x) {
     ParallelComp2D(
@@ -392,15 +374,12 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
           const int px = ox + start_x;
           const int py = oy + start_y;
 
-          // Center of the current pixel in atlas coordinates.
-          vec2 p_atlas = {(float)px + 0.5, (float)py + 0.5};
-          // Convert pixel center to local patch coordinates.
-          vec2 p_local = p_atlas - offset;
+          // Center of the current pixel in uv coordinates.
+          vec2 pt = VecFromPair(scaler.Unscale(px + 0.5, py + 0.5));
 
           // Calculate barycentric coordinates relative to the local
           // patch UVs.
-          vec3 bary =
-            BarycentricCoords(p_local, uva, uvb, uvc);
+          vec3 bary = BarycentricCoords(pt, pa, pb, pc);
 
           // Check if the pixel center is inside the triangle.
           double epsilon = 1e-4f;
@@ -430,8 +409,12 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
 
   return TexturedTriangle{
     .texture = std::move(texture),
-    // XX should probably remap here.
-    .uvs = { texture_uva, texture_uvb, texture_uvc },
+    // Map to [0,1] rectangle. XXX might need to flip Y?
+    .uvs = {
+      pxa / TRIANGLE_TEXTURE_EDGE,
+      pxb / TRIANGLE_TEXTURE_EDGE,
+      pxc / TRIANGLE_TEXTURE_EDGE,
+    },
   };
 }
 
@@ -440,153 +423,42 @@ static TexturedMesh TextureSphere(SphereMap *sphere_map) {
   TexturedMesh ret;
   ret.mesh = ApproximateSphere(0);
 
-  Texture texture;
   StatusBar status(1);
   Periodically status_per(1.0);
   status.Statusf("Texturing %lld triangles.",
                  ret.mesh.triangles.size());
 
-  // pixel coordinates in the image.
-  // Later we must scale these to [0, 1].
-  std::vector<std::tuple<vec2, vec2, vec2>> puvs;
-
   for (int triangle_idx = 0; triangle_idx < ret.mesh.triangles.size();
        triangle_idx++) {
 
-    TexturedTriangle tex = TextureOneTriangle(ret.mesh, triangle_idx);
-    // XXX copy tex into UDims.
-    LOG(FATAL) << "Broken in refactoring";
+    // One texture image per triangle.
+    TexturedTriangle tex =
+      TextureOneTriangle(ret.mesh, sphere_map, triangle_idx);
+
+    const auto &[uu, vv] = ret.texture.AddTexture(std::move(tex.texture));
+    vec2 uvidx(uu, vv);
+    const auto &[uva, uvb, uvc] = tex.uvs;
+    ret.uvs.push_back(
+        std::make_tuple(uvidx + uva, uvidx + uvb, uvidx + uvc));
 
     status_per.RunIf([&]() {
-        status.Progressf(triangle_idx,
-                         ret.mesh.triangles.size(),
-                         "Texturing.");
+        status.Progress(triangle_idx,
+                        ret.mesh.triangles.size(),
+                        "Texturing.");
       });
   }
-
-  // texture.image.Save("debug-texture.png");
-  // printf("Saved debug-texture.png\n");
-
-  // Now renormalize uvs.
-  for (auto &[uva, uvb, uvc] : ret.uvs) {
-    uva = texture.NormalizeUV(uva);
-    uvb = texture.NormalizeUV(uvb);
-    uvc = texture.NormalizeUV(uvc);
-  }
-
-  ret.texture = std::move(texture.image);
 
   // ...
   return ret;
 }
 
 static void Generate() {
-  std::unique_ptr<SphereMap> sphere_map(
-      new TwoPatchOuterSphereMap);
+  // std::unique_ptr<SphereMap> sphere_map(
+  // new TwoPatchOuterSphereMap);
+  std::unique_ptr<SphereMap> sphere_map(new SphereMap);
   TexturedMesh tmesh = TextureSphere(sphere_map.get());
   SaveAsOBJ(tmesh, "sphere");
-
 }
-#endif
-
-struct ScoreMap {
-  using Tree = TreeND<double, double>;
-
-  ScoreMap(PatchInfo patch_info) :
-    patch_info(patch_info), poly(BigScube(DIGITS)), boundaries(poly) {
-  }
-
-  double ClosestScore(const vec3 &v) {
-    // PERF
-    uint64_t code = boundaries.GetCode(v);
-
-    auto sit = patch_info.all_codes.find(code);
-    CHECK(sit != patch_info.all_codes.end());
-
-    uint64_t canon_code = sit->second.canonical_code;
-    vec3 canon_v = sit->second.patch_to_canonical.TransformPoint(v);
-
-    return ClosestScoreCanonical(canon_code, canon_v);
-  }
-
-  double ClosestScoreCanonical(uint64_t canon_code,
-                               const vec3 &canon_v) {
-    Tree *tree = nullptr;
-    auto it = trees.find(canon_code);
-    if (it == trees.end()) {
-      Timer timer;
-      printf("Load new tree for %llx\n", canon_code);
-      tree = new Tree(3);
-      trees[canon_code].reset(tree);
-
-      // Insert all of the files in that patch.
-      int64_t entries = 0;
-      std::vector<std::unique_ptr<NDSolutions<6>>> shards;
-
-      for (const auto &[icode, ipatch] : patch_info.canonical) {
-        std::string filename = TwoPatchFilename(canon_code, icode);
-        auto shard = std::make_unique<NDSolutions<6>>(filename);
-        entries += shard->Size();
-        shards.emplace_back(std::move(shard));
-      }
-
-      std::vector<std::pair<std::array<double, 3>, double>> batch;
-      batch.reserve(entries);
-
-      for (auto &shard : shards) {
-        for (int i = 0; i < shard->Size(); i++) {
-          const auto &[key, score, outer_, inner_] = (*shard)[i];
-          // As the outer view.
-          // tree->Insert(std::span(key.data(), 3), score);
-          batch.emplace_back(SliceArray<0, 3>(key), score);
-        }
-      }
-
-      printf("Init batch size (%lld):\n", batch.size());
-      // ugh...
-      std::vector<std::pair<std::span<const double>, double>> batch_arg;
-      batch_arg.reserve(batch.size());
-      for (const auto &[key, val] : batch) {
-        batch_arg.emplace_back(std::span<const double>(key.data(), 3), val);
-      }
-      tree->InitBatch(std::move(batch_arg));
-
-      printf("Loaded new tree (%lld entries) in %s.\n",
-             entries,
-             ANSI::Time(timer.Seconds()).c_str());
-    } else {
-      tree = it->second.get();
-    }
-
-    CHECK(tree != nullptr);
-
-    Timer sample_timer;
-    auto dcr = tree->DebugClosest(canon_v);
-    const auto &[pos, score, dist] = dcr.res;
-
-    printf("One sample took %s; got\n"
-           "Score: %.17g\n"
-           "Dist: %.17g\n",
-           ANSI::Time(sample_timer.Seconds()).c_str(), score, dist);
-
-    printf("leaves_searched: %lld (%.5f%%)\n",
-           dcr.leaves_searched,
-           (dcr.leaves_searched * 100.0) / tree->Size());
-    printf("new_best: %lld\n", dcr.new_best);
-    printf("max_depth: %lld\n", dcr.max_depth);
-    printf("heap_pops: %lld\n", dcr.heap_pops);
-    printf("max_heap_size: %lld\n", dcr.max_heap_size);
-    printf("-----------------\n");
-
-    return score;
-  }
-
-  std::unordered_map<uint64_t, std::unique_ptr<Tree>> trees;
-
-  PatchInfo patch_info;
-  BigPoly poly;
-  Boundaries boundaries;
-};
 
 [[maybe_unused]]
 static void TreeBench1() {
@@ -724,16 +596,14 @@ static void TreeBench2() {
       double d = score_map.ClosestScore(v);
     }
   }
-
 }
-
 
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  TreeBench2();
+  // TreeBench2();
 
-  // Generate();
+  Generate();
 
   return 0;
 }
