@@ -1,6 +1,7 @@
 
 #include "tree-nd.h"
 
+#include <algorithm>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -251,7 +252,18 @@ static void TestDouble3D() {
 
       vec3 v = Vec3(x, y, z);
       points.emplace_back(v, i);
-      tree.Insert(v, i);
+    }
+
+    // Incremental insert, or batch insert
+    if (pass % 2 == 0) {
+      for (const auto &[v, i] : points) {
+        tree.Insert(v, i);
+      }
+    } else {
+      std::vector<std::pair<std::span<const double>, int>> batch;
+      for (size_t i = 0; i < points.size(); i++)
+        batch.emplace_back(points[i].first, points[i].second);
+      tree.InitBatch(std::move(batch));
     }
 
     CHECK(tree.Size() == points.size());

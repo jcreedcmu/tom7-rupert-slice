@@ -2,6 +2,7 @@
 #ifndef _CC_LIB_GEOM_TREE_ND_H
 #define _CC_LIB_GEOM_TREE_ND_H
 
+#include <algorithm>
 #include <cstdio>
 #include <functional>
 #include <iostream>
@@ -24,9 +25,23 @@ requires std::is_arithmetic_v<Num>
 struct TreeND {
   using Pos = std::vector<Num>;
 
+  static constexpr bool SELF_CHECK = false;
+  static constexpr bool VERBOSE = false;
+
   // Positive number of dimensions d.
   TreeND(int d);
+  // Move-only.
+  TreeND(TreeND &&other) = default;
+  TreeND &operator =(TreeND &&other) = default;
+  // Degenerate, but sometimes useful for default-initialization, etc.
+  TreeND() : TreeND(1) {}
 
+  // Initialize the tree (discarding existing contents) with
+  // a batch of data. Takes ownership of the argument, because
+  // it modifies it in place.
+  void InitBatch(std::vector<std::pair<std::span<const Num>, T>> &&items);
+
+  // Insert a single point.
   void Insert(std::span<const Num> pos, T t);
 
   // Returns true if a matching point was found (and thus removed).
@@ -34,6 +49,7 @@ struct TreeND {
 
   size_t Size() const { return count; }
   bool Empty() const { return count == 0; }
+  void Clear();
 
   template<class F>
   void App(const F &f) const;
@@ -96,6 +112,10 @@ struct TreeND {
     return pos[axis] <= value;
   }
 
+  void InitBatchTo(
+      std::unique_ptr<Node> &cursor,
+      std::span<std::pair<std::span<const Num>, T>> items);
+
   double SqDist(std::span<const Num> a,
                 std::span<const Num> b) const {
     double sqdist = 0.0;
@@ -128,13 +148,12 @@ struct TreeND {
     }
 
     const size_t median_idx = (leaf.Size() - 1) >> 1;
-    auto nth_iter = indices.begin() + median_idx_pos;
 
     // This is like the pivot step in QuickSort. Expected O(n).
     std::nth_element(indices.begin(),
                      indices.begin() + median_idx,
                      indices.end(),
-                     [&leaf](size_t a, size_t b) {
+                     [this, axis, &leaf](size_t a, size_t b) {
                        return
                          leaf.positions[a * d + axis] <
                          leaf.positions[b * d + axis];
@@ -202,7 +221,7 @@ template<class Num, class T>
 requires std::is_arithmetic_v<Num>
 TreeND<Num, T>::TreeND(int d) : d(d) {
   // An empty leaf.
-  root = std::make_unique<Node>(std::in_place_type<Leaf>);
+  // root = std::make_unique<Node>(std::in_place_type<Leaf>);
 }
 
 template<class Num, class T>
@@ -211,6 +230,10 @@ void TreeND<Num, T>::Insert(std::span<const Num> pos, T t) {
   // Insertion always increases the size by one; there can be multiple
   // items at the same point.
   count++;
+  if (root.get() == nullptr) {
+    root = std::make_unique<Node>(std::in_place_type<Leaf>);
+  }
+
   // Arbitrary preference for first split we create.
   InsertTo(root.get(), 0, pos, t);
 }
@@ -288,7 +311,8 @@ template<class Num, class T>
 requires std::is_arithmetic_v<Num>
 template<class F>
 void TreeND<Num, T>::App(const F &f) const {
-  std::vector<Node *> q = {root.get()};
+  std::vector<Node *> q;
+  if (root.get() != nullptr) q.push_back(root.get());
   while (!q.empty()) {
     Node *node = q.back();
     q.pop_back();
@@ -318,7 +342,10 @@ TreeND<Num, T>::LookUp(std::span<const Num> pos, double radius) const {
   // (But the leaf search uses the original point.)
   // This is pretty easy. Just do it!
   // PERF: We can start by using code from Closest below.
-  std::vector<Node *> q = {root.get()};
+
+  std::vector<Node *> q;
+  if (root.get() != nullptr) q.push_back(root.get());
+
   std::vector<std::tuple<Pos, T, double>> out;
   while (!q.empty()) {
     Node *node = q.back();
@@ -422,6 +449,172 @@ void TreeND<Num, T>::InsertTo(Node *node, int axis,
       return;
     }
   }
+}
+
+template <class Num, class T>
+requires std::is_arithmetic_v<Num>
+void TreeND<Num, T>::Clear() {
+  count = 0;
+  root.reset(nullptr);
+}
+
+
+template <class Num, class T>
+requires std::is_arithmetic_v<Num>
+void TreeND<Num, T>::InitBatch(
+    std::vector<std::pair<std::span<const Num>, T>> &&items_in) {
+  Clear();
+
+  std::vector<
+    std::pair<std::span<const Num>, T>
+    > items = std::move(items_in);
+
+  InitBatchTo(root, items);
+}
+
+template <class Num, class T>
+requires std::is_arithmetic_v<Num>
+void TreeND<Num, T>::InitBatchTo(
+    std::unique_ptr<Node> &cursor,
+    std::span<std::pair<std::span<const Num>, T>> items) {
+
+  if (VERBOSE) {
+    printf("InitBatchTo (%lld items)\n", items.size());
+  }
+
+  CHECK(cursor.get() == nullptr);
+  if (items.empty()) return;
+
+  if (items.size() <= MAX_LEAF) {
+    cursor = std::make_unique<Node>(std::in_place_type<Leaf>);
+    Leaf *leaf = &std::get<Leaf>(*cursor);
+    for (auto &[pos, t] : items) {
+      leaf->Add(pos, t);
+    }
+    count += items.size();
+    return;
+  }
+
+  // Enough points for a split.
+  // Choose the axis as the one with the largest variance.
+  int best_axis = 0;
+  double best_ssq = 0.0;
+  for (int a = 0; a < d; a++) {
+    double avg = 0.0;
+    for (const auto &[pos, t_] : items) {
+      avg += pos[a];
+    }
+
+    avg /= items.size();
+
+    double ssq = 0.0;
+    for (const auto &[pos, t_] : items) {
+      double da = pos[a] - avg;
+      ssq += da * da;
+    }
+    if (ssq > best_ssq) {
+      best_ssq = ssq;
+      best_axis = a;
+    }
+  }
+
+  if (VERBOSE) {
+    printf("%lld pts. Best axis is %d with variance %.11g\n",
+           items.size(),
+           best_axis, best_ssq / items.size());
+  }
+
+  // FIXME: If all of the points are the same, we have no choice
+  // but to leave this as a leaf (or else we'll just get into an
+  // endless loop here). This is plausible for integer data sets
+  // especially. We would also want to detect such leaves later.
+
+  // Then compute the split point. Here we compute the
+  // median and partition in one go.
+  const size_t median_idx = (items.size() - 1) >> 1;
+
+
+  // This is like the pivot step in QuickSort. Expected O(n).
+  std::nth_element(items.begin(),
+                   items.begin() + median_idx,
+                   items.end(),
+                   [best_axis](const auto &a, const auto &b) {
+                     return a.first[best_axis] < b.first[best_axis];
+                   });
+
+  if (SELF_CHECK) {
+    #if 0
+    // too slow.
+    for (size_t i = 0; i < median_idx; i++) {
+      for (int j = median_idx + 1; j < items.size(); j++) {
+        CHECK(items[i].first[best_axis] <= items[j].first[best_axis]) <<
+          "Median: " << median_idx << " For i=" << i << " and j=" << j;
+      }
+    }
+    #endif
+
+    CHECK(median_idx != 0 && median_idx <= items.size() - 1);
+
+    Num max_left = items[0].first[best_axis];
+    for (size_t i = 1; i < median_idx; i++) {
+      max_left = std::max(max_left, items[i].first[best_axis]);
+    }
+
+    Num min_right = items[median_idx].first[best_axis];
+    for (size_t j = median_idx; j < items.size(); j++) {
+      min_right = std::min(min_right, items[j].first[best_axis]);
+    }
+    CHECK(max_left <= min_right);
+
+    if (VERBOSE) {
+      printf("median Self check OK. %.11g < %.11g\n", max_left, min_right);
+    }
+  }
+
+
+  double split_pt = items[median_idx].first[best_axis];
+
+  // Still need to partition the data, because there might be values
+  // equal to the median on each side.
+  const size_t partition_idx =
+    std::partition(items.begin(),
+                   items.end(),
+                   [split_pt, best_axis](const auto &item) {
+                     return item.first[best_axis] <= split_pt;
+                   }) - items.begin();
+
+  if (VERBOSE) {
+    printf("Median idx was %lld. Median value = Split pt is %.11g\n"
+           "Partition idx: %lld\n", median_idx, split_pt, partition_idx);
+  }
+
+  // XXX make sure the split is not degenerate. Maybe combined
+  // with the code that checks for all-equal elements (we can
+  // compute the median and partitions first, then detect
+  // that they are all equal that way).
+  if (SELF_CHECK) {
+    for (size_t i = 0; i < partition_idx; i++) {
+      CHECK(items[i].first[best_axis] <= split_pt);
+    }
+
+    for (size_t i = partition_idx; i < items.size(); i++) {
+      CHECK(split_pt < items[i].first[best_axis]);
+    }
+  }
+
+  CHECK(partition_idx != 0 &&
+        partition_idx != items.size()) << "Need to handle degenerate "
+    "splits (where all the data are the same)";
+
+  cursor = std::make_unique<Node>(std::in_place_type<Split>);
+  Split *split = &std::get<Split>(*cursor);
+
+  split->axis = best_axis;
+  split->value = split_pt;
+
+  InitBatchTo(split->lesseq, std::span(items.data(), partition_idx));
+  InitBatchTo(split->greater, std::span(items.data() + partition_idx,
+                                        items.size() - partition_idx));
 }
 
 template <class Num, class T>

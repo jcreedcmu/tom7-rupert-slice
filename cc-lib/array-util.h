@@ -28,6 +28,12 @@ inline std::array<std::reference_wrapper<const T>, Count>
 SubArray(const std::array<T, N>& arr);
 
 
+// Returns an array of copies of the values.
+template<size_t Start, size_t Count, typename T, size_t N>
+inline std::array<T, Count>
+SliceArray(const std::array<T, N>& arr);
+
+
 // Template implementations follow.
 
 namespace internal {
@@ -38,12 +44,26 @@ inline auto SubArrayImpl(const std::array<T, N>& arr,
   return std::array<std::reference_wrapper<const T>, Count>({
       std::ref(arr[Start + Idx])...});
 }
+
+template<size_t Start, size_t Count, typename T, size_t N, std::size_t... Idx>
+inline auto SliceArrayImpl(const std::array<T, N>& arr,
+                           std::index_sequence<Idx...>) {
+  static_assert(Start + Count <= N, "SliceArray: range out of bounds");
+  return std::array<T, Count>({arr[Start + Idx]...});
+}
 }  // internal
 
 template<size_t Start, size_t Count, typename T, size_t N>
 inline std::array<std::reference_wrapper<const T>, Count>
 SubArray(const std::array<T, N>& arr) {
   return internal::SubArrayImpl<Start, Count>(
+      arr, std::make_index_sequence<Count>{});
+}
+
+template<size_t Start, size_t Count, typename T, size_t N>
+inline std::array<T, Count>
+SliceArray(const std::array<T, N>& arr) {
+  return internal::SliceArrayImpl<Start, Count>(
       arr, std::make_index_sequence<Count>{});
 }
 

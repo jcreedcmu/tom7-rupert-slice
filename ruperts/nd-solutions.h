@@ -43,6 +43,10 @@ struct NDSolutions {
   using vec3 = yocto::vec<double, 3>;
 
   explicit NDSolutions(std::string_view filename, bool verbose = false);
+  // move-only.
+  NDSolutions(NDSolutions &&other) = default;
+  NDSolutions &operator =(NDSolutions &&other) = default;
+  NDSolutions() {}
 
   // Same as NDSolutions(filename).Size(), but much faster
   // because it doesn't need to read the whole file.
@@ -201,6 +205,7 @@ void NDSolutions<N>::CreateIndex() {
   CHECK(index.get() == nullptr);
   index.reset(new TreeND<double, size_t>(N));
 
+  // PERF: Use batch insert
   for (size_t idx = 0; idx < data.size(); idx++) {
     const auto &[key, dist, outer, inner] = DecodeRow(data[idx]);
     index->Insert(key, idx);

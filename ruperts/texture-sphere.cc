@@ -1,5 +1,6 @@
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -10,14 +11,19 @@
 #include <span>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "ansi.h"
 #include "arcfour.h"
+#include "array-util.h"
+#include "atomic-util.h"
 #include "auto-histo.h"
+#include "big-polyhedra.h"
 #include "bounds.h"
 #include "color-util.h"
+#include "geom/tree-nd.h"
 #include "image.h"
 #include "map-util.h"
 #include "mesh.h"
@@ -30,12 +36,10 @@
 #include "threadutil.h"
 #include "timer.h"
 #include "yocto_matht.h"
-#include "atomic-util.h"
-#include "geom/tree-nd.h"
-#include "geom/tree-3d.h"
-#include "patches.h"
 
 using namespace yocto;
+
+static constexpr int DIGITS = 24;
 
 // Color map for spherical coordinates.
 struct SphereMap {
@@ -485,7 +489,107 @@ static void Generate() {
 }
 #endif
 
-static void TreeBench() {
+struct ScoreMap {
+  using Tree = TreeND<double, double>;
+
+  ScoreMap(PatchInfo patch_info) :
+    patch_info(patch_info), poly(BigScube(DIGITS)), boundaries(poly) {
+  }
+
+  double ClosestScore(const vec3 &v) {
+    // PERF
+    uint64_t code = boundaries.GetCode(v);
+
+    auto sit = patch_info.all_codes.find(code);
+    CHECK(sit != patch_info.all_codes.end());
+
+    uint64_t canon_code = sit->second.canonical_code;
+    vec3 canon_v = sit->second.patch_to_canonical.TransformPoint(v);
+
+    return ClosestScoreCanonical(canon_code, canon_v);
+  }
+
+  double ClosestScoreCanonical(uint64_t canon_code,
+                               const vec3 &canon_v) {
+    Tree *tree = nullptr;
+    auto it = trees.find(canon_code);
+    if (it == trees.end()) {
+      Timer timer;
+      printf("Load new tree for %llx\n", canon_code);
+      tree = new Tree(3);
+      trees[canon_code].reset(tree);
+
+      // Insert all of the files in that patch.
+      int64_t entries = 0;
+      std::vector<std::unique_ptr<NDSolutions<6>>> shards;
+
+      for (const auto &[icode, ipatch] : patch_info.canonical) {
+        std::string filename = TwoPatchFilename(canon_code, icode);
+        auto shard = std::make_unique<NDSolutions<6>>(filename);
+        entries += shard->Size();
+        shards.emplace_back(std::move(shard));
+      }
+
+      std::vector<std::pair<std::array<double, 3>, double>> batch;
+      batch.reserve(entries);
+
+      for (auto &shard : shards) {
+        for (int i = 0; i < shard->Size(); i++) {
+          const auto &[key, score, outer_, inner_] = (*shard)[i];
+          // As the outer view.
+          // tree->Insert(std::span(key.data(), 3), score);
+          batch.emplace_back(SliceArray<0, 3>(key), score);
+        }
+      }
+
+      printf("Init batch size (%lld):\n", batch.size());
+      // ugh...
+      std::vector<std::pair<std::span<const double>, double>> batch_arg;
+      batch_arg.reserve(batch.size());
+      for (const auto &[key, val] : batch) {
+        batch_arg.emplace_back(std::span<const double>(key.data(), 3), val);
+      }
+      tree->InitBatch(std::move(batch_arg));
+
+      printf("Loaded new tree (%lld entries) in %s.\n",
+             entries,
+             ANSI::Time(timer.Seconds()).c_str());
+    } else {
+      tree = it->second.get();
+    }
+
+    CHECK(tree != nullptr);
+
+    Timer sample_timer;
+    auto dcr = tree->DebugClosest(canon_v);
+    const auto &[pos, score, dist] = dcr.res;
+
+    printf("One sample took %s; got\n"
+           "Score: %.17g\n"
+           "Dist: %.17g\n",
+           ANSI::Time(sample_timer.Seconds()).c_str(), score, dist);
+
+    printf("leaves_searched: %lld (%.5f%%)\n",
+           dcr.leaves_searched,
+           (dcr.leaves_searched * 100.0) / tree->Size());
+    printf("new_best: %lld\n", dcr.new_best);
+    printf("max_depth: %lld\n", dcr.max_depth);
+    printf("heap_pops: %lld\n", dcr.heap_pops);
+    printf("max_heap_size: %lld\n", dcr.max_heap_size);
+    printf("-----------------\n");
+
+    return score;
+  }
+
+  std::unordered_map<uint64_t, std::unique_ptr<Tree>> trees;
+
+  PatchInfo patch_info;
+  BigPoly poly;
+  Boundaries boundaries;
+};
+
+[[maybe_unused]]
+static void TreeBench1() {
   PatchInfo patch_info = LoadPatchInfo("scube-patchinfo.txt");
   AutoHisto histo(100000);
 
@@ -599,10 +703,35 @@ static void TreeBench() {
 
 }
 
+static void TreeBench2() {
+  PatchInfo patch_info = LoadPatchInfo("scube-patchinfo.txt");
+  ScoreMap score_map(patch_info);
+
+  StatusBar status(1);
+
+  ArcFour rc("deterministic");
+  std::vector<vec3> samples;
+  for (int i = 0; i < 5; i++) {
+    vec3 v{RandDouble(&rc), RandDouble(&rc), RandDouble(&rc)};
+    v /= length(v);
+    samples.push_back(v);
+  }
+
+  for (int i = 0; i < 2; i++) {
+    printf("==== Pass %d ====\n", i + 1);
+    for (const vec3 &v : samples) {
+      [[maybe_unused]]
+      double d = score_map.ClosestScore(v);
+    }
+  }
+
+}
+
+
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  TreeBench();
+  TreeBench2();
 
   // Generate();
 
