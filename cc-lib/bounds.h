@@ -23,6 +23,10 @@ struct Bounds {
   void Bound(std::pair<double, double> p);
   void BoundX(double x);
   void BoundY(double y);
+  template<class T>
+  void Bound(const T &pt) {
+    Bound(pt.x, pt.y);
+  }
 
   // The margins are included.
   bool Contains(double x, double y) const;
@@ -85,6 +89,10 @@ struct Bounds {
     double ScaleY(double y) const;
     std::pair<double, double> Scale(double x, double y) const;
     std::pair<double, double> Scale(std::pair<double, double> p) const;
+    template<class T>
+    std::pair<double, double> Scale(const T &p) const {
+      return Scale(p.x, p.y);
+    }
 
     // Inverse of the above (i.e., convert from screen coordinates to
     // points in the original coordinate system).
@@ -92,6 +100,10 @@ struct Bounds {
     double UnscaleY(double y) const;
     std::pair<double, double> Unscale(double x, double y) const;
     std::pair<double, double> Unscale(std::pair<double, double> p) const;
+    template<class T>
+    std::pair<double, double> Unscale(const T &p) const {
+      return Unscale(p.x, p.y);
+    }
 
     // Derive new scalers.
 

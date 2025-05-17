@@ -127,6 +127,20 @@ uint64_t Boundaries::GetCode(const vec3 &v) const {
   return code;
 }
 
+uint64_t Boundaries::GetCodeSloppy(const vec3 &v) const {
+  uint64_t code = 0;
+  for (int i = 0; i < small_planes.size(); i++) {
+    const vec3 &normal = small_planes[i];
+    double d = dot(v, normal);
+    // CHECK(d != 0.0) << "Points exactly on the boundary are not "
+    // "handled.";
+    if (d >= 0.0) {
+      code |= uint64_t{1} << i;
+    }
+  }
+  return code;
+}
+
 uint64_t Boundaries::GetCode(const quat4 &q) const {
   vec3 view = ViewPosFromNonUnitQuat(q);
   return GetCode(view);

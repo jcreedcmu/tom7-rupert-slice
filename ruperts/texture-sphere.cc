@@ -78,7 +78,7 @@ struct ScoreMap {
 
   double ClosestScore(const vec3 &v) {
     // PERF
-    uint64_t code = boundaries.GetCode(v);
+    uint64_t code = boundaries.GetCodeSloppy(v);
 
     auto sit = patch_info.all_codes.find(code);
     CHECK(sit != patch_info.all_codes.end());
@@ -96,7 +96,9 @@ struct ScoreMap {
     auto it = trees.find(canon_code);
     if (it == trees.end()) {
       Timer timer;
-      printf("Load new tree for %llx\n", canon_code);
+      printf("#%d Load " ACYAN("%llx") " (for %s)\n",
+             (int)trees.size(),
+             canon_code, VecString(canon_v).c_str());
       tree = new Tree(3);
       trees[canon_code].reset(tree);
 
@@ -201,6 +203,46 @@ struct TwoPatchOuterSphereMap : public SphereMap {
   ScoreMap score_map;
 };
 
+
+struct PatchIDMap : public SphereMap {
+  PatchInfo patch_info;
+  BigPoly poly;
+  Boundaries boundaries;
+  PatchIDMap() :
+    patch_info(LoadPatchInfo("scube-patchinfo.txt")),
+    poly(BigScube(DIGITS)), boundaries(poly) {
+    ArcFour rc("deterministic");
+    std::unordered_map<uint64_t, double> canonical_hue;
+    int h = 0;
+    for (const auto &[code, _] : patch_info.canonical) {
+      canonical_hue[code] = h / (double)patch_info.canonical.size();
+      h++;
+    }
+
+    for (const auto &[code, patch] : patch_info.all_codes) {
+      double hue = canonical_hue[patch.canonical_code];
+      bool is_canon = canonical_hue.contains(code);
+      colored_codes[code] =
+        ColorUtil::HSVAToRGBA32(
+            hue,
+            (is_canon ? 1.0 : 0.25 + RandDouble(&rc) * 0.5),
+            (is_canon ? 1.0 : 0.4 + RandDouble(&rc) * 0.5),
+            1.0);
+    }
+  }
+
+  uint32_t GetRGBA(const vec3 &v) override {
+    uint64_t code = boundaries.GetCodeSloppy(v);
+    auto it = colored_codes.find(code);
+    if (it == colored_codes.end()) return 0x000000FF;
+    return it->second;
+  }
+
+ private:
+  std::unordered_map<uint64_t, uint32_t> colored_codes;
+};
+
+
 #if 0
 struct Texture {
   Texture() : Texture(1, 1) {}
@@ -278,7 +320,7 @@ struct TexturedTriangle {
   std::tuple<vec2, vec2, vec2> uvs;
 };
 
-static constexpr int TRIANGLE_TEXTURE_EDGE = 32;
+static constexpr int TRIANGLE_TEXTURE_EDGE = 1024;
 TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
                                     SphereMap *sphere_map,
                                     int triangle_idx) {
@@ -409,7 +451,7 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
 
   return TexturedTriangle{
     .texture = std::move(texture),
-    // Map to [0,1] rectangle. XXX might need to flip Y?
+    // Map to [0,1] rectangle. Note that SaveAsOBJ flips the v coordinate.
     .uvs = {
       pxa / TRIANGLE_TEXTURE_EDGE,
       pxb / TRIANGLE_TEXTURE_EDGE,
@@ -421,7 +463,7 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
 // Generate a "sphere" as a pair of OBJ+MTL files.
 static TexturedMesh TextureSphere(SphereMap *sphere_map) {
   TexturedMesh ret;
-  ret.mesh = ApproximateSphere(0);
+  ret.mesh = ApproximateSphere(1);
 
   StatusBar status(1);
   Periodically status_per(1.0);
@@ -453,9 +495,9 @@ static TexturedMesh TextureSphere(SphereMap *sphere_map) {
 }
 
 static void Generate() {
-  // std::unique_ptr<SphereMap> sphere_map(
-  // new TwoPatchOuterSphereMap);
-  std::unique_ptr<SphereMap> sphere_map(new SphereMap);
+  // std::unique_ptr<SphereMap> sphere_map(new TwoPatchOuterSphereMap);
+  std::unique_ptr<SphereMap> sphere_map(new PatchIDMap);
+  // std::unique_ptr<SphereMap> sphere_map(new SphereMap);
   TexturedMesh tmesh = TextureSphere(sphere_map.get());
   SaveAsOBJ(tmesh, "sphere");
 }
