@@ -494,7 +494,7 @@ struct DBImpl : public ZIP::DecodeBuffer {
         "call.";
 
       CHECK(status != TINFL_STATUS_BAD_PARAM) << "Bug? " <<
-        StringPrintf("%p %lzu %p %p %lld\n",
+        StringPrintf("%p %zu %p %p %lld\n",
                      data, (size_t)in_bytes, circ.get(), circ.get() + circ_pos,
                      out_bytes);
 

@@ -8,9 +8,11 @@
 #ifndef _CC_LIB_STATUS_BAR_H
 #define _CC_LIB_STATUS_BAR_H
 
+#include <cstdint>
+#include <format>
+#include <mutex>
 #include <string>
 #include <vector>
-#include <mutex>
 
 #include "base/port.h"
 #include "timer.h"
@@ -25,6 +27,9 @@ struct StatusBar {
 
   // Prints lines above the status bar. Adds trailing newline if not present.
   void Printf(const char *format, ...) PRINTF_ATTRIBUTE_MEMBER(1, 2);
+  // Like std::
+  template<typename... Args>
+  void Print(std::format_string<Args...> fmt, Args&&... args);
 
   // Prints lines above the status bar. Adds trailing newline if not present.
   void Emit(const std::string &s);
@@ -32,6 +37,8 @@ struct StatusBar {
   // Update the status bar. This should be done in one call that
   // contains num_lines lines. Trailing newline not necessary.
   void Statusf(const char *format, ...) PRINTF_ATTRIBUTE_MEMBER(1, 2);
+  template<typename... Args>
+  void Status(std::format_string<Args...> fmt, Args&&... args);
 
   // Update the status bar with a string, which should contain num_lines
   // lines.
@@ -44,6 +51,9 @@ struct StatusBar {
   // want something else, just call Emit(ANSI::ProgressBar(...)).
   void Progressf(int64_t numer, int64_t denom, const char *format, ...)
   PRINTF_ATTRIBUTE_MEMBER(3, 4);
+  template<typename... Args>
+  void Progress(int64_t numer, int64_t denom,
+                std::format_string<Args...> fmt, Args&&... args);
 
   // TODO: Finish(), which replaces the final line of status with
   // "complete" progress bar, giving the total time?
@@ -53,6 +63,9 @@ struct StatusBar {
   // you should prefer one of the above routines if you are building the
   // entire bar.
   void LineStatusf(int idx, const char *format, ...) PRINTF_ATTRIBUTE_MEMBER(2, 3);
+  template<typename... Args>
+  void LineStatus(int idx, std::format_string<Args...> fmt, Args&&... args);
+
   void EmitLine(int idx, const std::string &s);
 
   // Set every status line empty; keeps any lines above.
@@ -72,6 +85,30 @@ struct StatusBar {
   Timer timer;
 };
 
+
+// Template implementations follow.
+
+template<typename... Args>
+void StatusBar::Print(std::format_string<Args...> fmt, Args&&... args) {
+  Emit(std::format(fmt, std::forward<Args>(args)...));
+}
+
+template<typename... Args>
+void StatusBar::Status(std::format_string<Args...> fmt, Args&&... args) {
+  EmitStatus(std::format(fmt, std::forward<Args>(args)...));
+}
+
+template<typename... Args>
+void StatusBar::Progress(int64_t numer, int64_t denom,
+                         std::format_string<Args...> fmt, Args&&... args) {
+  std::string msg = std::format(fmt, std::forward<Args>(args)...);
+  Progressf(numer, denom, "%s", msg.c_str());
+}
+
+template<typename... Args>
+void StatusBar::LineStatus(int idx, std::format_string<Args...> fmt, Args&&... args) {
+  EmitLine(idx, std::format(fmt, std::forward<Args>(args)...));
+}
 
 
 #endif

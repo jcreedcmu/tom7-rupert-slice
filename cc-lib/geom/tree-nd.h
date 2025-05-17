@@ -15,6 +15,8 @@
 
 #include "base/logging.h"
 
+#define SPLIT_MEDIAN 1
+
 // Maps 3D points to values of type T.
 // This is a classic kd tree without any rebalancing.
 template<class Num, class T>
@@ -45,7 +47,21 @@ struct TreeND {
   std::tuple<Pos, T, double>
   Closest(std::span<const Num> pos) const;
 
+  // Debugging and advanced things.
+
   void DebugPrint() const;
+
+  struct DebugClosestResult {
+    std::tuple<Pos, T, double> res;
+    int64_t leaves_searched = 0;
+    int64_t new_best = 0;
+    int64_t max_depth = 0;
+    int64_t heap_pops = 0;
+    int64_t max_heap_size = 0;
+  };
+
+  DebugClosestResult DebugClosest(std::span<const Num> pos) const;
+
 
  private:
   static constexpr int MAX_LEAF = 128;
@@ -103,7 +119,30 @@ struct TreeND {
     return true;
   }
 
-  double SplitPoint(const Leaf &leaf, int axis) const {
+  double SplitPoint(Leaf &leaf, int axis) const {
+    #if SPLIT_MEDIAN
+    std::vector<int> indices;
+    indices.reserve(leaf.Size());
+    for (int i = 0; i < leaf.Size(); i++) {
+      indices.push_back(i);
+    }
+
+    const size_t median_idx = (leaf.Size() - 1) >> 1;
+    auto nth_iter = indices.begin() + median_idx_pos;
+
+    // This is like the pivot step in QuickSort. Expected O(n).
+    std::nth_element(indices.begin(),
+                     indices.begin() + median_idx,
+                     indices.end(),
+                     [&leaf](size_t a, size_t b) {
+                       return
+                         leaf.positions[a * d + axis] <
+                         leaf.positions[b * d + axis];
+                     });
+
+    return leaf.positions[indices[median_idx] * d + axis];
+
+    #else
     // PERF: Median is likely a better choice.
     double sum = 0.0;
     int size = leaf.Size();
@@ -111,6 +150,7 @@ struct TreeND {
       sum += leaf.positions[i * d + axis];
     }
     return sum / size;
+    #endif
   }
 
   std::span<const Num> LeafPos(const Leaf &leaf, int i) const {
@@ -509,6 +549,108 @@ TreeND<Num, T>::Closest(std::span<const Num> pos) const {
   return std::make_tuple(std::vector<Num>(ppos.begin(), ppos.end()),
                          LeafData(*best_leaf, best_leaf_idx),
                          sqrt(best_sq_dist));
+}
+
+
+// XXX Probably should not keep two copies of this code around.
+template <class Num, class T>
+requires std::is_arithmetic_v<Num>
+typename TreeND<Num, T>::DebugClosestResult
+TreeND<Num, T>::DebugClosest(std::span<const Num> pos) const {
+  CHECK(count != 0) << "Closest can only be called on a non-empty "
+    "tree.";
+
+  DebugClosestResult ret;
+
+  const Leaf *best_leaf = nullptr;
+  int best_leaf_idx = 0;
+  double best_sq_dist = std::numeric_limits<double>::infinity();
+
+  // lower bound on the squared distance to the region (from pos), node
+  //
+  // We use a heap because we want to check closer regions first;
+  // whenever we find a point this gives us a new lower bound.
+  //
+  // PERF: We could actually keep the distance to the corner,
+  // rather than the axis.
+  // distance, node, depth
+  using Elt = std::tuple<double, const Node *, int64_t>;
+  std::priority_queue<Elt, std::vector<Elt>, std::greater<Elt>> q;
+
+  q.push({0.0, root.get(), 0});
+
+  while (!q.empty()) {
+    const double node_sqdist = std::get<0>(q.top());
+    const Node *node = std::get<1>(q.top());
+    const int64_t depth = std::get<2>(q.top());
+
+    ret.heap_pops++;
+    ret.max_heap_size = std::max((int64_t)q.size(), ret.max_heap_size);
+    ret.max_depth = std::max(depth, ret.max_depth);
+
+    q.pop();
+
+    // Since this is the node with the smallest lower bound remaining
+    // in the heap, we are done.
+    if (node_sqdist >= best_sq_dist) {
+      break;
+    }
+
+    CHECK(node != nullptr);
+
+    if (const Split *split = std::get_if<Split>(node)) {
+      // Get the minimum distance between the lookup point and
+      // the split axis.
+      double sdist = split->value - pos[split->axis];
+      double sq_dist = sdist * sdist;
+
+      // Note we may be close to the split plane, but far from
+      // the parent node (different axis); take the max.
+      const double other_dist = std::max(sq_dist, node_sqdist);
+
+      // We always search the one we're in. But we can also search
+      // the other one if it is within our search radius.
+      const bool both = best_leaf == nullptr || other_dist <= best_sq_dist;
+      const bool lesseq = Classify(pos, split->axis, split->value);
+
+      if (both) {
+        // Insert the other one (if non-empty), as it is close enough.
+        if (const Node *other =
+            lesseq ? split->greater.get() : split->lesseq.get()) {
+          q.emplace(other_dist, other, depth + 1);
+        }
+      }
+
+      if (lesseq && split->lesseq.get() != nullptr) {
+        q.emplace(node_sqdist, split->lesseq.get(), depth + 1);
+      } else if (!lesseq && split->greater.get() != nullptr) {
+        q.emplace(node_sqdist, split->greater.get(), depth + 1);
+      }
+    } else {
+
+      const Leaf *leaf = &std::get<Leaf>(*node);
+      int num = leaf->Size();
+      for (int i = 0; i < num; i++) {
+        ret.leaves_searched++;
+        std::span<const Num> ppos = LeafPos(*leaf, i);
+        double sq_dist = SqDist(pos, ppos);
+        if (best_leaf == nullptr || sq_dist < best_sq_dist) {
+          ret.new_best++;
+          best_leaf = leaf;
+          best_leaf_idx = i;
+          best_sq_dist = sq_dist;
+        }
+      }
+    }
+  }
+
+  CHECK(best_leaf != nullptr) << "This should find something since count > 0.";
+
+  std::span<const Num> ppos = LeafPos(*best_leaf, best_leaf_idx);
+  ret.res = std::make_tuple(std::vector<Num>(ppos.begin(), ppos.end()),
+                            LeafData(*best_leaf, best_leaf_idx),
+                            sqrt(best_sq_dist));
+  return ret;
 }
 
 

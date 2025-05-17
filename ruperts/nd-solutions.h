@@ -42,7 +42,7 @@ struct NDSolutions {
   using frame3 = yocto::frame<double, 3>;
   using vec3 = yocto::vec<double, 3>;
 
-  explicit NDSolutions(std::string_view filename);
+  explicit NDSolutions(std::string_view filename, bool verbose = false);
 
   // Same as NDSolutions(filename).Size(), but much faster
   // because it doesn't need to read the whole file.
@@ -266,9 +266,10 @@ auto NDSolutions<N>::Closest(const std::array<double, N> &key) ->
 }
 
 template<size_t N>
-NDSolutions<N>::NDSolutions(std::string_view filename) : filename(filename) {
+NDSolutions<N>::NDSolutions(std::string_view filename, bool verbose) : filename(filename) {
   // Note that these will easily exceed 32-bit byte indices.
   std::vector<uint8_t> bytes = Util::ReadFileBytes(filename);
+  if (verbose) { printf("Read %lld bytes.\n", bytes.size()); }
   if (!bytes.empty()) {
     CHECK(bytes.size() >= 4 &&
           0 == memcmp(bytes.data(), MAGIC, 4) &&
@@ -281,8 +282,10 @@ NDSolutions<N>::NDSolutions(std::string_view filename) : filename(filename) {
         row[c] = ReadDouble(&bytes[idx + c * 8]);
       }
       data.push_back(std::move(row));
+      // if (verbose && (idx % 1000 == 0)) printf("idx %lld\n", idx);
     }
   }
+  if (verbose) printf("Read %lld bytes OK\n", bytes.size());
 
   // Index is created on demand.
 }

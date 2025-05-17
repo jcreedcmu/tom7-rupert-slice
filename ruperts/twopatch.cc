@@ -118,9 +118,6 @@ struct PatchStatus {
 };
 
 struct TwoPatch {
-  static std::string Filename(uint64_t outer_code, uint64_t inner_code) {
-    return std::format("{:x}-{:x}.nds", outer_code, inner_code);
-  }
 
   TwoPatch(std::string_view what,
            StatusBar *status,
@@ -133,13 +130,13 @@ struct TwoPatch {
     small_poly(SmallPoly(big_poly)),
     outer_code(outer_code), inner_code(inner_code),
     outer_mask(outer_mask), inner_mask(inner_mask),
-    sols(Filename(outer_code, inner_code)),
+    sols(TwoPatchFilename(outer_code, inner_code)),
     diameter(Diameter(small_poly)) {
 
     if (sols.Size() >= TARGET_SAMPLES) {
       pairs_done++;
       status->Printf(ACYAN("%s") ": Already have %lld samples.",
-                     Filename(outer_code, inner_code).c_str(),
+                     TwoPatchFilename(outer_code, inner_code).c_str(),
                      (int64_t)sols.Size());
       return;
     }
@@ -410,7 +407,7 @@ struct TwoPatch {
     threads.clear();
 
     sols.Save();
-    std::string filename = Filename(outer_code, inner_code);
+    std::string filename = TwoPatchFilename(outer_code, inner_code);
     status->Printf("Done in %s: Saved %lld sols to %s",
                    ANSI::Time(run_timer.Seconds()).c_str(),
                    (int64_t)sols.Size(),
@@ -449,14 +446,14 @@ static void UpdateStatus() {
     for (int inner = 0; inner < cc.size(); inner++) {
       const auto &[inner_code, canon2] = cc[inner];
 
-      std::string filename = TwoPatch::Filename(outer_code, inner_code);
+      std::string filename = TwoPatchFilename(outer_code, inner_code);
       // NDSolutions<6> sols{filename};
       const std::size_t nsols =
         NDSolutions<6>::SolutionsInFile(filename).value_or(0);
       if (nsols == 0) {
         matrix += AGREY("-");
       } else {
-        if (nsols > TARGET_SAMPLES) {
+        if (nsols >= TARGET_SAMPLES) {
           AppendFormat(&out, "done {} {}\n", outer, inner);
           status.Printf("%d %d done.", outer, inner);
           done++;
@@ -506,7 +503,7 @@ static void RunWork(StatusBar *status, int start_outer, int start_inner) {
         continue;
       }
 
-      std::string filename = TwoPatch::Filename(code1, code2);
+      std::string filename = TwoPatchFilename(code1, code2);
 
       // If it is reserved, then only try it if we have
       // the file.

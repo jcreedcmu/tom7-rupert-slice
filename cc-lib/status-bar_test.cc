@@ -17,6 +17,9 @@ static void Test() {
                     "the status.") "\n",
              42);
 
+  bar.Print(AYELLOW("This one should be yellow and say ") AGREEN("{}")
+            AYELLOW("."), "green");
+
   bar.Statusf(
       "| This is the three-line " ABLUE("status bar") ".\n"
       "# this one should get overwritten!!!\n"
@@ -26,7 +29,7 @@ static void Test() {
   bar.LineStatusf(
       1,
       // test that it strips the trailing newline
-      "| It should appear below a single %s line about 42.\n",
+      "| It should appear below two %s lines about 42 and green.\n",
       "status");
 }
 
@@ -41,6 +44,7 @@ int main(int argc, char **argv) {
   ANSI::Init();
 
   TestIndexed();
+  printf("------\n");
 
   Test();
 

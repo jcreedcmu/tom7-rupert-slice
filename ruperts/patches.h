@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -129,7 +130,9 @@ struct PatchInfo {
 
 PatchInfo LoadPatchInfo(std::string_view filename);
 void SavePatchInfo(const PatchInfo &info, std::string_view filename);
-
+inline std::string TwoPatchFilename(uint64_t outer_code, uint64_t inner_code) {
+  return std::format("{:x}-{:x}.nds", outer_code, inner_code);
+}
 
 // Find the set of patches (as their codes) that are non-empty, by
 // shelling out to z3. This could be optimized a lot, but the set is a
