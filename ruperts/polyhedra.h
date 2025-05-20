@@ -520,6 +520,8 @@ std::optional<double> GetClearance(const Polyhedron &poly,
                                    const frame3 &outer_frame,
                                    const frame3 &inner_frame);
 
+TriangularMesh3D PolyToTriangularMesh(const Polyhedron &poly);
+
 // Creates an approximate sphere by "triforce" subdivision of the
 // icosahedron with the given depth (exponential).
 TriangularMesh3D ApproximateSphere(int depth);

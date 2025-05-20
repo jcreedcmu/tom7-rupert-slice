@@ -1556,13 +1556,13 @@ std::optional<double> GetClearance(const Polyhedron &poly,
                         sinner.vertices, inner_hull)};
 }
 
-static TriangularMesh3D ToTriangularMesh(const Polyhedron &poly) {
+TriangularMesh3D PolyToTriangularMesh(const Polyhedron &poly) {
   return TriangularMesh3D{.vertices = poly.vertices,
     .triangles = poly.faces->triangulation};
 }
 
 void SaveAsSTL(const Polyhedron &poly, std::string_view filename) {
-  TriangularMesh3D mesh = ToTriangularMesh(poly);
+  TriangularMesh3D mesh = PolyToTriangularMesh(poly);
   OrientMesh(&mesh);
   return SaveAsSTL(mesh, filename, poly.name);
 }

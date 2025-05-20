@@ -893,7 +893,7 @@ static void WriteMaskAndExampleFile(const Boundaries &boundaries) {
           status_per.RunIf([&]() {
               int num = WithLock(&mu, [&]() { return examples.size(); });
               status.Progressf(i, NUM_SHOTGUN,
-                               "Shotgun: %d%/d examples",
+                               "Shotgun: %d/%d examples",
                                num, (int)all.size());
             });
         }

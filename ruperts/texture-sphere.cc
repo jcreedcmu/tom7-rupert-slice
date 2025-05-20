@@ -41,11 +41,17 @@
 #include "util.h"
 #include "yocto_matht.h"
 
+DECLARE_COUNTERS(outside_triangle);
+
 using namespace yocto;
 
 #define USE_ND 1
 
 static constexpr int DIGITS = 24;
+
+// on each side
+// static constexpr int MULTISAMPLE = 16;
+static constexpr int MULTISAMPLE = 16;
 
 static inline vec2 VecFromPair(const std::pair<double, double> &p) {
   return vec2{.x = p.first, .y = p.second};
@@ -196,7 +202,11 @@ struct TwoPatchOuterSphereMap : public SphereMap {
   }
 
   uint32_t GetRGBA(const vec3 &v) override {
-    return ColorScore(score_map.ClosestScore(v));
+    double s = ScoreToRank(score_map.ClosestScore(v));
+    // XXX ad hoc
+    s = std::clamp(s, 0.0, 1.0);
+    s = std::clamp(s * s, 0.0, 1.0);
+    return ColorScore(s);
   }
 
  private:
@@ -314,7 +324,9 @@ static std::tuple<vec2, vec2, vec2> ExpandTriangle(
                          ExpandVertex(vc, va, vb, amount));
 }
 
-static constexpr int TRIANGLE_TEXTURE_EDGE = 256;
+// static constexpr int TRIANGLE_TEXTURE_EDGE = 8192;
+// static constexpr int TRIANGLE_TEXTURE_EDGE = 8192;
+static constexpr int TRIANGLE_TEXTURE_EDGE = 4096;
 TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
                                     SphereMap *sphere_map,
                                     int triangle_idx) {
@@ -387,7 +399,7 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
   std::mutex mu;
   ImageRGBA texture(TRIANGLE_TEXTURE_EDGE, TRIANGLE_TEXTURE_EDGE);
 
-  static constexpr int MARGIN_PIXELS = 4;
+  static constexpr int MARGIN_PIXELS = TRIANGLE_TEXTURE_EDGE >> 7;
   Bounds::Scaler scaler = bounds.ScaleToFitWithMargin(
       TRIANGLE_TEXTURE_EDGE,
       TRIANGLE_TEXTURE_EDGE,
@@ -423,35 +435,81 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
           const int px = ox + start_x;
           const int py = oy + start_y;
 
-          // The center of the pixel.
-          vec2 screen_pt = vec2(px + 0.5, py + 0.5);
-
           // It has to be in the bounding triangle.
-          if (!InTriangle(ta, tb, tc, screen_pt))
+          if (!InTriangle(ta, tb, tc, vec2(px + 0.5, py + 0.5))) {
+            outside_triangle++;
             return;
+          }
 
-          // That point in the triangle's local coordinate system.
-          vec2 pt = VecFromPair(scaler.Unscale(screen_pt));
+          // Assuming a = FF.
+          uint32_t r = 0;
+          uint32_t g = 0;
+          uint32_t b = 0;
+          for (int yy = 0; yy < MULTISAMPLE; yy++) {
+            for (int xx = 0; xx < MULTISAMPLE; xx++) {
 
-          // The barycentric coordinates of the sample point. This may
-          // be outside the triangle.
-          vec3 bary = BarycentricCoords(pt, pa, pb, pc);
+              // Sample the center of the pixel if multisample=1,
+              // but one quarter and three quarters if multisample=2, etc.
+              constexpr float subdiv = 1.0f / (1 + MULTISAMPLE);
 
-          // This is the interpolated (or extrapolated) point on the
-          // triangle's plane (world coordinates).
-          vec3 plane_pt = va * bary.x + vb * bary.y + vc * bary.z;
+              // The center of the pixel.
+              vec2 screen_pt = vec2(px + (xx + 1) * subdiv,
+                                    py + (yy + 1) * subdiv);
 
-          // The whole point is to get the original 3D coordinate,
-          // which we can then project to the sphere.
-          vec3 p = normalize(plane_pt);
+              // That point in the triangle's local coordinate system.
+              vec2 pt = VecFromPair(scaler.Unscale(screen_pt));
 
-          uint32_t color = sphere_map->GetRGBA(p);
+              // The barycentric coordinates of the sample point. This may
+              // be outside the triangle.
+              vec3 bary = BarycentricCoords(pt, pa, pb, pc);
+
+              // This is the interpolated (or extrapolated) point on the
+              // triangle's plane (world coordinates).
+              vec3 plane_pt = va * bary.x + vb * bary.y + vc * bary.z;
+
+              // The whole point is to get the original 3D coordinate,
+              // which we can then project to the sphere.
+              vec3 p = normalize(plane_pt);
+
+              const auto &[rr, gg, bb, aa_] = ColorUtil::Unpack32(
+                  sphere_map->GetRGBA(p));
+              r += rr;
+              g += gg;
+              b += bb;
+            }
+          }
+
+          r /= MULTISAMPLE * MULTISAMPLE;
+          g /= MULTISAMPLE * MULTISAMPLE;
+          b /= MULTISAMPLE * MULTISAMPLE;
+
+          auto Clamp = [](int c) -> uint8_t { return std::clamp(c, 0, 255); };
+
+          uint32_t color = ColorUtil::Pack32(Clamp(r), Clamp(g), Clamp(b),
+                                             0xFF);
+
           {
             MutexLock ml(&mu);
             texture.SetPixel32(px, py, color);
           }
         },
         8);
+  } else {
+    printf("Empty triangle? %d %d to %d %d\n"
+           "pxa: %s\n"
+           "pxb: %s\n"
+           "pxc: %s\n"
+           "ta: %s\n"
+           "tb: %s\n"
+           "tc: %s\n",
+           start_x, start_y,
+           end_x, end_y,
+           VecString(pxa).c_str(),
+           VecString(pxb).c_str(),
+           VecString(pxc).c_str(),
+           VecString(ta).c_str(),
+           VecString(tb).c_str(),
+           VecString(tc).c_str());
   }
 
   return TexturedTriangle{
@@ -468,7 +526,8 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
 // Generate a "sphere" as a pair of OBJ+MTL files.
 static TexturedMesh TextureSphere(SphereMap *sphere_map) {
   TexturedMesh ret;
-  ret.mesh = ApproximateSphere(2);
+  // ret.mesh = ApproximateSphere(2);
+  ret.mesh = PolyToTriangularMesh(SnubCube());
 
   StatusBar status(1);
   Periodically status_per(1.0);
@@ -478,9 +537,14 @@ static TexturedMesh TextureSphere(SphereMap *sphere_map) {
   for (int triangle_idx = 0; triangle_idx < ret.mesh.triangles.size();
        triangle_idx++) {
 
+    Timer timer;
     // One texture image per triangle.
     TexturedTriangle tex =
       TextureOneTriangle(ret.mesh, sphere_map, triangle_idx);
+
+    std::string tmpfile = "texture-sphere.tmp.png";
+    tex.texture.Save(tmpfile);
+    status.Print("Saved " AGREEN("{}"), tmpfile);
 
     const auto &[uu, vv] = ret.texture.AddTexture(std::move(tex.texture));
     vec2 uvidx(uu, vv);
@@ -489,11 +553,16 @@ static TexturedMesh TextureSphere(SphereMap *sphere_map) {
         std::make_tuple(uvidx + uva, uvidx + uvb, uvidx + uvc));
 
     status_per.RunIf([&]() {
+        status.Print("Finished triangle {} in {}",
+                     triangle_idx, ANSI::Time(timer.Seconds()));
         status.Progress(triangle_idx,
                         ret.mesh.triangles.size(),
                         "Texturing.");
       });
   }
+
+  printf("Done. %lld outside\n",
+         outside_triangle.Read());
 
   // ...
   return ret;
@@ -505,7 +574,7 @@ static void Generate() {
   // std::unique_ptr<SphereMap> sphere_map(new PatchIDMap);
   // std::unique_ptr<SphereMap> sphere_map(new SphereMap);
   TexturedMesh tmesh = TextureSphere(sphere_map.get());
-  SaveAsOBJ(tmesh, "sphere");
+  SaveAsOBJ(tmesh, "snubcube");
   printf("Took %s\n", ANSI::Time(timer.Seconds()).c_str());
 }
 

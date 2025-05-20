@@ -1,13 +1,19 @@
 
+#include "arcfour.h"
 #include "patches.h"
 
 #include <set>
 #include <cstdint>
 #include <cstdio>
+#include <tuple>
 #include <unordered_set>
 
 #include "ansi.h"
+#include "base/do-not-optimize.h"
 #include "base/logging.h"
+#include "big-polyhedra.h"
+#include "randutil.h"
+#include "timer.h"
 #include "yocto_matht.h"
 
 struct CompareVec3 {
@@ -66,10 +72,37 @@ static void TestSignedPerms() {
   }
 }
 
+// Even though it is not smart about redundant plane-side tests,
+// GetCodeSloppy is extremely fast... 108ns each.
+static void BenchGetCode() {
+  PatchInfo patch_info = LoadPatchInfo("scube-patchinfo.txt");
+  Boundaries boundaries(BigScube(24));
+  ArcFour rc("deterministic");
+
+  Timer timer;
+  static constexpr int ITERS = 10'000'000;
+  uint64_t out = 0xBEEF;
+  for (int i = 0; i < ITERS; i++) {
+    vec3 v;
+    std::tie(v.x, v.y, v.z) = RandomUnit3D(&rc);
+    uint64_t code = boundaries.GetCodeSloppy(v);
+    DoNotOptimize(code);
+    out += code;
+  }
+  double sec = timer.Seconds();
+
+  printf("Out: " ACYAN("%llx") "\n", out);
+  printf("Ran %d in %s (%s ea.)\n",
+         ITERS,
+         ANSI::Time(sec).c_str(),
+         ANSI::Time(sec / ITERS).c_str());
+}
+
 int main(int argc, char **argv) {
   ANSI::Init();
 
   TestSignedPerms();
+  BenchGetCode();
 
   printf("OK\n");
   return 0;

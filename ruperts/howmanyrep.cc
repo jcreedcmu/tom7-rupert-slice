@@ -162,18 +162,15 @@ struct HowManyRep {
       // better would be to use the inscribed/circumscribed
       // circles to set bounds on the translation.
 
-      // PERF unnecessary!
-      CHECK(SignedAreaOfConvexPoly(outer_poly) > 0.0);
-      CHECK(IsConvexAndScreenClockwise(outer_poly)) << PolyString(outer_poly);
-
-      CHECK(SignedAreaOfConvexPoly(inner_poly) > 0.0);
-      CHECK(IsConvexAndScreenClockwise(inner_poly)) << PolyString(inner_poly);
-
       PolyTester2D outer_tester(outer_poly);
       CHECK(outer_tester.IsInside(vec2{0, 0}));
 
-      // we rotate the inner polygon around zero by theta, and
+      // we rotate the inner polygon around the origin by theta, and
       // translate it by dx,dy.
+      //
+      // The loss function finds the maximum distance among the points
+      // that are outside the outer poly. Overall, we're trying to
+      // minimize that difference.
       auto Loss = [&outer_tester, &inner_poly](
           const std::array<double, 3> &args) {
           const auto &[theta, dx, dy] = args;
@@ -181,26 +178,26 @@ struct HowManyRep {
           iframe.o = {dx, dy};
 
           int outside = 0;
-          double min_sqdistance = 1.0e30;
+          double max_sqdistance = 0.0;
           for (const vec2 &v_in : inner_poly) {
-            vec2 v_out = transform_point(iframe, v_in);
+            vec2 pt = transform_point(iframe, v_in);
 
-            // Is the out point in the hull? If not,
+            // Is the transformed point in the hull? If not,
             // compute its distance.
 
             std::optional<double> osqdist =
-              outer_tester.SquaredDistanceOutside(v_out);
+              outer_tester.SquaredDistanceOutside(pt);
 
             if (osqdist.has_value()) {
               outside++;
-              min_sqdistance = std::min(min_sqdistance, osqdist.value());
+              max_sqdistance = std::max(max_sqdistance, osqdist.value());
             }
           }
 
-          double min_dist = sqrt(min_sqdistance);
+          double min_dist = sqrt(max_sqdistance);
 
           if (outside > 0 && min_dist == 0.0) [[unlikely]] {
-            return outside / 1.0e12;
+            return outside / 1.0e16;
           } else {
             return min_dist;
           }

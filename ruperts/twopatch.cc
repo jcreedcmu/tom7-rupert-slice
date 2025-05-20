@@ -45,18 +45,19 @@ DECLARE_COUNTERS(sols_done, pairs_done);
 // Plot them on both outer and inner patches.
 using namespace yocto;
 
-static constexpr int NUM_THREADS = 8;
+static constexpr int NUM_THREADS = 16;
 // static constexpr int NUM_THREADS = 1;
 
 static constexpr bool CLOUD = false;
 
+static constexpr bool SELF_CHECK = false;
+
 // See howmanyrep.cc to plot how this affects the error.
-// Putting aside the large relative error when we get within
-// discretization error of zero, we typically reach within
-// 1/2048 of the best error (of 200 attempts) after about 6
-// attempts. Then after about 38 attempts we're within 1/2048
-// of the best error achieved after 6 attempts.
-static constexpr int ATTEMPTS = 50;
+// With the corrected loss function, over 1 million samples:
+// After 23 reps we're within 1/2048 of the error found
+// (in 200 rounds). So with a margin of safety we should
+// be pretty confident in the optimization result.
+static constexpr int ATTEMPTS = 32;
 
 static constexpr int DIGITS = 24;
 
@@ -199,6 +200,8 @@ struct TwoPatch {
 
       Timer sample_timer;
       // Uniformly random view positions in each patch.
+      // PERF: This can be a lot smarter, but sample generation is
+      // a tiny fraction of the overall time.
       const vec3 outer_view =
         GetVec3InPatch(&rc, boundaries, outer_code, outer_mask);
       const vec3 inner_view =
@@ -222,17 +225,25 @@ struct TwoPatch {
       // circles to set bounds on the translation.
 
       // PERF unnecessary!
-      CHECK(SignedAreaOfConvexPoly(outer_poly) > 0.0);
-      CHECK(IsConvexAndScreenClockwise(outer_poly)) << PolyString(outer_poly);
+      if (SELF_CHECK) {
+        CHECK(SignedAreaOfConvexPoly(outer_poly) > 0.0);
+        CHECK(IsConvexAndScreenClockwise(outer_poly)) << PolyString(outer_poly);
 
-      CHECK(SignedAreaOfConvexPoly(inner_poly) > 0.0);
-      CHECK(IsConvexAndScreenClockwise(inner_poly)) << PolyString(inner_poly);
+        CHECK(SignedAreaOfConvexPoly(inner_poly) > 0.0);
+        CHECK(IsConvexAndScreenClockwise(inner_poly)) << PolyString(inner_poly);
+      }
 
       PolyTester2D outer_tester(outer_poly);
-      CHECK(outer_tester.IsInside(vec2{0, 0}));
+      if (SELF_CHECK) {
+        CHECK(outer_tester.IsInside(vec2{0, 0}));
+      }
 
-      // we rotate the inner polygon around zero by theta, and
+      // we rotate the inner polygon around the origin by theta, and
       // translate it by dx,dy.
+      //
+      // The loss function finds the maximum distance among the points
+      // that are outside the outer poly. Overall, we're trying to
+      // minimize that difference.
       auto Loss = [&outer_tester, &inner_poly](
           const std::array<double, 3> &args) {
           const auto &[theta, dx, dy] = args;
@@ -240,26 +251,26 @@ struct TwoPatch {
           iframe.o = {dx, dy};
 
           int outside = 0;
-          double min_sqdistance = 1.0e30;
+          double max_sqdistance = 0.0;
           for (const vec2 &v_in : inner_poly) {
-            vec2 v_out = transform_point(iframe, v_in);
+            vec2 pt = transform_point(iframe, v_in);
 
-            // Is the out point in the hull? If not,
+            // Is the transformed point in the hull? If not,
             // compute its distance.
 
             std::optional<double> osqdist =
-              outer_tester.SquaredDistanceOutside(v_out);
+              outer_tester.SquaredDistanceOutside(pt);
 
             if (osqdist.has_value()) {
               outside++;
-              min_sqdistance = std::min(min_sqdistance, osqdist.value());
+              max_sqdistance = std::max(max_sqdistance, osqdist.value());
             }
           }
 
-          double min_dist = sqrt(min_sqdistance);
+          double min_dist = sqrt(max_sqdistance);
 
           if (outside > 0 && min_dist == 0.0) [[unlikely]] {
-            return outside / 1.0e12;
+            return outside / 1.0e16;
           } else {
             return min_dist;
           }
@@ -434,7 +445,7 @@ static void UpdateStatus() {
   std::vector<std::pair<uint64_t, PatchInfo::CanonicalPatch>> cc =
     MapToSortedVec(patchinfo.canonical);
 
-  status.Printf("Radix: %d\n", cc.size());
+  status.Printf("Radix: %d\n", (int)cc.size());
 
   std::string matrix;
 
