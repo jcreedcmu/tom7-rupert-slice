@@ -146,6 +146,17 @@ Bounds::Scaler Bounds::ScaleToFit(double neww, double newh,
   return ret;
 }
 
+Bounds::Scaler Bounds::ScaleToFitWithMargin(
+    double screenw, double screenh,
+    double margin, bool centered) const {
+  double targetw = screenw - margin * 2;
+  double targeth = screenh - margin * 2;
+  // Scale into the reduced inner area.
+  Scaler scaler = ScaleToFit(targetw, targeth, centered);
+  // And translate so that the margin is on all sides.
+  return scaler.PanScreen(margin, margin);
+}
+
 Bounds::Scaler Bounds::Stretch(double neww, double newh) const {
   const double oldw = maxx - minx;
   const double oldh = maxy - miny;

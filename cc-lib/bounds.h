@@ -129,6 +129,9 @@ struct Bounds {
   // aspect ratio. If centered is set, center the data along the dimension
   // that is not filled.
   Scaler ScaleToFit(double w, double h, bool centered = true) const;
+  // As previous, but with a margin on all sides measured in screen space.
+  Scaler ScaleToFitWithMargin(double w, double h,
+                              double margin, bool centered = true) const;
   // Make the bounding box fit the screen, stretching as necessary.
   Scaler Stretch(double w, double h) const;
 

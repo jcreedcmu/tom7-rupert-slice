@@ -50,21 +50,28 @@ struct AutoHisto {
     CHECK(max_samples > 2);
   }
 
-  void Observe(double x) {
+  // Passing count > 1 is the ~same as calling Observe that many times
+  // with the same x, but is more efficient when the histogram is
+  // bucketed.
+  void Observe(double x, int64_t count = 1) {
     if (!std::isfinite(x))
       return;
 
-    total_samples++;
+    total_samples += count;
 
     if (static_cast<int64_t>(x) != x)
       integral = false;
 
     if (Bucketed()) {
-      AddBucketed(x, &data);
+      AddBucketed(x, count, &data);
     } else {
-      data.push_back(x);
-      if ((int64_t)data.size() >= max_samples) {
-        // Transition to bucketed mode.
+      if ((int64_t)data.size() + count < max_samples) {
+        for (int i = 0; i < count; i++) {
+          data.push_back(x);
+        }
+
+      } else {
+        // Transition to bucketed mode and add the samples after.
 
         // Sort data ascending so that it's easy to compute quantiles.
         std::sort(data.begin(), data.end());
@@ -84,16 +91,22 @@ struct AutoHisto {
         if (flag_max.has_value())
           max = std::max(max, flag_max.value());
 
-        // XXX do something when samples are degenerate.
-        CHECK(min < max);
+        CHECK(min <= max) << StringPrintf("%.17g - %.17g",
+                                          min, max);
 
         width = max - min;
+
+        // If the samples are degenerate, we can choose any
+        // bucket width. We use 1.0.
+        if (width <= 0.0) width = 1.0;
 
         num_buckets = max_samples;
 
         std::vector<double> bucketed(num_buckets, 0.0);
-        for (double d : data) AddBucketed(d, &bucketed);
+        for (double d : data) AddBucketed(d, 1, &bucketed);
         data = std::move(bucketed);
+
+        AddBucketed(x, count, &data);
       }
     }
   }
@@ -106,6 +119,24 @@ struct AutoHisto {
 
     flag_min = {std::min(flag_min.value(), f)};
     flag_max = {std::max(flag_max.value(), f)};
+  }
+
+  // Merge another histogram into this one. Note that when the data
+  // are already bucketed, aliasing artifacts are unavoidable.
+  void MergeOther(const AutoHisto &other) {
+    if (other.Bucketed()) {
+      for (int i = 0; i < other.data.size(); i++) {
+        if (other.data[i] > 0.0) {
+          // Treat it as being in the center of the bucket.
+          double x = other.min + other.width * (i + 0.5);
+          Observe(x, other.data[i]);
+        }
+      }
+    } else {
+      for (double d : other.data) {
+        Observe(d);
+      }
+    }
   }
 
   // Recommended to use a number of buckets that divides max_samples;
@@ -441,12 +472,12 @@ struct AutoHisto {
     h->buckets[bucket] += count;
   }
 
-  void AddBucketed(double x, std::vector<double> *v) {
+  void AddBucketed(double x, int64_t count, std::vector<double> *v) {
     double f = (x - min) / width;
     int64_t bucket = std::clamp((int64_t)(f * num_buckets),
                                 (int64_t)0,
                                 num_buckets - 1);
-    (*v)[bucket]++;
+    (*v)[bucket] += count;
   }
 
 
