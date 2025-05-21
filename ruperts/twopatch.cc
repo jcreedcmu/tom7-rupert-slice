@@ -45,10 +45,11 @@ DECLARE_COUNTERS(sols_done, pairs_done);
 // Plot them on both outer and inner patches.
 using namespace yocto;
 
-static constexpr int NUM_THREADS = 16;
-// static constexpr int NUM_THREADS = 1;
+static int NUM_THREADS = 16;
 
-static constexpr bool CLOUD = false;
+static bool CLOUD = false;
+
+static int LIMIT = 99999999;
 
 static constexpr bool SELF_CHECK = false;
 
@@ -551,6 +552,11 @@ static void RunWork(StatusBar *status, int start_outer, int start_inner) {
           fprintf(f, "done %d %d\n", outer, inner);
           fclose(f);
         }
+        LIMIT--;
+        if (LIMIT == 0) {
+          status->Print("Hit limit. Exit.\n");
+          return;
+        }
       }
     }
 
@@ -562,32 +568,54 @@ static void RunWork(StatusBar *status, int start_outer, int start_inner) {
 int main(int argc, char **argv) {
   ANSI::Init();
 
-  /*
-  CHECK(argc == 3) << "./twopatch.exe outer_code inner_code\n";
-  std::optional<uint64_t> outer_code = Util::ParseBinary(argv[1]);
-  std::optional<uint64_t> inner_code = Util::ParseBinary(argv[2]);
-  CHECK(outer_code.has_value() && inner_code.has_value());
-  TwoPatch two_patch(BigScube(DIGITS),
-                     outer_code.value(), inner_code.value());
-  two_patch.Plot();
-  */
+  std::vector<std::string> args;
+  for (int i = 1; i < argc; i++) {
+    if (0 == strcmp(argv[i], "--threads")) {
+      // consume arg
+      i++;
+      CHECK(i < argc);
+      int t = atoi(argv[i]);
+      CHECK(t > 0);
+      NUM_THREADS = i;
+    } else if (0 == strcmp(argv[i], "--cloud")) {
+      CLOUD = true;
+    } else if (0 == strcmp(argv[i], "--limit")) {
+      i++;
+      CHECK(i < argc);
+      int t = atoi(argv[i]);
+      CHECK(t > 0);
+      LIMIT = i;
+    } else {
+      args.push_back(argv[i]);
+    }
+  }
 
-  if (argc == 2 && 0 == strcmp(argv[1], "info")) {
+  printf("Args:");
+  for (const std::string &arg : args) {
+    printf(" [" AWHITE("%s") "]", arg.c_str());
+  }
+  printf("\n");
+
+  if (args.size() == 1 && args[0] == "info") {
     Info();
     return 0;
-  } else if (argc == 2 && 0 == strcmp(argv[1], "updatestatus")) {
+  } else if (args.size() == 1 && args[0] == "updatestatus") {
     UpdateStatus();
     return 0;
   }
 
   int start_outer = 0;
   int start_inner = 0;
-  if (argc >= 2) start_outer = atoi(argv[1]);
-  if (argc >= 3) start_inner = atoi(argv[2]);
+  if (args.size() > 0) start_outer = atoi(args[0].c_str());
+  if (args.size() > 1) start_inner = atoi(args[1].c_str());
 
   std::signal(SIGTERM, HandleSigTerm);
 
   StatusBar status = StatusBar(4);
+  status.Print("With " AYELLOW("{}") " threads, run " ACYAN("{}")
+               " " ACYAN("{}") APURPLE("+") "(limit " ABLUE("{}") ")",
+               CLOUD ? AWHITE("☁️") " " : "",
+               NUM_THREADS, start_outer, start_inner, LIMIT);
   RunWork(&status, start_outer, start_inner);
 
   // done:
