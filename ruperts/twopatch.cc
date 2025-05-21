@@ -576,7 +576,7 @@ int main(int argc, char **argv) {
       CHECK(i < argc);
       int t = atoi(argv[i]);
       CHECK(t > 0);
-      NUM_THREADS = i;
+      NUM_THREADS = t;
     } else if (0 == strcmp(argv[i], "--cloud")) {
       CLOUD = true;
     } else if (0 == strcmp(argv[i], "--limit")) {
@@ -584,7 +584,7 @@ int main(int argc, char **argv) {
       CHECK(i < argc);
       int t = atoi(argv[i]);
       CHECK(t > 0);
-      LIMIT = i;
+      LIMIT = t;
     } else {
       args.push_back(argv[i]);
     }
