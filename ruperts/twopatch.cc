@@ -612,8 +612,8 @@ int main(int argc, char **argv) {
   std::signal(SIGTERM, HandleSigTerm);
 
   StatusBar status = StatusBar(4);
-  status.Print("With " AYELLOW("{}") " threads, run " ACYAN("{}")
-               " " ACYAN("{}") APURPLE("+") "(limit " ABLUE("{}") ")",
+  status.Print("{}With " AYELLOW("{}") " threads, run " ACYAN("{}")
+               " " ACYAN("{}") APURPLE("+") " (limit " ABLUE("{}") ")",
                CLOUD ? AWHITE("☁️") " " : "",
                NUM_THREADS, start_outer, start_inner, LIMIT);
   RunWork(&status, start_outer, start_inner);
