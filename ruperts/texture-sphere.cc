@@ -12,10 +12,12 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <semaphore>
 
 #include "ansi.h"
 #include "arcfour.h"
@@ -74,11 +76,20 @@ struct SphereMap {
   virtual ~SphereMap() {}
 };
 
+// Global status.
+static StatusBar status(1);
+
+// Mainly to prevent exceeding system memory, since we also
+// store a temporary copy of the data while processing it
+// into the nd-tree.
+static std::counting_semaphore load_semaphore(8);
+
 // Lazy scoremap using canonical patches.
 struct ScoreMap {
   using Tree = TreeND<double, double>;
 
-  // PERF: Can do more fine-grained locking!
+  // Locks just the tree map. The trees may not be mutated once they
+  // are loaded.
   std::mutex m;
 
   ScoreMap(PatchInfo patch_info) :
@@ -104,12 +115,20 @@ struct ScoreMap {
     m.lock();
     auto it = trees.find(canon_code);
     if (it == trees.end()) {
+      // Load, but not holding the lock. We mark that we
+      // are loading by putting a nullptr in the tree.
+      trees[canon_code].reset(nullptr);
+      const int task_num = (int)trees.size();
+      m.unlock();
+
+      Timer load_wait;
+      load_semaphore.acquire();
       Timer timer;
-      printf("#%d Load " ACYAN("%llx") " (for %s)\n",
-             (int)trees.size(),
-             canon_code, VecString(canon_v).c_str());
+      status.Print("#{} (waited {}) Load " ACYAN("{:x}") " (for {})\n",
+                   task_num,
+                   ANSI::Time(load_wait.Seconds()),
+                   canon_code, VecString(canon_v));
       tree = new Tree(3);
-      trees[canon_code].reset(tree);
 
       // Insert all of the files in that patch.
       int64_t entries = 0;
@@ -134,7 +153,7 @@ struct ScoreMap {
         }
       }
 
-      printf("Init batch size (%lld):\n", (int64_t)batch.size());
+      status.Print("Init batch size " AWHITE("{}") ":\n", (int64_t)batch.size());
       // ugh...
       std::vector<std::pair<std::span<const double>, double>> batch_arg;
       batch_arg.reserve(batch.size());
@@ -143,14 +162,41 @@ struct ScoreMap {
       }
       tree->InitBatch(std::move(batch_arg));
 
-      printf("Loaded new tree (%lld entries) in %s.\n",
-             entries,
-             ANSI::Time(timer.Seconds()).c_str());
+      // Free memory before releasing semaphore.
+      shards.clear();
+      load_semaphore.release();
+
+      m.lock();
+      auto &up = trees[canon_code];
+      CHECK(up.get() == nullptr) << "Someone else initialized?";
+      up.reset(tree);
       m.unlock();
 
+      status.Print("Loaded new tree ({} entries) in {}.\n",
+                   entries,
+                   ANSI::Time(timer.Seconds()));
+
     } else {
-      m.unlock();
-      tree = it->second.get();
+      auto &up = it->second;
+
+      for (;;) {
+        if (up.get() != nullptr) {
+          tree = up.get();
+          m.unlock();
+          break;
+        }
+
+        // Otherwise, someone else is loading it. Let them.
+        m.unlock();
+
+        // PERF: Could use condition variable here, but this
+        // is only happening during load time and a 100ms delay
+        // is trivial in comparison.
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(100ms);
+
+        m.lock();
+      }
     }
 
     CHECK(tree != nullptr);
@@ -170,9 +216,11 @@ struct ScoreMap {
 struct TwoPatchOuterSphereMap : public SphereMap {
   // Precomputed, since we don't want to have to load all shards
   // just to get the bounds.
+  /*
   static constexpr double min_score = 4.3511678576336583e-15;
   static constexpr double max_score = 4.8285280901252183e-08;
   static constexpr double bound_span = max_score - min_score;
+  */
 
   std::vector<double> quantiles;
 
@@ -204,8 +252,8 @@ struct TwoPatchOuterSphereMap : public SphereMap {
   uint32_t GetRGBA(const vec3 &v) override {
     double s = ScoreToRank(score_map.ClosestScore(v));
     // XXX ad hoc
-    s = std::clamp(s, 0.0, 1.0);
-    s = std::clamp(s * s, 0.0, 1.0);
+    // s = std::clamp(s, 0.0, 1.0);
+    // s = std::clamp(s * s, 0.0, 1.0);
     return ColorScore(s);
   }
 
@@ -441,7 +489,7 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
             return;
           }
 
-          // Assuming a = FF.
+          // Assuming a = 0xFF.
           uint32_t r = 0;
           uint32_t g = 0;
           uint32_t b = 0;
@@ -495,21 +543,21 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
         },
         8);
   } else {
-    printf("Empty triangle? %d %d to %d %d\n"
-           "pxa: %s\n"
-           "pxb: %s\n"
-           "pxc: %s\n"
-           "ta: %s\n"
-           "tb: %s\n"
-           "tc: %s\n",
-           start_x, start_y,
-           end_x, end_y,
-           VecString(pxa).c_str(),
-           VecString(pxb).c_str(),
-           VecString(pxc).c_str(),
-           VecString(ta).c_str(),
-           VecString(tb).c_str(),
-           VecString(tc).c_str());
+    status.Printf(ARED("Empty triangle?") " %d %d to %d %d\n"
+                  "pxa: %s\n"
+                  "pxb: %s\n"
+                  "pxc: %s\n"
+                  "ta: %s\n"
+                  "tb: %s\n"
+                  "tc: %s\n",
+                  start_x, start_y,
+                  end_x, end_y,
+                  VecString(pxa).c_str(),
+                  VecString(pxb).c_str(),
+                  VecString(pxc).c_str(),
+                  VecString(ta).c_str(),
+                  VecString(tb).c_str(),
+                  VecString(tc).c_str());
   }
 
   return TexturedTriangle{
@@ -529,10 +577,9 @@ static TexturedMesh TextureSphere(SphereMap *sphere_map) {
   // ret.mesh = ApproximateSphere(2);
   ret.mesh = PolyToTriangularMesh(SnubCube());
 
-  StatusBar status(1);
   Periodically status_per(1.0);
-  status.Statusf("Texturing %lld triangles.",
-                 ret.mesh.triangles.size());
+  status.Status("Texturing {} triangles...",
+                ret.mesh.triangles.size());
 
   for (int triangle_idx = 0; triangle_idx < ret.mesh.triangles.size();
        triangle_idx++) {
@@ -555,7 +602,7 @@ static TexturedMesh TextureSphere(SphereMap *sphere_map) {
     status_per.RunIf([&]() {
         status.Print("Finished triangle {} in {}",
                      triangle_idx, ANSI::Time(timer.Seconds()));
-        status.Progress(triangle_idx,
+        status.Progress(triangle_idx + 1,
                         ret.mesh.triangles.size(),
                         "Texturing.");
       });
