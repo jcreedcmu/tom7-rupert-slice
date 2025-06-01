@@ -1,16 +1,19 @@
 
+// One-off animations, unrelated to solving.
+// For the rotating shapes, see tomov.cc.
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <format>
 #include <numbers>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "ansi.h"
 #include "arcfour.h"
-#include "base/stringprintf.h"
 #include "image.h"
 #include "mov-recorder.h"
 #include "periodically.h"
@@ -29,48 +32,15 @@ using quat4 = yocto::quat<double, 4>;
 using frame3 = yocto::frame<double, 3>;
 
 [[maybe_unused]]
-static void AnimateMesh(const Polyhedron &poly) {
-  ArcFour rc("animate");
-  quat4 initial_rot = RandomQuaternion(&rc);
-
-  constexpr int SIZE = 1080;
-  constexpr int FRAMES = 10 * 60;
-  MovRecorder rec(std::format("animate-{}.mov", poly.name), SIZE, SIZE);
-
-  StatusBar status(2);
-  Periodically status_per(1.0);
-  for (int i = 0; i < FRAMES; i++) {
-    if (status_per.ShouldRun()) {
-      status.Progressf(i, FRAMES, "rotate");
-    }
-
-    double t = i / (double)FRAMES;
-    double angle = t * 2.0 * std::numbers::pi;
-
-    // rotation quat actually returns vec4; isomorphic to quat4.
-    quat4 frame_rot =
-      QuatFromVec(yocto::rotation_quat<double>({0.0, 1.0, 0.0}, angle));
-
-    quat4 final_rot = normalize(initial_rot * frame_rot);
-    Polyhedron rpoly = Rotate(poly, yocto::rotation_frame(final_rot));
-
-    Rendering rendering(poly, SIZE, SIZE);
-    Mesh2D mesh = Shadow(rpoly);
-    rendering.RenderMesh(mesh);
-    rec.AddFrame(std::move(rendering.img));
-  }
-}
-
-[[maybe_unused]]
-static void AnimateHull() {
+static void AnimateHull(std::string_view filename) {
   ArcFour rc("animate");
 
-  constexpr int WIDTH = 1920;
-  constexpr int HEIGHT = 1080;
+  constexpr int WIDTH = 3840;
+  constexpr int HEIGHT = 2160;
   constexpr int SIZE = HEIGHT;
-  constexpr int FRAMES = 10 * 60;
+  constexpr int FRAMES = 20 * 60;
   constexpr int POINTS = 100;
-  MovRecorder rec("animate-hull.mov", WIDTH, HEIGHT);
+  MovRecorder rec(filename, WIDTH, HEIGHT);
 
   std::vector<vec2> points;
   std::vector<vec2> vels;
@@ -84,8 +54,8 @@ static void AnimateHull() {
     points.emplace_back(vec2{x, y});
     vels.emplace_back(
         vec2{
-          .x = RandDouble(&rc) * 8.0 - 4.0,
-          .y = RandDouble(&rc) * 8.0 - 4.0,
+          .x = RandDouble(&rc) * 16.0 - 8.0,
+          .y = RandDouble(&rc) * 16.0 - 8.0,
         });
   }
 
@@ -102,10 +72,10 @@ static void AnimateHull() {
     img.Clear32(0x000000FF);
 
     for (int i = 0; i < (int)points.size(); i++) {
-      img.BlendFilledCircle32(points[i].x, points[i].y, 6.0f,
+      img.BlendFilledCircle32(points[i].x, points[i].y, 16.0f,
                               (Rendering::Color(i) & 0xFFFFFFAA) |
                               0x33333300);
-      img.BlendCircle32(points[i].x, points[i].y, 6.0f, 0xFFFFFF44);
+      // img.BlendThickCircle32(points[i].x, points[i].y, 14.0f, 4.0f, 0xFFFFFF44);
     }
 
     Timer timer1;
@@ -123,11 +93,11 @@ static void AnimateHull() {
           const vec2 &a = points[hull[i]];
           const vec2 &b = points[hull[(i + 1) % hull.size()]];
 
-          img.BlendThickLine32(a.x, a.y, b.x, b.y, 2.0f, color);
+          img.BlendThickLine32(a.x, a.y, b.x, b.y, 6.0f, color);
         }
       };
 
-    DrawHull(hull1, 0xFFFFFF33);
+    DrawHull(hull1, 0xFFFFFFAA);
     // DrawHull(hull2, 0x00FFFF33);
 
     // img.Save(StringPrintf("hull%d.png", i));
@@ -145,13 +115,13 @@ static void AnimateHull() {
         vels[i].y = -vels[i].y;
       }
 
-      if (points[i].x > SIZE) {
-        points[i].x = SIZE;
+      if (points[i].x > WIDTH) {
+        points[i].x = WIDTH;
         vels[i].x = -vels[i].x;
       }
 
-      if (points[i].y > SIZE) {
-        points[i].y = SIZE;
+      if (points[i].y > HEIGHT) {
+        points[i].y = HEIGHT;
         vels[i].y = -vels[i].y;
       }
     }
@@ -214,12 +184,8 @@ int main(int argc, char **argv) {
 
   Polyhedron target = DeltoidalHexecontahedron();
 
-  // These generate visualizations of the polyhedron;
-  // they are unrelated to solving.
-
-  // AnimateHull();
-  Visualize(target);
-  AnimateMesh(target);
+  AnimateHull("animate-hull-bouncing.mov");
+  // Visualize(target);
 
   return 0;
 }

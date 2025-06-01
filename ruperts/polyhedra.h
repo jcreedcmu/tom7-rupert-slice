@@ -236,6 +236,11 @@ inline Polyhedron Rotate(const Polyhedron &p, const quat4 &quat) {
   return Rotate(p, yocto::rotation_frame(quat));
 }
 
+
+// Reflect the polyhedron across the XY plane.
+// Shares faces with the argument (but they will be inside-out).
+Polyhedron ReflectXY(const Polyhedron &p);
+
 inline Mesh2D Translate(const Mesh2D &m, const vec2 &t) {
   Mesh2D ret = m;
   for (vec2 &v : ret.vertices) {
@@ -495,6 +500,12 @@ double TriangleSignedDistance(vec2 p0, vec2 p1, vec2 p2, vec2 p);
 double LossFunctionContainsOrigin(const Polyhedron &poly,
                                   const frame3 &outer_frame,
                                   const frame3 &inner_frame);
+
+// As previous, but with two potentially different polyhedra.
+double HeteroLossFunctionContainsOrigin(const Polyhedron &outer_poly,
+                                        const Polyhedron &inner_poly,
+                                        const frame3 &outer_frame,
+                                        const frame3 &inner_frame);
 
 // Same, but does not assume the outer polyhedron contains the origin.
 double LossFunction(const Polyhedron &poly,

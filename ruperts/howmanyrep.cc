@@ -4,7 +4,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -16,21 +15,17 @@
 #include <string>
 #include <string_view>
 #include <thread>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "ansi.h"
 #include "arcfour.h"
 #include "atomic-util.h"
-#include "auto-histo.h"
 #include "base/stringprintf.h"
 #include "big-polyhedra.h"
 #include "bounds.h"
-#include "hashing.h"
 #include "image.h"
 #include "map-util.h"
-#include "nd-solutions.h"
 #include "opt/opt.h"
 #include "patches.h"
 #include "periodically.h"
@@ -39,7 +34,6 @@
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
-#include "util.h"
 #include "yocto_matht.h"
 
 DECLARE_COUNTERS(rounds_done);
@@ -53,11 +47,13 @@ static constexpr int NUM_THREADS = 8;
 
 static constexpr int DIGITS = 24;
 
+[[maybe_unused]]
 static constexpr int TARGET_SAMPLES = 1'000'000;
 
 // XXX Specific to snub cube.
 [[maybe_unused]]
 static constexpr int TOTAL_PATCHES = 36;
+[[maybe_unused]]
 static constexpr int TOTAL_PAIRS = TOTAL_PATCHES * TOTAL_PATCHES;
 
 static constexpr std::string_view PATCH_INFO_FILE =

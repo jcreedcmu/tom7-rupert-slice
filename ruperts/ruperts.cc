@@ -147,7 +147,7 @@ struct Solver {
     rendering.RenderBadPoints(sinner, souter);
     rendering.img.Save(filename);
 
-    status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+    status->Print("Wrote " AGREEN("{}") "\n", filename.c_str());
   }
 
   void Solved(const frame3 &outer_frame, const frame3 &inner_frame) {
@@ -158,29 +158,29 @@ struct Solver {
       return;
     should_die = true;
 
-    status->Printf("Solved! %lld iters, %lld attempts, in %s\n", iters.Read(),
-                   attempts.Read(), ANSI::Time(run_timer.Seconds()).c_str());
+    status->Print("Solved! {} iters, {} attempts, in {}\n", iters.Read(),
+                  attempts.Read(), ANSI::Time(run_timer.Seconds()));
 
     WriteImage(std::format("solved-{}-{}.png", LowerMethod(),
                            polyhedron.name),
                outer_frame, inner_frame);
 
     std::string contents =
-      StringPrintf("outer:\n%s\n"
-                   "inner:\n%s\n",
-                   FrameString(outer_frame).c_str(),
-                   FrameString(inner_frame).c_str());
+      std::format("outer:\n{}\n"
+                  "inner:\n{}\n",
+                  FrameString(outer_frame),
+                  FrameString(inner_frame));
 
-    StringAppendF(&contents,
-                  "\n%s\n",
-                  error_histo.SimpleAsciiString(50).c_str());
+    AppendFormat(&contents,
+                 "\n{}\n",
+                 error_histo.SimpleAsciiString(50));
 
     std::string sfile = std::format("solution-{}-{}.txt",
                                      LowerMethod(),
                                      polyhedron.name);
 
     Util::WriteFile(sfile, contents);
-    status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
+    status->Print("Wrote " AGREEN("{}") "\n", sfile.c_str());
 
     SaveSolution(polyhedron, outer_frame, inner_frame, METHOD);
   }
@@ -207,10 +207,10 @@ struct Solver {
                             attempts.Read());
               iters.Reset();
               attempts.Reset();
-              status->Printf(
-                  "[" AWHITE("%s") "] Time limit exceeded after %s\n",
+              status->Print(
+                  "[" AWHITE("{}") "] Time limit exceeded after {}\n",
                   SolutionDB::MethodName(METHOD),
-                  ANSI::Time(run_timer.Seconds()).c_str());
+                  ANSI::Time(run_timer.Seconds()));
               return;
             }
           }
@@ -233,7 +233,7 @@ struct Solver {
                 // PERF: Maybe only write this at the end when
                 // there is a time limit?
                 std::string file_base =
-                  std::format("best-{}-{}.%lld",
+                  std::format("best-{}-{}.{}",
                                LowerMethod(),
                                polyhedron.name, iters.Read());
                 WriteImage(file_base + ".png", outer_frame, inner_frame);
@@ -257,15 +257,15 @@ struct Solver {
                       total_time);
 
                 // TODO: Can use progress bar when there's a timer.
-                status->Statusf(
-                    "%s\n"
-                    "%s\n"
-                    "%s iters, %s attempts; best: %.11g"
-                    " [" ACYAN("%.3f") "/s]\n",
-                    error_histo.SimpleANSI(HISTO_LINES).c_str(),
-                    bar.c_str(),
-                    FormatNum(it).c_str(),
-                    FormatNum(attempts.Read()).c_str(),
+                status->Status(
+                    "{}\n"
+                    "{}\n"
+                    "{} iters, {} attempts; best: {:.11g}"
+                    " [" ACYAN("{:.3f}") "/s]\n",
+                    error_histo.SimpleANSI(HISTO_LINES),
+                    bar,
+                    FormatNum(it),
+                    FormatNum(attempts.Read()),
                     best_error, ips);
               });
           }
@@ -1012,9 +1012,9 @@ static void SolveAlmostId(const Polyhedron &polyhedron, StatusBar *status,
 
 static void SolveWith(const Polyhedron &poly, int method, StatusBar *status,
                       std::optional<double> time_limit) {
-  status->Printf("Solve " AYELLOW("%s") " with " AWHITE("%s") "...\n",
-                 poly.name.c_str(),
-                 SolutionDB::MethodName(method));
+  status->Print("Solve " AYELLOW("{}") " with " AWHITE("{}") "...\n",
+                poly.name.c_str(),
+                SolutionDB::MethodName(method));
 
   switch (method) {
   case SolutionDB::METHOD_HULL:
@@ -1059,9 +1059,9 @@ static void ReproduceEasySolutions(
 
   auto MaybeSolve = [&](Polyhedron poly) {
       if (HasSolutionWithMethod(poly)) {
-        status.Printf(
-            "Already solved " AYELLOW("%s") " with " AWHITE("%s") "\n",
-            poly.name.c_str(), SolutionDB::MethodName(method));
+        status.Print(
+            "Already solved " AYELLOW("{}") " with " AWHITE("{}") "\n",
+            poly.name, SolutionDB::MethodName(method));
       } else {
         SolveWith(poly, method, &status, time_limit);
       }
@@ -1194,9 +1194,9 @@ static void GrindNoperts() {
 
     static constexpr int method = SolutionDB::METHOD_SIMUL;
     StatusBar status(STATUS_LINES);
-    status.Printf("Try solving nopert #" APURPLE("%d") " with "
-                  ABLUE("%d") " vertices...\n",
-                  nopert.id, (int)nopert.vertices.size());
+    status.Print("Try solving nopert #" APURPLE("{}") " with "
+                 ABLUE("{}") " vertices...\n",
+                 nopert.id, (int)nopert.vertices.size());
     SolveWith(opoly.value(), method, &status, 3600.0);
 
     delete opoly.value().faces;
@@ -1288,7 +1288,7 @@ static void GrindRandom(const std::unordered_set<std::string> &poly_filter) {
     };
 
   StatusBar status(STATUS_LINES);
-  ArcFour rc(StringPrintf("grind.%lld", time(nullptr)));
+  ArcFour rc(std::format("grind.{}", time(nullptr)));
   Periodically database_per(10.0 * 60.0);
   std::vector<std::pair<const Polyhedron *, int>> remaining;
   for (;;) {

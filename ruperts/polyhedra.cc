@@ -121,14 +121,14 @@ static double consteval Cbrt(double x) {
 }
 
 std::string VecString(const vec3 &v) {
-  return StringPrintf(
-      "(" ARED("%.4f") "," AGREEN("%.4f") "," ABLUE("%.4f") ")",
+  return std::format(
+      "(" ARED("{:.4f}") "," AGREEN("{:.4f}") "," ABLUE("{:.4f}") ")",
       v.x, v.y, v.z);
 }
 
 std::string VecString(const vec2 &v) {
-  return StringPrintf(
-      "(" ARED("%.4f") "," AGREEN("%.4f") ")",
+  return std::format(
+      "(" ARED("{:.4f}") "," AGREEN("{:.4f}") ")",
       v.x, v.y);
 }
 
@@ -139,20 +139,20 @@ std::string Points2DString(const std::vector<vec2> &v) {
 }
 
 std::string QuatString(const quat4 &q) {
-  return StringPrintf(
-      "quat4{.x = %.17g,\n"
-      "      .y = %.17g,\n"
-      "      .z = %.17g,\n"
-      "      .w = %.17g}",
+  return std::format(
+      "quat4{{.x = {:.17g},\n"
+      "      .y = {:.17g},\n"
+      "      .z = {:.17g},\n"
+      "      .w = {:.17g}}}",
       q.x, q.y, q.z, q.w);
 }
 
 std::string FrameString(const frame3 &f) {
-  return StringPrintf(
-      "frame3{.x = vec3(%.17g, %.17g, %.17g),\n"
-      "       .y = vec3(%.17g, %.17g, %.17g),\n"
-      "       .z = vec3(%.17g, %.17g, %.17g),\n"
-      "       .o = vec3(%.17g, %.17g, %.17g)}",
+  return std::format(
+      "frame3{{.x = vec3({:.17g}, {:.17g}, {:.17g}),\n"
+      "       .y = vec3({:.17g}, {:.17g}, {:.17g}),\n"
+      "       .z = vec3({:.17g}, {:.17g}, {:.17g}),\n"
+      "       .o = vec3({:.17g}, {:.17g}, {:.17g})}}",
       f.x.x, f.x.y, f.x.z,
       f.y.x, f.y.y, f.y.z,
       f.z.x, f.z.y, f.z.z,
@@ -163,16 +163,16 @@ std::string FormatNum(uint64_t n) {
   if (n > 1'000'000) {
     double m = n / 1'000'000.0;
     if (m >= 1'000'000.0) {
-      return StringPrintf("%.1fT", m / 1'000'000.0);
+      return std::format("{:.1f}T", m / 1'000'000.0);
     } else if (m >= 1000.0) {
-      return StringPrintf("%.1fB", m / 1000.0);
+      return std::format("{:.1f}B", m / 1000.0);
     } else if (m >= 100.0) {
-      return StringPrintf("%dM", (int)std::round(m));
+      return std::format("{}M", (int)std::round(m));
     } else if (m > 10.0) {
-      return StringPrintf("%.1fM", m);
+      return std::format("{:.1f}M", m);
     } else {
       // TODO: Integer division. color decimal place and suffix.
-      return StringPrintf("%.2fM", m);
+      return std::format("{:.2f}M", m);
     }
   } else {
     return Util::UnsignedWithCommas(n);
@@ -299,6 +299,14 @@ Faces::Faces(int num_vertices, std::vector<std::vector<int>> v_in) {
   CHECK(Init(num_vertices, std::move(v_in))) << num_vertices;
 }
 
+
+Polyhedron ReflectXY(const Polyhedron &p) {
+  Polyhedron ret = p;
+  for (vec3 &v : ret.vertices) {
+    v.z = -v.z;
+  }
+  return ret;
+}
 
 // Return the closest point (to x,y) on the given line segment.
 // It may be one of the endpoints.
@@ -649,9 +657,9 @@ std::vector<int> GiftWrapConvexHull(const std::vector<vec2> &vertices) {
   CHECK(vertices.size() > 2);
 
   auto ColorIndex = [](int i) {
-      return StringPrintf(
-          "%s%d" ANSI_RESET,
-          ANSI::ForegroundRGB32(Rendering::Color(i)).c_str(),
+      return std::format(
+          "{}{}" ANSI_RESET,
+          ANSI::ForegroundRGB32(Rendering::Color(i)),
           i);
     };
 
@@ -1360,11 +1368,12 @@ std::pair<int, int> TwoNonParallelFaces(ArcFour *rc, const Polyhedron &poly) {
 // a better choice for large numbers of vertices, and computing
 // the hull/hullcircle is probably pointless for something like
 // the tetrahedron).
-double LossFunctionContainsOrigin(const Polyhedron &poly,
-                                  const frame3 &outer_frame,
-                                  const frame3 &inner_frame) {
-  Mesh2D souter = Shadow(Rotate(poly, outer_frame));
-  Mesh2D sinner = Shadow(Rotate(poly, inner_frame));
+double HeteroLossFunctionContainsOrigin(const Polyhedron &outer_poly,
+                                        const Polyhedron &inner_poly,
+                                        const frame3 &outer_frame,
+                                        const frame3 &inner_frame) {
+  Mesh2D souter = Shadow(Rotate(outer_poly, outer_frame));
+  Mesh2D sinner = Shadow(Rotate(inner_poly, inner_frame));
 
   // Although computing the convex hull is expensive, the tests
   // below are O(n*m), so it is helpful to significantly reduce
@@ -1399,6 +1408,13 @@ double LossFunctionContainsOrigin(const Polyhedron &poly,
   } else {
     return error;
   }
+}
+
+double LossFunctionContainsOrigin(const Polyhedron &poly,
+                                  const frame3 &outer_frame,
+                                  const frame3 &inner_frame) {
+  return HeteroLossFunctionContainsOrigin(poly, poly,
+                                          outer_frame, inner_frame);
 }
 
 double LossFunction(const Polyhedron &poly,
@@ -1587,14 +1603,14 @@ void DebugPointCloudAsSTL(const std::vector<vec3> &vertices,
 
       vec3 normal = yocto::normalize(yocto::cross(p1 - p0, p2 - p0));
 
-      StringAppendF(&contents, "  facet normal %f %f %f\n", normal.x, normal.y,
-                    normal.z);
-      StringAppendF(&contents, "    outer loop\n");
-      StringAppendF(&contents, "      vertex %f %f %f\n", p0.x, p0.y, p0.z);
-      StringAppendF(&contents, "      vertex %f %f %f\n", p1.x, p1.y, p1.z);
-      StringAppendF(&contents, "      vertex %f %f %f\n", p2.x, p2.y, p2.z);
-      StringAppendF(&contents, "    endloop\n");
-      StringAppendF(&contents, "  endfacet\n");
+      AppendFormat(&contents, "  facet normal {:f} {:f} {:f}\n", normal.x, normal.y,
+                   normal.z);
+      AppendFormat(&contents, "    outer loop\n");
+      AppendFormat(&contents, "      vertex {:f} {:f} {:f}\n", p0.x, p0.y, p0.z);
+      AppendFormat(&contents, "      vertex {:f} {:f} {:f}\n", p1.x, p1.y, p1.z);
+      AppendFormat(&contents, "      vertex {:f} {:f} {:f}\n", p2.x, p2.y, p2.z);
+      AppendFormat(&contents, "    endloop\n");
+      AppendFormat(&contents, "  endfacet\n");
     }
   }
 

@@ -1,5 +1,4 @@
 
-#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -8,7 +7,6 @@
 #include <ctime>
 #include <format>
 #include <functional>
-#include <limits>
 #include <mutex>
 #include <numbers>
 #include <optional>
@@ -21,8 +19,6 @@
 #include "arcfour.h"
 #include "atomic-util.h"
 #include "base/stringprintf.h"
-#include "bounds.h"
-#include "image.h"
 #include "nd-solutions.h"
 #include "opt/opt.h"
 #include "periodically.h"
@@ -38,6 +34,9 @@
 DECLARE_COUNTERS(solve_attempts, improve_attempts, hard, noperts, prisms,
                  already);
 
+// If true, look at antimanholecovers / antichurros instead.
+static constexpr bool ANTIPRISM = true;
+
 static StatusBar *status = nullptr;
 
 using vec2 = yocto::vec<double, 2>;
@@ -50,7 +49,9 @@ using frame3 = yocto::frame<double, 3>;
 // Return the number of iterations taken, or nullopt if we exceeded
 // the limit. If solved and the arguments are non-null, sets the outer
 // frame and inner frame to some solution.
-static constexpr int NOPERT_ITERS = 200000;
+// static constexpr int NOPERT_ITERS = 200000;
+// We get too many noperts at n=34 with the above
+static constexpr int NOPERT_ITERS = 2000000;
 static constexpr int MIN_VERBOSE_ITERS = 5000;
 static constexpr bool SAVE_HARD = false;
 static std::optional<int> DoSolve(int thread_idx,
@@ -64,9 +65,9 @@ static std::optional<int> DoSolve(int thread_idx,
   for (int iter = 0; iter < NOPERT_ITERS; iter++) {
 
     if (iter > 0 && (iter % 5000) == 0) {
-      status->Printf("[" APURPLE("%d") "] %d-prism (depth %.11g) "
+      status->Print("[" APURPLE("{}") "] {}-prism (depth {:.11g}) "
                      AFGCOLOR(190, 220, 190, "not solved")
-                     " yet; " AWHITE("%d") " iters...\n",
+                     " yet; " AWHITE("{}") " iters...\n",
                      thread_idx, num_points, depth, iter);
 
       if (iter == 20000) {
@@ -75,11 +76,11 @@ static std::optional<int> DoSolve(int thread_idx,
           std::string filename = std::format("hard.{}.{}.stl",
                                              time(nullptr), thread_idx);
           SaveAsSTL(poly, filename);
-          status->Printf("[" APURPLE("%d") "] Hard %d-point polyhedron saved "
-                         "to " AGREEN("%s") " (%d-prism, depth %.11g)\n",
-                         thread_idx, (int)poly.vertices.size(),
-                         filename.c_str(),
-                         num_points, depth);
+          status->Print("[" APURPLE("{}") "] Hard {}-point polyhedron saved "
+                        "to " AGREEN("{}") " ({}-prism, depth {:.11g})\n",
+                        thread_idx, (int)poly.vertices.size(),
+                        filename.c_str(),
+                        num_points, depth);
         }
       }
     }
@@ -285,11 +286,11 @@ DoImprove(int thread_idx,
   return std::make_tuple(best_outer, best_inner, best_clearance);
 }
 
+// TODO: To polyhedra.h?
 
 static Polyhedron NPrism(int64_t num_points, double depth) {
   CHECK(num_points >= 3);
   Polyhedron poly;
-  // We put the top face at d/2, and the obverse -d/2.
 
   std::vector<int> top_face, bot_face;
   for (int i = 0; i < num_points; i++) {
@@ -322,13 +323,73 @@ static Polyhedron NPrism(int64_t num_points, double depth) {
   return poly;
 }
 
+// Like NPrism, but an anti-prism has triangular sides, and the
+// bottom and top faces have their vertices interleaved.
+static Polyhedron NAntiPrism(int64_t num_points, double depth) {
+  CHECK(num_points >= 3);
+  Polyhedron poly;
+
+  // Angle subtended by adjacent vertices on a face.
+  const double step = 2.0 * std::numbers::pi / num_points;
+
+  // indices into poly's vertices.
+  std::vector<int> top_verts, bot_verts;
+  for (int i = 0; i < num_points; ++i) {
+    // Bottom
+    {
+      const double angle = i * step;
+      double xb = std::cos(angle);
+      double yb = std::sin(angle);
+      int idx = poly.vertices.size();
+      poly.vertices.push_back(vec3{xb, yb, depth * -0.5});
+      bot_verts.push_back(idx);
+    }
+
+    // Top
+    {
+      const double angle = (i + 0.5) * step;
+      double xt = std::cos(angle);
+      double yt = std::sin(angle);
+      int idx = poly.vertices.size();
+      poly.vertices.push_back(vec3{xt, yt, depth * 0.5});
+      top_verts.push_back(idx);
+    }
+  }
+
+  // Top and bottom faces.
+  std::vector<std::vector<int>> fs = {top_verts, bot_verts};
+
+  // Add the triangular side faces. For each point we add two,
+  // like a triangulated quad.
+  for (int i = 0; i < num_points; ++i) {
+    int next_i = (i + 1) % num_points;
+
+    // Current segment vertices
+    int b0 = bot_verts[i];
+    int t0 = top_verts[i];
+
+    // Next segment vertices
+    int b1 = bot_verts[next_i];
+    int t1 = top_verts[next_i];
+
+    fs.push_back({b0, t0, b1});
+    fs.push_back({t0, t1, b1});
+  }
+
+  poly.faces = new Faces(num_points * 2, std::move(fs));
+  poly.name = "antiprism";
+
+  return poly;
+}
+
 // num_points is the number on each side.
 std::optional<std::tuple<frame3, frame3, double>> ComputeMinimumClearance(
     int thread_idx,
     ArcFour *rc,
     int64_t num_points, double depth,
     int num_improve_opts) {
-  Polyhedron poly = NPrism(num_points, depth);
+  Polyhedron poly =
+    ANTIPRISM ? NAntiPrism(num_points, depth) : NPrism(num_points, depth);
 
   frame3 outer, inner;
   std::optional<int> iters = DoSolve(thread_idx,
@@ -336,7 +397,8 @@ std::optional<std::tuple<frame3, frame3, double>> ComputeMinimumClearance(
                                      rc, poly, &outer, &inner);
   if (!iters.has_value()) {
     SolutionDB db;
-    status->Printf(AGREEN("Nopert!!") " %d-prism, d=%.11g.\n");
+    status->Print(AGREEN("Nopert!!") " {}-prism, d={:.11g}.\n",
+                  num_points, depth);
     db.AddNopert(poly, SolutionDB::NOPERT_METHOD_CHURRO);
     noperts++;
 
@@ -365,7 +427,7 @@ std::optional<std::tuple<frame3, frame3, double>> ComputeMinimumClearance(
 
 static void DoChurro(int64_t num_points) {
   std::string filename =
-    std::format("churro{}.png", num_points);
+    std::format("{}churro{}.png", ANTIPRISM ? "anti" : "", num_points);
   if (Util::ExistsFile(filename))
     return;
 
@@ -374,7 +436,9 @@ static void DoChurro(int64_t num_points) {
   already.Reset();
   prisms.Reset();
 
-  NDSolutions<1> sols(std::format("churro{}.nds", num_points));
+  NDSolutions<1> sols(std::format("{}churro{}.nds",
+                                  ANTIPRISM ? "anti" : "",
+                                  num_points));
   if (sols.Size() > 0) {
     status->Printf("Continuing from " AWHITE("%lld") " sols.",
                    sols.Size());
@@ -494,8 +558,8 @@ static void DoChurro(int64_t num_points) {
         }
       });
 
-  status->Printf("[" AWHITE("%d") "] Done in %s.\n", num_points,
-                 ANSI::Time(run_timer.Seconds()).c_str());
+  status->Print("[" AWHITE("{}") "] Done in {}.\n", num_points,
+                ANSI::Time(run_timer.Seconds()));
 
   sols.Save();
 
@@ -507,6 +571,10 @@ int main(int argc, char **argv) {
   ANSI::Init();
 
   status = new StatusBar(2);
+
+  for (int n = 34; n < 100; n++) {
+    DoChurro(n);
+  }
 
   // DoChurro(51);
   for (int n = 100; n < 200; n += 10) {

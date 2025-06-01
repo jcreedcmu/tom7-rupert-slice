@@ -374,8 +374,8 @@ MeshEdgeInfo::MeshEdgeInfo(const TriangularMesh3D &mesh) {
         } else {
           LOG(FATAL) << "Non-manifold: More than two "
             "triangles share an edge. " <<
-            StringPrintf("Triangle: %d,%d,%d. Already have "
-                         "p1 = %d, p2 = %d",
+            std::format("Triangle: {},{},{}. Already have "
+                         "p1 = {}, p2 = {}",
                          a, b, c, p1, p2);
         }
       };

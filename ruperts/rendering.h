@@ -18,7 +18,7 @@ struct Rendering {
   Rendering(const Polyhedron &p, int width, int height);
 
   void RenderPerspectiveWireframe(const Polyhedron &p, uint32_t color);
-  void RenderMesh(const Mesh2D &mesh);
+  void RenderMesh(const Mesh2D &mesh, float thickness = 3.0f);
   void RenderBadPoints(const Mesh2D &sinner, const Mesh2D &souter);
   void RenderHull(const Mesh2D &mesh, const std::vector<int> &hull,
                   uint32_t color = 0x00FF00AA);

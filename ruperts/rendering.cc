@@ -120,6 +120,7 @@ void Rendering::RenderPerspectiveWireframe(const Polyhedron &p,
   const mat4 view_matrix = yocto::frame_to_mat(camera_frame);
   const mat4 model_view_projection = proj * view_matrix;
 
+  CHECK(p.faces != nullptr);
   for (const std::vector<int> &face : p.faces->v) {
     for (int i = 0; i < (int)face.size(); i++) {
       const vec3 v0 = p.vertices[face[i]];
@@ -139,8 +140,9 @@ void Rendering::RenderPerspectiveWireframe(const Polyhedron &p,
   }
 }
 
-void Rendering::RenderMesh(const Mesh2D &mesh) {
+void Rendering::RenderMesh(const Mesh2D &mesh, float thickness) {
   // Draw filled polygons first.
+  CHECK(mesh.faces != nullptr);
   for (int sy = 0; sy < height; sy++) {
     for (int sx = 0; sx < width; sx++) {
       const vec2 pt = ToWorld(sx, sy);
@@ -160,13 +162,13 @@ void Rendering::RenderMesh(const Mesh2D &mesh) {
 
       const auto &[ax, ay] = ToScreen(a);
       const auto &[bx, by] = ToScreen(b);
-      img.BlendThickLine32(ax, ay, bx, by, 3.0, 0xFFFFFF99);
+      img.BlendThickLine32(ax, ay, bx, by, thickness, 0xFFFFFF99);
     }
   }
 }
 
 void Rendering::RenderPolygon(const std::vector<vec2> &poly,
-                           uint32_t color) {
+                              uint32_t color) {
   for (int i = 0; i < poly.size(); i++) {
     const vec2 &a = poly[i];
     const vec2 &b = poly[(i + 1) % poly.size()];
@@ -207,6 +209,7 @@ void Rendering::RenderTriangle(const Mesh2D &mesh, int a, int b, int c,
 }
 
 void Rendering::RenderTriangulation(const Mesh2D &mesh, uint32_t color) {
+  CHECK(mesh.faces != nullptr);
   for (const auto &[a, b, c] : mesh.faces->triangulation) {
     RenderTriangle(mesh, a, b, c, color);
   }
