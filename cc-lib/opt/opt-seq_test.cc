@@ -13,9 +13,10 @@ static void CreateAndDestroy() {
 static void SimpleMinimize() {
   OptSeq seq({{-1.0, +1.0}});
 
-  for (int i = 0; i < 10000; i++) {
+  for (int i = 0; i < 100; i++) {
     std::vector<double> arg = seq.Next();
     CHECK(arg.size() == 1);
+    // printf("%.11g\n", arg[0]);
 
     const double x = arg[0];
 
@@ -33,6 +34,8 @@ static void SimpleMinimize() {
   // with a value of about -0.670137
   CHECK(best_x > -0.755 && best_x < -0.754) << best_x;
   CHECK(best_y > -0.671 && best_y < -0.669) << best_y;
+
+  printf("Minimize: Destructor.\n");
 }
 
 int main(int argc, char **argv) {

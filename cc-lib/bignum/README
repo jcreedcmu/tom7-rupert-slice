@@ -1,8 +1,8 @@
 BigNum is a simple wrapper for arbitrary precision arithmetic
 (integers and rational numbers). It has a built-in plain C++
-implementation (from https://sourceforge.net/projects/bigz/) or can
-use libgmp. GMP is much faster but can be annoying to install/compile
-for some projects.
+implementation (adapted from https://sourceforge.net/projects/bigz/)
+or can use libgmp. GMP is much faster but can be annoying to
+install/compile for some projects.
 
 This code is not a complete wrapper and not super-well tested (for
 example, rounding modes might differ between the built-in and gmp
@@ -21,5 +21,11 @@ make -j
 
 The GMP c++ support is not required; big.h does its own wrapping.
 
+With msys2-clang64, which is what I recommend in 2025, it worked
+great with just -lgmp after installing the package. See makefile.
+
 Include big-overloads.h for custom literal support (write 12345_b) and
-some operator overloads.
+some operator overloads. I don't recommend the custom literals if
+you care about performance, because it is easy to accidentally
+write code that repeatedly parses!
+

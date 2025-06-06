@@ -1,6 +1,9 @@
 #include <stdio.h>
 
-#include <math.h>
+#include <array>
+#include <vector>
+#include <span>
+#include <cmath>
 
 #include "opt/opt.h"
 #include "base/logging.h"
@@ -14,7 +17,7 @@ static double Test1(const std::array<double, 1> &args) {
   return sin(x * x * x - 3.0 * x + 3) + x * x;
 }
 
-static double Test1v(const std::vector<double> &args) {
+static double Test1v(std::span<const double> args) {
   CHECK(args.size() == 1);
   double x = args[0];
   return sin(x * x * x - 3.0 * x + 3) + x * x;

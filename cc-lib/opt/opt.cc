@@ -3888,6 +3888,9 @@ inline int biteopt_minimize(
 // cc-lib:
 
 #include "opt/opt.h"
+#include <span>
+#include <functional>
+#include <vector>
 
 using namespace std;
 
@@ -3903,7 +3906,7 @@ void Opt::internal_minimize(
 
 std::pair<vector<double>, double>
 Opt::Minimize(int n,
-              const std::function<double(const std::vector<double> &)> &f,
+              const std::function<double(std::span<const double>)> &f,
               const std::vector<double> &lower_bound,
               const std::vector<double> &upper_bound,
               int iters,
@@ -3911,10 +3914,8 @@ Opt::Minimize(int n,
               int attempts,
               int random_seed) {
   auto wrap_f = [](int n, const double *args, void* data) -> double {
-      auto *f = (std::function<double(const std::vector<double> &)> *)data;
-      std::vector<double> in(n);
-      for (int i = 0; i < n; i++) in[i] = args[i];
-      return (*f)(in);
+      auto *f = (std::function<double(std::span<const double>)> *)data;
+      return (*f)(std::span(args, n));
     };
   std::vector<double> out(n);
   double out_v = 0.0;

@@ -1,5 +1,5 @@
 
-default : opt_test.exe optimizer_test.exe opt-seq_test.exe
+default : opt_test.exe optimizer_test.exe opt-seq_test.exe large-optimizer_test.exe
 
 BASE=../base/logging.o ../base/stringprintf.o ../arcfour.o
 

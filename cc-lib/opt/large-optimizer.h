@@ -363,7 +363,7 @@ inline void LargeOptimizer<CACHE>::Run(
                max_calls, max_feasible_calls,
                max_seconds, target_score, time_start,
                &stop, &num_calls, &num_feasible_calls](
-                   const std::vector<double> &doubles) {
+                   std::span<const double> doubles) {
         if (stop) return LARGE_SCORE;
 
         // Test timeout first, to avoid cases where we have nearly

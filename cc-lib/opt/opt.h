@@ -17,10 +17,11 @@
 #ifndef _CC_LIB_OPT_H
 #define _CC_LIB_OPT_H
 
-#include <utility>
-#include <vector>
 #include <array>
 #include <functional>
+#include <span>
+#include <utility>
+#include <vector>
 
 struct Opt {
   // Returns the parameter vector that produced the smallest
@@ -42,7 +43,7 @@ struct Opt {
   // As above, but with n as a runtime value.
   static std::pair<std::vector<double>, double>
   Minimize(int n,
-           const std::function<double(const std::vector<double> &)> &f,
+           const std::function<double(std::span<const double>)> &f,
            const std::vector<double> &lower_bound,
            const std::vector<double> &upper_bound,
            int iters,

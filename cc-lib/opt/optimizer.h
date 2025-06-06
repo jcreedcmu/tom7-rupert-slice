@@ -354,7 +354,7 @@ struct Optimizer {
 
     const int num_features = features.size();
 
-    auto Score = [&results, &features](const std::vector<double> &coeffs) ->
+    auto Score = [&results, &features](std::span<const double> coeffs) ->
       double {
         double loss = 0.0;
         // For each row, compute the score we'd get with the chosen

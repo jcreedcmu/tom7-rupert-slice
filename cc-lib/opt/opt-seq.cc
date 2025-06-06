@@ -1,12 +1,13 @@
 
 #include "opt-seq.h"
 
-#include <vector>
-#include <optional>
-#include <utility>
-#include <thread>
-#include <mutex>
 #include <condition_variable>
+#include <mutex>
+#include <optional>
+#include <span>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "opt/opt.h"
 #include "base/logging.h"
@@ -15,10 +16,11 @@ static constexpr bool VERBOSE = false;
 
 OptSeq::OptSeq(
     const std::vector<std::pair<double, double>> &bounds) :
-  bounds(bounds) {
+  bounds(bounds), arg(bounds.size()) {
   if (VERBOSE) {
     printf("spawn...\n");
   }
+
   th.reset(new std::thread(&OptSeq::OptThread, this));
 }
 
@@ -33,7 +35,7 @@ void OptSeq::OptThread() {
   for (int offset = 0; true; offset++) {
     Opt::Minimize(
         (int)lb.size(),
-        [this](const std::vector<double> &v) {
+        [this](std::span<const double> v) {
           return this->Eval(v);
         },
         lb, ub,
@@ -52,35 +54,48 @@ void OptSeq::OptThread() {
   }
 }
 
-double OptSeq::Eval(const std::vector<double> &args) {
-
+double OptSeq::Eval(std::span<const double> args) {
   if (VERBOSE) {
     printf("Called:");
     for (double d : args) printf(" %.4f", d);
     printf("\n");
   }
+
   {
     std::unique_lock<std::mutex> ml(m);
     // When dying, just keep returning immediately to the optimizer.
     if (should_die) {
+      if (VERBOSE) {
+        printf("Shutting down!\n");
+      }
       return 0.0;
     }
 
+    // Wait until someone needs an arg (or the object is
+    // destroyed).
     c.wait(ml, [this]() {
-        return !arg.has_value();
+        return !has_arg || should_die;
       });
 
-    CHECK(!arg.has_value());
-    arg = {args};
+    if (should_die) return 0.0;
+
+    CHECK(!has_arg);
+    CHECK(arg.size() == args.size());
+    memcpy(arg.data(), args.data(), sizeof (double) * args.size());
+    has_arg = true;
   }
   c.notify_one();
 
   {
     std::unique_lock<std::mutex> ml(m);
+    // Wait until someone has supplied the result.
     c.wait(ml, [this](){
-        return result.has_value();
+        return result.has_value() || should_die;
       });
 
+    if (should_die) return 0.0;
+
+    CHECK(result.has_value());
     double r = result.value();
     // Consume the result.
     result.reset();
@@ -94,10 +109,11 @@ std::vector<double> OptSeq::Next() {
     std::unique_lock<std::mutex> ml(m);
     CHECK(!should_die);
     c.wait(ml, [this](){
-        return arg.has_value();
+        return has_arg;
       });
 
-    ret = arg.value();
+    CHECK(has_arg);
+    ret = arg;
     // We leave the argument, since we need this to record
     // history/best.
   }
@@ -109,13 +125,13 @@ void OptSeq::Result(double d) {
   {
     std::unique_lock<std::mutex> ml(m);
     CHECK(!should_die);
-    CHECK(arg.has_value());
+    CHECK(has_arg);
     CHECK(!result.has_value());
 
-    Observe(arg.value(), d);
+    Observe(arg, d);
 
     // Consumes the arg, so the next call to Next will block.
-    arg.reset();
+    has_arg = false;
     result.emplace(d);
   }
   c.notify_one();

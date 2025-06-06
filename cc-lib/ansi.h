@@ -62,6 +62,11 @@
 #define ADARKWHITE(s) ANSI_DARK_WHITE s ANSI_RESET
 #define ADARKPURPLE(s) ANSI_DARK_PURPLE s ANSI_RESET
 
+// Because {} will work as a default placeholder for
+// any type in std::format, these can make the
+// format strings a lot less noisy.
+#define RED_ARG ARED("{}")
+
 // standard two-level trick to expand and stringify
 #define ANSI_INTERNAL_STR2(s) #s
 #define ANSI_INTERNAL_STR(s) ANSI_INTERNAL_STR2(s)

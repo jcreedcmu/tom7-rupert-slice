@@ -98,6 +98,10 @@ public:
   // Each bucket is a single cacheline, so that we don't get
   // false contention across threads. But we can use up the
   // 64 bytes for eight 64-bit counters.
+  // Note there is now also
+  // std::hardware_destructive_interference_size if we wanted to do
+  // this a more portable way, although this obviously interacts with
+  // the number of counters.
   struct Cacheline {
     alignas(64) std::atomic<uint64_t> counters[8];
   };
