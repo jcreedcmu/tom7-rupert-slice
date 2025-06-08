@@ -148,6 +148,7 @@ void OptSeq::Observe(const std::vector<double> &arg,
 }
 
 std::optional<std::pair<std::vector<double>, double>> OptSeq::GetBest() {
+  std::unique_lock<std::mutex> ml(m);
   return best;
 }
 
