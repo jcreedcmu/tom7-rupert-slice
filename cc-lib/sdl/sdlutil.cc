@@ -201,6 +201,7 @@ sdlutil::ByteOrder sdlutil::GetByteOrder(SDL_Surface *surf) {
 }
 
 // Assumes rgba vector is the same width/height as the surface.
+[[maybe_unused]]
 static void CopyRGBAVec(const vector<uint8_t> &rgba,
                         SDL_Surface *surface) {
   using ByteOrder = sdlutil::ByteOrder;

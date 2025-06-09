@@ -59,10 +59,10 @@
    images instead of letters */
 #define PICS "^9"
 
-#define FONTSTYLES 8
+inline constexpr int FONTSTYLES = 8;
 
-#define FONTWIDTH 9
-#define FONTHEIGHT 16
-#define FONTOVERLAP 1
+inline constexpr int FONTWIDTH = 9;
+inline constexpr int FONTHEIGHT = 16;
+inline constexpr int FONTOVERLAP = 1;
 
 #endif
