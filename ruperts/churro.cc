@@ -51,20 +51,27 @@ using frame3 = yocto::frame<double, 3>;
 // frame and inner frame to some solution.
 // static constexpr int NOPERT_ITERS = 200000;
 // We get too many noperts at n=34 with the above
-static constexpr int NOPERT_ITERS = 2000000;
+static constexpr int NOPERT_ITERS = 1000000;
 static constexpr int MIN_VERBOSE_ITERS = 5000;
 static constexpr bool SAVE_HARD = false;
-static std::optional<int> DoSolve(int thread_idx,
-                                  // Just used for debug print.
-                                  int num_points, double depth,
-                                  ArcFour *rc, const Polyhedron &poly,
-                                  frame3 *outer_frame_out,
-                                  frame3 *inner_frame_out) {
+
+struct SolveResult {
+  int iters = 0;
+  double clearance = 0.0;
+};
+
+static std::optional<SolveResult> DoSolve(
+    int thread_idx,
+    // Just used for debug print.
+    int num_points, double depth,
+    ArcFour *rc, const Polyhedron &poly,
+    frame3 *outer_frame_out,
+    frame3 *inner_frame_out) {
   CHECK(!poly.faces->v.empty());
 
   for (int iter = 0; iter < NOPERT_ITERS; iter++) {
 
-    if (iter > 0 && (iter % 5000) == 0) {
+    if (iter > 0 && (iter % 10000) == 0) {
       status->Print("[" APURPLE("{}") "] {}-prism (depth {:.11g}) "
                      AFGCOLOR(190, 220, 190, "not solved")
                      " yet; " AWHITE("{}") " iters...\n",
@@ -79,7 +86,7 @@ static std::optional<int> DoSolve(int thread_idx,
           status->Print("[" APURPLE("{}") "] Hard {}-point polyhedron saved "
                         "to " AGREEN("{}") " ({}-prism, depth {:.11g})\n",
                         thread_idx, (int)poly.vertices.size(),
-                        filename.c_str(),
+                        filename,
                         num_points, depth);
         }
       }
@@ -153,6 +160,14 @@ static std::optional<int> DoSolve(int thread_idx,
       Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 1, seed);
 
     if (error == 0.0) {
+      frame3 outer_frame = OuterFrame(args);
+      frame3 inner_frame = InnerFrame(args);
+      std::optional<double> oc = GetClearance(poly, outer_frame, inner_frame);
+      if (!oc.has_value()) {
+        status->Print(ARED("Yuck") ": Solution with bogus clearance");
+        continue;
+      }
+
       if (outer_frame_out != nullptr) {
         *outer_frame_out = OuterFrame(args);
       }
@@ -161,11 +176,12 @@ static std::optional<int> DoSolve(int thread_idx,
       }
 
       if (iter > MIN_VERBOSE_ITERS) {
-        status->Printf("%d-prism (d %.11g) " AYELLOW("solved") " after "
-                       AWHITE("%d") " iters.\n",
-                       num_points, depth, iter);
+        status->Print("{}-prism (d {:.11g}) " AYELLOW("solved") " after "
+                      AWHITE("{}") " iters.\n",
+                      num_points, depth, iter);
       }
-      return {iter};
+
+      return {SolveResult{.iters = iter, .clearance = oc.value()}};
     }
   }
 
@@ -180,14 +196,13 @@ DoImprove(int thread_idx,
           ArcFour *rc, const Polyhedron &poly,
           const frame3 &outer_frame,
           const frame3 &inner_frame,
+          double clearance,
           // e.g. 100 passes
           int max_improve_opts) {
 
   frame3 best_outer = outer_frame;
   frame3 best_inner = inner_frame;
-  std::optional<double> oc = GetClearance(poly, outer_frame, inner_frame);
-  CHECK(oc.has_value()) << "Bogus solution with no clearance";
-  double best_clearance = oc.value();
+  double best_clearance = clearance;
 
   for (int iter = 0; iter < max_improve_opts; iter++) {
     // four params for outer rotation, four params for inner
@@ -286,102 +301,6 @@ DoImprove(int thread_idx,
   return std::make_tuple(best_outer, best_inner, best_clearance);
 }
 
-// TODO: To polyhedra.h?
-
-static Polyhedron NPrism(int64_t num_points, double depth) {
-  CHECK(num_points >= 3);
-  Polyhedron poly;
-
-  std::vector<int> top_face, bot_face;
-  for (int i = 0; i < num_points; i++) {
-    const double angle = i * (2.0 * std::numbers::pi / num_points);
-
-    double x = cos(angle);
-    double y = sin(angle);
-
-    int t = poly.vertices.size();
-    poly.vertices.push_back(vec3{x, y, depth * 0.5});
-    int b = poly.vertices.size();
-    poly.vertices.push_back(vec3{x, y, depth * -0.5});
-
-    top_face.push_back(t);
-    bot_face.push_back(b);
-  }
-
-  // Add the rectangular side faces.
-  std::vector<std::vector<int>> fs = {top_face, bot_face};
-  for (int i = 0; i < num_points; i++) {
-    int side1 = i * 2;
-    int side2 = ((i + 1) % num_points) * 2;
-
-    fs.push_back(std::vector<int>{side1, side1 + 1, side2 + 1, side2});
-  }
-
-  poly.faces = new Faces(num_points * 2, std::move(fs));
-  poly.name = "prism";
-
-  return poly;
-}
-
-// Like NPrism, but an anti-prism has triangular sides, and the
-// bottom and top faces have their vertices interleaved.
-static Polyhedron NAntiPrism(int64_t num_points, double depth) {
-  CHECK(num_points >= 3);
-  Polyhedron poly;
-
-  // Angle subtended by adjacent vertices on a face.
-  const double step = 2.0 * std::numbers::pi / num_points;
-
-  // indices into poly's vertices.
-  std::vector<int> top_verts, bot_verts;
-  for (int i = 0; i < num_points; ++i) {
-    // Bottom
-    {
-      const double angle = i * step;
-      double xb = std::cos(angle);
-      double yb = std::sin(angle);
-      int idx = poly.vertices.size();
-      poly.vertices.push_back(vec3{xb, yb, depth * -0.5});
-      bot_verts.push_back(idx);
-    }
-
-    // Top
-    {
-      const double angle = (i + 0.5) * step;
-      double xt = std::cos(angle);
-      double yt = std::sin(angle);
-      int idx = poly.vertices.size();
-      poly.vertices.push_back(vec3{xt, yt, depth * 0.5});
-      top_verts.push_back(idx);
-    }
-  }
-
-  // Top and bottom faces.
-  std::vector<std::vector<int>> fs = {top_verts, bot_verts};
-
-  // Add the triangular side faces. For each point we add two,
-  // like a triangulated quad.
-  for (int i = 0; i < num_points; ++i) {
-    int next_i = (i + 1) % num_points;
-
-    // Current segment vertices
-    int b0 = bot_verts[i];
-    int t0 = top_verts[i];
-
-    // Next segment vertices
-    int b1 = bot_verts[next_i];
-    int t1 = top_verts[next_i];
-
-    fs.push_back({b0, t0, b1});
-    fs.push_back({t0, t1, b1});
-  }
-
-  poly.faces = new Faces(num_points * 2, std::move(fs));
-  poly.name = "antiprism";
-
-  return poly;
-}
-
 // num_points is the number on each side.
 std::optional<std::tuple<frame3, frame3, double>> ComputeMinimumClearance(
     int thread_idx,
@@ -392,28 +311,30 @@ std::optional<std::tuple<frame3, frame3, double>> ComputeMinimumClearance(
     ANTIPRISM ? NAntiPrism(num_points, depth) : NPrism(num_points, depth);
 
   frame3 outer, inner;
-  std::optional<int> iters = DoSolve(thread_idx,
-                                     num_points, depth,
-                                     rc, poly, &outer, &inner);
-  if (!iters.has_value()) {
-    SolutionDB db;
+  std::optional<SolveResult> solve_result =
+    DoSolve(thread_idx,
+            num_points, depth,
+            rc, poly, &outer, &inner);
+
+  if (!solve_result.has_value()) {
+    noperts++;
     status->Print(AGREEN("Nopert!!") " {}-prism, d={:.11g}.\n",
                   num_points, depth);
-    db.AddNopert(poly, SolutionDB::NOPERT_METHOD_CHURRO);
-    noperts++;
+    if (noperts.Read() > 10) {
+      status->Print("Too many noperts! Increase the threshold?");
+    } else {
+      SolutionDB db;
+      db.AddNopert(poly, SolutionDB::NOPERT_METHOD_CHURRO);
+    }
 
     delete poly.faces;
-
-    if (noperts.Read() > 10) {
-      status->Printf("Too many noperts! Increase the threshold?");
-      exit(-1);
-    }
     return std::nullopt;
 
   } else {
     const auto &[best_outer, best_inner, best_error] =
       DoImprove(thread_idx, num_points, depth, rc, poly,
-                outer, inner, num_improve_opts);
+                outer, inner, solve_result->clearance,
+                num_improve_opts);
 
     delete poly.faces;
 
@@ -440,7 +361,7 @@ static void DoChurro(int64_t num_points) {
                                   ANTIPRISM ? "anti" : "",
                                   num_points));
   if (sols.Size() > 0) {
-    status->Printf("Continuing from " AWHITE("%lld") " sols.",
+    status->Print("Continuing from " AWHITE("{}") " sols.",
                    sols.Size());
   }
 
@@ -479,15 +400,15 @@ static void DoChurro(int64_t num_points) {
         std::string timing = std::format("{:.4f} prisms/s", pps);
 
         std::string msg =
-          StringPrintf(
-              AYELLOW("%lld") AWHITE("⋮") "  |  "
-              APURPLE("%s") AWHITE("s") " "
-              ABLUE("%s") AWHITE("i") " "
-              ARED("%lld") AWHITE("⛔") " "
-              AGREEN("%lld") AWHITE("∼") " ",
+          std::format(
+              AYELLOW("{}") AWHITE("⋮") "  |  "
+              APURPLE("{}") AWHITE("s") " "
+              ABLUE("{}") AWHITE("i") " "
+              ARED("{}") AWHITE("⛔") " "
+              AGREEN("{}") AWHITE("∼") " ",
               num_points,
-              FormatNum(solve_attempts.Read()).c_str(),
-              FormatNum(improve_attempts.Read()).c_str(),
+              FormatNum(solve_attempts.Read()),
+              FormatNum(improve_attempts.Read()),
               noperts.Read(),
               already.Read());
 
@@ -496,17 +417,17 @@ static void DoChurro(int64_t num_points) {
           ANSI::ProgressBar(p, total_prisms - already.Read(),
                             msg, total_time, options);
 
-        status->Statusf(
-            "%s\n"
-            "%s\n",
-            timing.c_str(),
-            bar.c_str());
+        status->Status(
+            "{}\n"
+            "{}\n",
+            timing,
+            bar);
       }
 
       save_per.RunIf([&]() {
           sols.Save();
-          status->Printf("Wrote " AWHITE("%lld") " sols.\n",
-                         sols.Size());
+          status->Print("Wrote " AWHITE("{}") " sols.\n",
+                        sols.Size());
         });
     };
 
@@ -514,7 +435,8 @@ static void DoChurro(int64_t num_points) {
 
   static constexpr double MIN_DEPTH = 1.0e-6;
   const double MAX_DEPTH =
-    num_points >= 100 ? 2.2 : 8.0;
+    ANTIPRISM ? (num_points > 44 ? 1.0 : 8.0) :
+    (num_points >= 100 ? 2.2 : 8.0);
   const double DEPTH_SPAN = MAX_DEPTH - MIN_DEPTH;
   const double CLOSE = (DEPTH_SPAN / total_prisms) * 0.25;
 
@@ -554,6 +476,9 @@ static void DoChurro(int64_t num_points) {
           if (oresult.has_value()) {
             const auto &[outer, inner, clearance] = oresult.value();
             sols.Add({depth}, clearance, outer, inner);
+          } else {
+            // Mark missing solutions.
+            sols.Add({depth}, -1.0, frame3{}, frame3{});
           }
         }
       });
@@ -564,7 +489,7 @@ static void DoChurro(int64_t num_points) {
   sols.Save();
 
   sols.Plot1D(0, 3840, 2160, filename);
-  status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+  status->Print("Wrote " AGREEN("{}") "\n", filename);
 }
 
 int main(int argc, char **argv) {
@@ -572,7 +497,7 @@ int main(int argc, char **argv) {
 
   status = new StatusBar(2);
 
-  for (int n = 34; n < 100; n++) {
+  for (int n = 54; n < 100; n++) {
     DoChurro(n);
   }
 

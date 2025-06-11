@@ -1537,7 +1537,11 @@ std::optional<double> GetRatio(const Polyhedron &poly,
   double inner_area = AreaOfHull(sinner, inner_hull);
 
   double ratio = inner_area / outer_area;
-  return {ratio};
+  if (std::isfinite(ratio) && ratio > 0.0) {
+    return {ratio};
+  } else {
+    return std::nullopt;
+  }
 }
 
 std::optional<double> GetClearance(const Polyhedron &poly,
@@ -1568,8 +1572,13 @@ std::optional<double> GetClearance(const Polyhedron &poly,
     }
   }
 
-  return {HullClearance(souter.vertices, outer_hull,
-                        sinner.vertices, inner_hull)};
+  double c = HullClearance(souter.vertices, outer_hull,
+                           sinner.vertices, inner_hull);
+  if (std::isfinite(c) && c > 0.0) {
+    return {c};
+  } else {
+    return std::nullopt;
+  }
 }
 
 TriangularMesh3D PolyToTriangularMesh(const Polyhedron &poly) {
@@ -1687,6 +1696,100 @@ void SaveAsJSON(const frame3 &outer_frame,
   std::string f = (std::string)filename;
   Util::WriteFile(f, contents);
   printf("Wrote " AGREEN("%s") "\n", f.c_str());
+}
+
+Polyhedron NPrism(int64_t num_points, double depth) {
+  CHECK(num_points >= 3);
+  Polyhedron poly;
+
+  std::vector<int> top_face, bot_face;
+  for (int i = 0; i < num_points; i++) {
+    const double angle = i * (2.0 * std::numbers::pi / num_points);
+
+    double x = cos(angle);
+    double y = sin(angle);
+
+    int t = poly.vertices.size();
+    poly.vertices.push_back(vec3{x, y, depth * 0.5});
+    int b = poly.vertices.size();
+    poly.vertices.push_back(vec3{x, y, depth * -0.5});
+
+    top_face.push_back(t);
+    bot_face.push_back(b);
+  }
+
+  // Add the rectangular side faces.
+  std::vector<std::vector<int>> fs = {top_face, bot_face};
+  for (int i = 0; i < num_points; i++) {
+    int side1 = i * 2;
+    int side2 = ((i + 1) % num_points) * 2;
+
+    fs.push_back(std::vector<int>{side1, side1 + 1, side2 + 1, side2});
+  }
+
+  poly.faces = new Faces(num_points * 2, std::move(fs));
+  poly.name = std::format("{}-prism", num_points);
+
+  return poly;
+}
+
+// Like NPrism, but an anti-prism has triangular sides, and the
+// bottom and top faces have their vertices interleaved.
+Polyhedron NAntiPrism(int64_t num_points, double depth) {
+  CHECK(num_points >= 3);
+  Polyhedron poly;
+
+  // Angle subtended by adjacent vertices on a face.
+  const double step = 2.0 * std::numbers::pi / num_points;
+
+  // indices into poly's vertices.
+  std::vector<int> top_verts, bot_verts;
+  for (int i = 0; i < num_points; ++i) {
+    // Bottom
+    {
+      const double angle = i * step;
+      double xb = std::cos(angle);
+      double yb = std::sin(angle);
+      int idx = poly.vertices.size();
+      poly.vertices.push_back(vec3{xb, yb, depth * -0.5});
+      bot_verts.push_back(idx);
+    }
+
+    // Top
+    {
+      const double angle = (i + 0.5) * step;
+      double xt = std::cos(angle);
+      double yt = std::sin(angle);
+      int idx = poly.vertices.size();
+      poly.vertices.push_back(vec3{xt, yt, depth * 0.5});
+      top_verts.push_back(idx);
+    }
+  }
+
+  // Top and bottom faces.
+  std::vector<std::vector<int>> fs = {top_verts, bot_verts};
+
+  // Add the triangular side faces. For each point we add two,
+  // like a triangulated quad.
+  for (int i = 0; i < num_points; ++i) {
+    int next_i = (i + 1) % num_points;
+
+    // Current segment vertices
+    int b0 = bot_verts[i];
+    int t0 = top_verts[i];
+
+    // Next segment vertices
+    int b1 = bot_verts[next_i];
+    int t1 = top_verts[next_i];
+
+    fs.push_back({b0, t0, b1});
+    fs.push_back({t0, t1, b1});
+  }
+
+  poly.faces = new Faces(num_points * 2, std::move(fs));
+  poly.name = std::format("{}-antiprism", num_points);
+
+  return poly;
 }
 
 

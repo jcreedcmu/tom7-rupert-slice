@@ -130,6 +130,9 @@ struct SolutionDB {
                               bool use_clearance = false);
   std::vector<Solution> GetAllNopertSolutions();
 
+  // Attempts to solve a nopert, not to generate one.
+  std::vector<Attempt> GetAttemptsForNoperts();
+
   std::pair<
     // By lowest ratio
     std::unordered_map<std::string, Solution>,
@@ -159,6 +162,7 @@ struct SolutionDB {
   static constexpr int NOPERT_METHOD_RHOMBIC = 6;
   static constexpr int NOPERT_METHOD_UNOPT = 7;
   static constexpr int NOPERT_METHOD_CHURRO = 8;
+  static constexpr int NOPERT_METHOD_FLATTEN76 = 9;
 
   static const char *NopertMethodName(int m) {
     switch (m) {
@@ -170,6 +174,7 @@ struct SolutionDB {
     case NOPERT_METHOD_RHOMBIC: return "NOPERT_METHOD_RHOMBIC";
     case NOPERT_METHOD_UNOPT: return "NOPERT_METHOD_UNOPT";
     case NOPERT_METHOD_CHURRO: return "NOPERT_METHOD_CHURRO";
+    case NOPERT_METHOD_FLATTEN76: return "NOPERT_METHOD_FLATTEN76";
     default: return "UNKNOWN";
     }
   }
@@ -195,6 +200,10 @@ struct SolutionDB {
   Polyhedron AnyPolyhedronByName(std::string_view name);
 
  private:
+
+  std::vector<Attempt> AttemptsForQuery(
+      std::unique_ptr<Database::Query> q);
+
   std::unique_ptr<Database> db;
 };
 

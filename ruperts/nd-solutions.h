@@ -277,9 +277,17 @@ NDSolutions<N>::NDSolutions(std::string_view filename, bool verbose) : filename(
   if (verbose) { printf("Read %lld bytes.\n", bytes.size()); }
   if (!bytes.empty()) {
     CHECK(bytes.size() >= 4 &&
-          0 == memcmp(bytes.data(), MAGIC, 4) &&
-          (bytes.size() - 4) % (8 * ROW_SIZE) == 0)
-        << filename << "Not an nd-solutions file!";
+          0 == memcmp(bytes.data(), MAGIC, 4))
+      << filename << ": Not an nd-solutions file!";
+
+    // Delete bytes from the end that don't form a complete row.
+    size_t extra = (bytes.size() - 4) % (8 * ROW_SIZE);
+    bytes.resize(bytes.size() - extra);
+    if (extra > 0) {
+      printf(ARED("Warning") ": %s had %zu extra bytes,\n"
+             "probably from an incomplete write. Ignored.\n",
+             std::string(filename).c_str(), extra);
+    }
 
     for (int64_t idx = 4; idx < bytes.size(); idx += (8 * ROW_SIZE)) {
       std::array<double, ROW_SIZE> row;

@@ -322,13 +322,9 @@ std::vector<Solution> SolutionDB::GetSolutionsFor(
             name)));
 }
 
-std::vector<SolutionDB::Attempt> SolutionDB::GetAllAttempts() {
-  std::unique_ptr<Query> q =
-    db->ExecuteString(
-        "select "
-        "id, polyhedron, method, createdate, best, iters, evals, source "
-        "from attempts");
 
+std::vector<SolutionDB::Attempt> SolutionDB::AttemptsForQuery(
+    std::unique_ptr<Database::Query> q) {
   std::vector<Attempt> ret;
   while (std::unique_ptr<Row> r = q->NextRow()) {
     Attempt att;
@@ -343,6 +339,25 @@ std::vector<SolutionDB::Attempt> SolutionDB::GetAllAttempts() {
     ret.push_back(std::move(att));
   }
   return ret;
+}
+
+std::vector<SolutionDB::Attempt> SolutionDB::GetAllAttempts() {
+  std::unique_ptr<Query> q =
+    db->ExecuteString(
+        "select "
+        "id, polyhedron, method, createdate, best, iters, evals, source "
+        "from attempts");
+  return AttemptsForQuery(std::move(q));
+}
+
+std::vector<SolutionDB::Attempt> SolutionDB::GetAttemptsForNoperts() {
+  std::unique_ptr<Query> q =
+    db->ExecuteString(
+        "select "
+        "id, polyhedron, method, createdate, best, iters, evals, source "
+        "from attempts "
+        "where polyhedron like 'nopert_%'");
+  return AttemptsForQuery(std::move(q));
 }
 
 void SolutionDB::AddAttempt(const std::string &poly, int method, int source,

@@ -537,6 +537,15 @@ TriangularMesh3D PolyToTriangularMesh(const Polyhedron &poly);
 // icosahedron with the given depth (exponential).
 TriangularMesh3D ApproximateSphere(int depth);
 
+// A regular n-gon, extruded to the given depth. Centered at
+// the origin. num_points is n, the number of points on the
+// top and bottom faces; this will have 2n vertices.
+Polyhedron NPrism(int64_t num_points, double depth);
+
+// Like NPrism, but an anti-prism has triangular side faces, and the
+// bottom and top faces have their vertices interleaved.
+Polyhedron NAntiPrism(int64_t num_points, double depth);
+
 // Takes ownership of the vertices, which should be a convex hull.
 // Creates faces as all planes where all the other points are on one
 // side. This is not fast; it's intended for a small number of

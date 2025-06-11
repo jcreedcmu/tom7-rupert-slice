@@ -1,0 +1,70 @@
+(*   -*- electric-indent-local-mode: nil -*- *)
+let
+  import "stdlib.bovex"
+  import "layout.bovex"
+  import "animation.bovex"
+  import "movie-document.bovex"
+
+  val FRAME-WIDTH = 3840.0
+  val FRAME-HEIGHT = 2160.0
+
+  do set-doc-info { (MovieInfo)
+                    width = pixel FRAME-WIDTH,
+                    height = pixel FRAME-HEIGHT }
+
+  do REPHRASE-ALL := NONE
+  do NO-REPHRASE := true
+
+  fun exact-image-at { x : int, y : int, img = img as (Image img-handle) } =
+    let
+      val { width = pixel-width, height = pixel-height } = image-size img
+    in
+      sticker {(Sticker) x = int-to-float x, y = int-to-float y,
+               img = img-handle,
+               img-width = int-to-float pixel-width,
+               img-height = int-to-float pixel-height } []
+    end
+
+  (* The whole slide is just this image exactly. *)
+  val current-page = ref 0
+  fun next-frame () = current-page := !current-page + 1
+  fun emit-image img =
+    let in
+      output-frame
+      (!current-page, 0,
+       exact-image-at { x = 0, y = 0, img = img });
+      next-frame()
+    end
+
+in
+
+  let
+    val portrait = image-load "d:\\video\\ruperts\\rupert-portrait.png"
+
+    val anim-frames : image-handle vec = auto-draw portrait
+      {(AutoDrawArg)
+       smooth-passes = 4,
+       smooth-vote-threshold = 0.5,
+       max-pen-radius = 28.0,
+       min-pen-radius = 8.0,
+       max-pen-velocity = 48.0,
+       pen-acceleration = 0.5,
+       timesteps-per-frame = 8,
+       adjacent-deltae-threshold = 5.0,
+       max-fragile-piece-size = 10,
+       blend-frames = 10,
+       (* dark dirt color *)
+       background-color = 0x2b1414ff,
+       verbosity = 1 }
+
+    do print ("Got " ^ int-to-string (vec-size anim-frames) ^
+              " animation frames from auto-draw.\n")
+
+  in
+    vec-appi
+    (fn (fidx, frame : image-handle) =>
+     emit-image (image-exact-scale (frame, 2)))
+    anim-frames
+  end
+
+end

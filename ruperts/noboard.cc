@@ -15,6 +15,7 @@
 
 using Solution = SolutionDB::Solution;
 using Nopert = SolutionDB::Nopert;
+using Attempt = SolutionDB::Attempt;
 using NopertAttempt = SolutionDB::NopertAttempt;
 
 static void PrintAll() {
@@ -33,6 +34,13 @@ static void PrintAll() {
 
   std::vector<Nopert> noperts = db.GetAllNoperts();
 
+  std::vector<Attempt> attempts = db.GetAttemptsForNoperts();
+
+  std::unordered_map<std::string, int64_t> attempt_count;
+  for (const Attempt &att : attempts) {
+    attempt_count[att.polyhedron] += att.iters;
+  }
+
   std::sort(noperts.begin(), noperts.end(),
             [](const Nopert &a, const Nopert &b) {
               if (a.vertices.size() == b.vertices.size())
@@ -48,10 +56,19 @@ static void PrintAll() {
            SolutionDB::NopertMethodName(nopert.method),
            Util::FormatTime("%Y-%m-%d %H:%M", nopert.createdate).c_str());
 
+    std::string name = SolutionDB::NopertName(nopert.id);
+
     int nsol = solved[nopert.id];
     if (nsol > 0) {
       printf("  " ARED("✘") " solved");
     } else {
+
+      const auto ait = attempt_count.find(name);
+      int64_t a = ait == attempt_count.end() ? 0 : ait->second;
+      if (a > 0) {
+        printf("  " AYELLOW("⚡") "%s", FormatNum(a).c_str());
+      }
+
       ok++;
       smallest = std::min(smallest, (int)nopert.vertices.size());
     }

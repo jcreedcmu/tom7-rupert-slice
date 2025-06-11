@@ -9,6 +9,7 @@
 #include <ctime>
 #include <format>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <mutex>
 #include <numbers>
@@ -27,6 +28,7 @@
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "image.h"
+#include "nice.h"
 #include "opt/opt.h"
 #include "periodically.h"
 #include "randutil.h"
@@ -89,7 +91,6 @@ static void SaveSolution(const Polyhedron &poly,
   SolutionDB db;
   db.AddSolution(poly.name, outer_frame, inner_frame,
                  method, SOURCE, ratio, clearance);
-
 
   printf("Added solution (" AYELLOW("%s") ") to database with "
          "ratio " APURPLE("%.17g") ", clearance " ABLUE("%.17g") "\n",
@@ -414,7 +415,8 @@ struct SimulSolver : public Solver<SolutionDB::METHOD_SIMUL> {
       [this, &OuterFrame, &InnerFrame](
           const std::array<double, D> &args) {
         attempts++;
-        return LossFunctionContainsOrigin(polyhedron, OuterFrame(args), InnerFrame(args));
+        return LossFunctionContainsOrigin(polyhedron,
+                                          OuterFrame(args), InnerFrame(args));
       };
 
     constexpr double Q = 0.15;
@@ -907,7 +909,9 @@ struct OriginSolver : public Solver<SolutionDB::METHOD_ORIGIN> {
     std::function<double(const std::array<double, D> &)> Loss =
         [this, &OuterFrame, &InnerFrame](const std::array<double, D> &args) {
           attempts++;
-          return LossFunctionContainsOrigin(polyhedron, OuterFrame(args), InnerFrame(args));
+          return LossFunctionContainsOrigin(polyhedron,
+                                            OuterFrame(args),
+                                            InnerFrame(args));
         };
 
     constexpr double Q = 0.25;
@@ -981,7 +985,9 @@ struct AlmostIdSolver : public Solver<SolutionDB::METHOD_ALMOST_ID> {
       [this, &OuterFrame, &InnerFrame](
           const std::array<double, D> &args) {
         attempts++;
-        return LossFunctionContainsOrigin(polyhedron, OuterFrame(args), InnerFrame(args));
+        return LossFunctionContainsOrigin(polyhedron,
+                                          OuterFrame(args),
+                                          InnerFrame(args));
       };
 
     constexpr double Q = 0.001;
@@ -1143,23 +1149,31 @@ static void GrindNoperts() {
     20, 21, 22, 23, 25,
     24, 60, 61, 62, 63 };
 
+  constexpr int MAX_VERTICES = 20;
 
+  StatusBar status(STATUS_LINES);
   for (;;) {
     std::vector<Nopert> all_noperts = db.GetAllNoperts();
     std::vector<Nopert> noperts_unsolved;
 
     for (Nopert &nopert : all_noperts) {
-      std::string name = SolutionDB::NopertName(nopert.id);
-      std::vector<Solution> sols = db.GetSolutionsFor(name);
-      if (sols.empty() && !banned.contains(nopert.id)) {
-        noperts_unsolved.push_back(std::move(nopert));
+      if (nopert.vertices.size() <= MAX_VERTICES &&
+          !banned.contains(nopert.id)) {
+        std::string name = SolutionDB::NopertName(nopert.id);
+        std::vector<Solution> sols = db.GetSolutionsFor(name);
+        if (sols.empty()) {
+          noperts_unsolved.push_back(std::move(nopert));
+        }
       }
     }
 
     if (noperts_unsolved.empty()) {
-      printf("All the noperts are solved (or banned).\n");
+      status.Print("All the noperts are solved (or not eligible).\n");
       return;
     }
+
+    status.Print("There are " AWHITE("{}") " eligible noperts "
+                 "to grind.", noperts_unsolved.size());
 
     // Otherwise, pick one and grind it.
     std::sort(noperts_unsolved.begin(),
@@ -1172,28 +1186,40 @@ static void GrindNoperts() {
                 }
               });
 
-    const Nopert &nopert =
-      (rc.Byte() & 1) ?
-      // smallest unsolved
-      noperts_unsolved[0] :
-      // or randomly
-      noperts_unsolved[RandTo(&rc, noperts_unsolved.size())];
+    // Maybe many noperts with the same vertex count.
+    int num_smallest = 0;
+    while (num_smallest < noperts_unsolved.size() &&
+           noperts_unsolved[0].vertices.size() ==
+           noperts_unsolved[num_smallest].vertices.size()) {
+      num_smallest++;
+    }
+    // First element must at least equal itself!
+    CHECK(num_smallest > 0);
 
-    // Storage for name inside poly, which is just a char *.
-    std::string name = SolutionDB::NopertName(nopert.id);
+    // Either a smallest, or random.
+    const int gamut =
+      (rc.Byte() & 1) ? num_smallest : noperts_unsolved.size();
+
+    const Nopert &nopert = noperts_unsolved[RandTo(&rc, gamut)];
 
     std::optional<Polyhedron> opoly =
-      PolyhedronFromVertices(nopert.vertices, name.c_str());
+      PolyhedronFromVertices(nopert.vertices,
+                             SolutionDB::NopertName(nopert.id));
 
     if (!opoly.has_value()) {
-      printf("Error constructing nopert #%d\n", nopert.id);
+      status.Print(ARED("Error constructing nopert #{}") "\n", nopert.id);
       banned.insert(nopert.id);
       std::this_thread::sleep_for(std::chrono::seconds(30));
       continue;
     }
 
-    static constexpr int method = SolutionDB::METHOD_SIMUL;
-    StatusBar status(STATUS_LINES);
+    static constexpr std::array METHODS = {
+      SolutionDB::METHOD_SIMUL,
+      SolutionDB::METHOD_PARALLEL,
+      SolutionDB::METHOD_HULL,
+    };
+    const int method = METHODS[RandTo(&rc, METHODS.size())];
+
     status.Print("Try solving nopert #" APURPLE("{}") " with "
                  ABLUE("{}") " vertices...\n",
                  nopert.id, (int)nopert.vertices.size());
@@ -1307,6 +1333,8 @@ int main(int argc, char **argv) {
   printf("\n");
 
   StatusBar status(STATUS_LINES);
+
+  Nice::SetLowPriority();
 
   if (argc > 1) {
     SolutionDB db;

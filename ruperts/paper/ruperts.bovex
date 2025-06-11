@@ -1385,7 +1385,7 @@ Note how everything is either really close to 1 or zero. Recall that
 two equal frames produce identical shadows, and that these are invalid
 Rupert configurations (the “hole” eats the entire shape). So too when
 the orientations are the same up to symmetry (e.g. one rotates the
-cube 1º and the other 91º). So I knew it was possible that we could
+cube 1° and the other 91°). So I knew it was possible that we could
 get something really close to identical shadows, but that they might
 look like they satisfy the condition within the precision of
 double-precision floating point numbers. Also, given my fetish for
