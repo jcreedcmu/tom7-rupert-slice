@@ -53,139 +53,208 @@ using frame3 = yocto::frame<double, 3>;
 // We get too many noperts at n=34 with the above
 static constexpr int NOPERT_ITERS = 1000000;
 static constexpr int MIN_VERBOSE_ITERS = 5000;
-static constexpr bool SAVE_HARD = false;
+
+static constexpr int NUM_THREADS = 16;
+
+// One attempt. Wants exclusive access to rc.
+static std::optional<std::pair<frame3, frame3>>
+Minimize(ArcFour *rc, const Polyhedron &poly) {
+  // four params for outer rotation, four params for inner
+  // rotation, two for 2d translation of inner.
+  static constexpr int D = 10;
+
+  const quat4 initial_outer_rot = RandomQuaternion(rc);
+  const quat4 initial_inner_rot = RandomQuaternion(rc);
+
+  // Get the frames from the appropriate positions in the
+  // argument.
+
+  auto OuterFrame = [&initial_outer_rot](
+      const std::array<double, D> &args) {
+      const auto &[o0, o1, o2, o3,
+                   i0_, i1_, i2_, i3_, dx_, dy_] = args;
+      quat4 tweaked_rot = normalize(quat4{
+          .x = initial_outer_rot.x + o0,
+          .y = initial_outer_rot.y + o1,
+          .z = initial_outer_rot.z + o2,
+          .w = initial_outer_rot.w + o3,
+        });
+      return yocto::rotation_frame(tweaked_rot);
+    };
+
+  auto InnerFrame = [&initial_inner_rot](
+      const std::array<double, D> &args) {
+      const auto &[o0_, o1_, o2_, o3_,
+                   i0, i1, i2, i3, dx, dy] = args;
+      quat4 tweaked_rot = normalize(quat4{
+          .x = initial_inner_rot.x + i0,
+          .y = initial_inner_rot.y + i1,
+          .z = initial_inner_rot.z + i2,
+          .w = initial_inner_rot.w + i3,
+        });
+      frame3 frame = yocto::rotation_frame(tweaked_rot);
+      frame.o.x = dx;
+      frame.o.y = dy;
+      return frame;
+    };
+
+  std::function<double(const std::array<double, D> &)> Loss =
+    [&poly, &OuterFrame, &InnerFrame](
+        const std::array<double, D> &args) {
+      solve_attempts++;
+      return LossFunctionContainsOrigin(
+          poly, OuterFrame(args), InnerFrame(args));
+    };
+
+  constexpr double Q = 0.15;
+
+  const std::array<double, D> lb =
+    {-Q, -Q, -Q, -Q,
+     -Q, -Q, -Q, -Q, -1.0, -1.0};
+  const std::array<double, D> ub =
+    {+Q, +Q, +Q, +Q,
+     +Q, +Q, +Q, +Q, +1.0, +1.0};
+
+  const int seed = RandTo(rc, 0x7FFFFFFE);
+  const auto &[args, error] =
+    Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 1, seed);
+
+  if (error == 0.0) {
+    return {std::make_pair(OuterFrame(args), InnerFrame(args))};
+  } else {
+    return std::nullopt;
+  }
+}
 
 struct SolveResult {
-  int iters = 0;
+  int64_t iters = 0;
   double clearance = 0.0;
+  frame3 outer, inner;
 };
 
+// We take the hard mutex and solve in parallel once a single
+// one has taken a lot of iterations.
+static std::mutex hard_mutex;
+static constexpr int HARD_ITERATIONS = 2000;
+
+// Single-threaded.
 static std::optional<SolveResult> DoSolve(
     int thread_idx,
+    int max_iterations,
     // Just used for debug print.
     int num_points, double depth,
-    ArcFour *rc, const Polyhedron &poly,
-    frame3 *outer_frame_out,
-    frame3 *inner_frame_out) {
+    ArcFour *rc, const Polyhedron &poly) {
   CHECK(!poly.faces->v.empty());
 
-  for (int iter = 0; iter < NOPERT_ITERS; iter++) {
+  for (int iter = 0; iter < max_iterations; iter++) {
+    const std::optional<std::pair<frame3, frame3>> sol =
+      Minimize(rc, poly);
 
-    if (iter > 0 && (iter % 10000) == 0) {
-      status->Print("[" APURPLE("{}") "] {}-prism (depth {:.11g}) "
-                     AFGCOLOR(190, 220, 190, "not solved")
-                     " yet; " AWHITE("{}") " iters...\n",
-                     thread_idx, num_points, depth, iter);
-
-      if (iter == 20000) {
-        hard++;
-        if (SAVE_HARD) {
-          std::string filename = std::format("hard.{}.{}.stl",
-                                             time(nullptr), thread_idx);
-          SaveAsSTL(poly, filename);
-          status->Print("[" APURPLE("{}") "] Hard {}-point polyhedron saved "
-                        "to " AGREEN("{}") " ({}-prism, depth {:.11g})\n",
-                        thread_idx, (int)poly.vertices.size(),
-                        filename,
-                        num_points, depth);
-        }
-      }
-    }
-
-    // TODO: We should probably explicitly check churro vs manhole.
-    // This reduces the number of parameters a lot; we're also
-    // interested in the crossover.
-
-    // four params for outer rotation, four params for inner
-    // rotation, two for 2d translation of inner.
-    static constexpr int D = 10;
-
-    const quat4 initial_outer_rot = RandomQuaternion(rc);
-    const quat4 initial_inner_rot = RandomQuaternion(rc);
-
-    // Get the frames from the appropriate positions in the
-    // argument.
-
-    auto OuterFrame = [&initial_outer_rot](
-        const std::array<double, D> &args) {
-        const auto &[o0, o1, o2, o3,
-                     i0_, i1_, i2_, i3_, dx_, dy_] = args;
-        quat4 tweaked_rot = normalize(quat4{
-            .x = initial_outer_rot.x + o0,
-            .y = initial_outer_rot.y + o1,
-            .z = initial_outer_rot.z + o2,
-            .w = initial_outer_rot.w + o3,
-          });
-        return yocto::rotation_frame(tweaked_rot);
-      };
-
-    auto InnerFrame = [&initial_inner_rot](
-        const std::array<double, D> &args) {
-        const auto &[o0_, o1_, o2_, o3_,
-                     i0, i1, i2, i3, dx, dy] = args;
-        quat4 tweaked_rot = normalize(quat4{
-            .x = initial_inner_rot.x + i0,
-            .y = initial_inner_rot.y + i1,
-            .z = initial_inner_rot.z + i2,
-            .w = initial_inner_rot.w + i3,
-          });
-        frame3 frame = yocto::rotation_frame(tweaked_rot);
-        // frame3 translate = yocto::translation_frame(
-        // vec3{.x = dx, .y = dy, .z = 0.0});
-        // return rotate * translate;
-        frame.o.x = dx;
-        frame.o.y = dy;
-        return frame;
-      };
-
-    std::function<double(const std::array<double, D> &)> Loss =
-      [&poly, &OuterFrame, &InnerFrame](
-          const std::array<double, D> &args) {
-        solve_attempts++;
-        return LossFunctionContainsOrigin(
-            poly, OuterFrame(args), InnerFrame(args));
-      };
-
-    constexpr double Q = 0.15;
-
-    const std::array<double, D> lb =
-      {-Q, -Q, -Q, -Q,
-       -Q, -Q, -Q, -Q, -1.0, -1.0};
-    const std::array<double, D> ub =
-      {+Q, +Q, +Q, +Q,
-       +Q, +Q, +Q, +Q, +1.0, +1.0};
-
-    const int seed = RandTo(rc, 0x7FFFFFFE);
-    const auto &[args, error] =
-      Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 1, seed);
-
-    if (error == 0.0) {
-      frame3 outer_frame = OuterFrame(args);
-      frame3 inner_frame = InnerFrame(args);
+    if (sol.has_value()) {
+      const auto &[outer_frame, inner_frame] = sol.value();
       std::optional<double> oc = GetClearance(poly, outer_frame, inner_frame);
       if (!oc.has_value()) {
         status->Print(ARED("Yuck") ": Solution with bogus clearance");
         continue;
       }
 
-      if (outer_frame_out != nullptr) {
-        *outer_frame_out = OuterFrame(args);
-      }
-      if (inner_frame_out != nullptr) {
-        *inner_frame_out = InnerFrame(args);
-      }
-
-      if (iter > MIN_VERBOSE_ITERS) {
-        status->Print("{}-prism (d {:.11g}) " AYELLOW("solved") " after "
-                      AWHITE("{}") " iters.\n",
-                      num_points, depth, iter);
-      }
-
-      return {SolveResult{.iters = iter, .clearance = oc.value()}};
+      return {SolveResult{
+          .iters = iter,
+          .clearance = oc.value(),
+          .outer = outer_frame,
+          .inner = inner_frame,
+        }};
     }
   }
 
   return std::nullopt;
+}
+
+static std::optional<SolveResult>
+ParallelSolve(
+    int num_threads,
+    int start_iterations,
+    int max_iterations,
+    ArcFour *rc_all, const Polyhedron &poly) {
+  CHECK(!poly.faces->v.empty());
+
+  if (start_iterations >= max_iterations) return std::nullopt;
+  Timer run_timer;
+
+  std::mutex m;
+
+  // When < 0, we have failed.
+  int64_t iters_available = max_iterations - start_iterations;
+  int64_t iters_done = start_iterations;
+  // First solution to succeed sets this.
+  std::optional<SolveResult> result;
+
+  const int64_t BATCH_SIZE = 128;
+
+  Periodically status_per(10.0);
+
+  ParallelFan(
+      num_threads,
+      [&](int thread_idx) {
+        m.lock();
+        ArcFour rc(std::format("{}.{}", thread_idx, Rand64(rc_all)));
+        // Maybe just assume this when parallel solving?
+        bool reporting = false;
+        m.unlock();
+
+        for (;;) {
+          {
+            MutexLock ml(&m);
+            if (result.has_value()) return;
+            if (iters_available <= 0) return;
+            iters_available -= BATCH_SIZE;
+            reporting = reporting || iters_done > MIN_VERBOSE_ITERS;
+          }
+
+          // Do a batch.
+
+          for (int i = 0; i < BATCH_SIZE; i++) {
+            auto ro = Minimize(&rc, poly);
+
+            {
+              MutexLock ml(&m);
+              // account for partial batch
+              iters_done++;
+
+              if (result.has_value()) return;
+              if (ro.has_value()) {
+                const auto &[outer_frame, inner_frame] = ro.value();
+                std::optional<double> oc =
+                  GetClearance(poly, outer_frame, inner_frame);
+                if (!oc.has_value()) {
+                  status->Print(ARED("Yuck")
+                                ": Solution with bogus clearance");
+                  continue;
+                }
+
+                result.emplace(SolveResult{
+                    .iters = iters_done,
+                    .clearance = oc.value(),
+                    .outer = outer_frame,
+                    .inner = inner_frame,
+                  });
+                return;
+              }
+            }
+          }
+
+          if (reporting) {
+            status_per.RunIf([&]() {
+                status->Print("Still "
+                              AFGCOLOR(220, 220, 190, "not solved")
+                              " after " AWHITE("{}") " iters... ({})\n",
+                              iters_done, ANSI::Time(run_timer.Seconds()));
+              });
+          }
+        }
+      });
+
+  return result;
 }
 
 // Improves a solution to increase clearance.
@@ -310,11 +379,21 @@ std::optional<std::tuple<frame3, frame3, double>> ComputeMinimumClearance(
   Polyhedron poly =
     ANTIPRISM ? NAntiPrism(num_points, depth) : NPrism(num_points, depth);
 
-  frame3 outer, inner;
   std::optional<SolveResult> solve_result =
-    DoSolve(thread_idx,
+    DoSolve(thread_idx, HARD_ITERATIONS,
             num_points, depth,
-            rc, poly, &outer, &inner);
+            rc, poly);
+
+  if (!solve_result.has_value()) {
+    hard++;
+    MutexLock ml(&hard_mutex);
+    status->Print(AYELLOW("HARD") " poly, {}-prism, depth={:.11g}\n",
+                  num_points, depth);
+    solve_result =
+      ParallelSolve(NUM_THREADS,
+                    HARD_ITERATIONS, NOPERT_ITERS,
+                    rc, poly);
+  }
 
   if (!solve_result.has_value()) {
     noperts++;
@@ -331,9 +410,15 @@ std::optional<std::tuple<frame3, frame3, double>> ComputeMinimumClearance(
     return std::nullopt;
 
   } else {
+    if (solve_result.value().iters > HARD_ITERATIONS) {
+      status->Print("Solved after " AGREEN("{}") " iters. Improving...",
+                    solve_result.value().iters);
+    }
+
     const auto &[best_outer, best_inner, best_error] =
       DoImprove(thread_idx, num_points, depth, rc, poly,
-                outer, inner, solve_result->clearance,
+                solve_result->outer, solve_result->inner,
+                solve_result->clearance,
                 num_improve_opts);
 
     delete poly.faces;
@@ -345,6 +430,7 @@ std::optional<std::tuple<frame3, frame3, double>> ComputeMinimumClearance(
     }
   }
 }
+
 
 static void DoChurro(int64_t num_points) {
   std::string filename =
@@ -371,8 +457,6 @@ static void DoChurro(int64_t num_points) {
   // shallow, we have a "manhole cover" (which goes through one way)
   // and when it is very long we have a "churro" (which goes through
   // another way) and we want to see where the crossover point is.
-
-  static constexpr int NUM_THREADS = 16;
 
   // Each trial is independent. We're mostly interested in the minimum
   // clearance at each depth. For a given depth we find solutions and
@@ -497,7 +581,7 @@ int main(int argc, char **argv) {
 
   status = new StatusBar(2);
 
-  for (int n = 54; n < 100; n++) {
+  for (int n = 46; n < 100; n++) {
     DoChurro(n);
   }
 
