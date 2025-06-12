@@ -496,7 +496,7 @@ struct DBImpl : public ZIP::DecodeBuffer {
       CHECK(status != TINFL_STATUS_BAD_PARAM) << "Bug? " <<
         StringPrintf("%p %zu %p %p %lld\n",
                      data, (size_t)in_bytes, circ.get(), circ.get() + circ_pos,
-                     out_bytes);
+                     (int64_t)out_bytes);
 
       CHECK(status != TINFL_STATUS_FAILED) <<
         "Flate stream is corrupt (miscellaneous).";
