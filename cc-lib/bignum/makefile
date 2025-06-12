@@ -12,7 +12,16 @@ ifeq ($(UNAME),Cygwin)
   CXX=x86_64-w64-mingw32-g++
   CC=x86_64-w64-mingw32-g++
   LFLAGS=-flto=auto -static
+
 else
+ifeq ($(UNAME),Darwin)
+  GMP_LFLAGS=`pkg-config --libs gmp`
+  GMP_CFLAGS=`pkg-config --cflags gmp` -DBIG_USE_GMP
+  CXX=g++
+  CC=gcc
+
+else
+
   # Linux, msys2
   CXX=g++
   CC=gcc
@@ -21,6 +30,9 @@ else
   PLATFORM_CXXFLAGS=-fsanitize=address -fsanitize=undefined
   LFLAGS=-flto=auto
 endif
+endif
+
+
 
 CXXFLAGS= $(PLATFORM_CXXFLAGS) -march=native -Wall -I.. --std=c++20 -g -O3
 
@@ -63,7 +75,7 @@ big-overloads-nogmp_test.exe : big-nogmp.o big-overloads_test-nogmp.o $(CCLIB_OB
 big-numbers-nogmp_test.exe : big-numbers_test-nogmp.o big-nogmp.o big-numbers-nogmp.o $(CCLIB_OBJECTS) $(BIG_NOGMP_OBJECTS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LFLAGS)
 
-polynomial-nogmp_test.exe : polynomial_test-nogmp.o polynomial-nogmp.o big.o big-numbers.o bigz.o bign.o bigq.o $(CCLIB_OBJECTS)
+polynomial-nogmp_test.exe : polynomial_test-nogmp.o polynomial-nogmp.o big-nogmp.o big-numbers-nogmp.o bigz-nogmp.o bign-nogmp.o bigq-nogmp.o $(CCLIB_OBJECTS)
 	$(CXX) $(GMP_CFLAGS) $(CXXFLAGS) $^ -o $@ $(GMP_LFLAGS) $(LFLAGS)
 
 clean :

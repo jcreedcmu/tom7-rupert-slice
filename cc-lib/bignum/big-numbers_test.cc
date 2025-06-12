@@ -5,7 +5,6 @@
 
 #include "ansi.h"
 #include "base/logging.h"
-#include "base/stringprintf.h"
 #include "big-overloads.h"
 #include "big.h"
 
@@ -51,13 +50,13 @@ static void TestPi() {
   CHECK(BigRat::Abs(err) <= epsilon) <<
     "Computed: " << computed_pi.ToString() <<
     "\nWhich is approximately: " <<
-    StringPrintf("%.17g", computed_pi.ToDouble()) <<
+    std::format("{:.17g}", computed_pi.ToDouble()) <<
     "\n\nThe error is: " << err.ToString() <<
     "\nWhich is approximately: " <<
-    StringPrintf("%.17g", err.ToDouble()) <<
+    std::format("{:.17g}", err.ToDouble()) <<
     "\n\nAnd epsilon is: " << epsilon.ToString() <<
     "\nWhich is approximately: " <<
-    StringPrintf("%.17g", epsilon.ToDouble());
+    std::format("{:.17g}", epsilon.ToDouble());
 }
 
 

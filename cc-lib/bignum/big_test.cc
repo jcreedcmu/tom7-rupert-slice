@@ -200,8 +200,8 @@ static void TestRatToDouble() {
     double expected = 100000000001.0 / 200000000000.0;
     double actual = about_one_half.ToDouble();
     CHECK(std::abs(actual - expected) < 1e-10) <<
-      StringPrintf("Expected: %.17g\n"
-                   "Actual: %.17g\n", expected, actual);
+      std::format("Expected: {:.17g}\n"
+                   "Actual: {:.17g}\n", expected, actual);
   }
 
   {
@@ -226,7 +226,7 @@ static void TestToDouble() {
     double d = big.ToDouble();
     CHECK(d > 0.0);
     CHECK(std::isfinite(d));
-    CHECK(d > 7e59 && d < 7e61) << StringPrintf("%11g\n", d);
+    CHECK(d > 7e59 && d < 7e61) << std::format("{:.11g}\n", d);
   }
 
   {
@@ -235,7 +235,7 @@ static void TestToDouble() {
     double d = big.ToDouble();
     CHECK(d < 0.0);
     CHECK(std::isfinite(d));
-    CHECK(d < -7e59 && d > -7e61) << StringPrintf("%11g\n", d);
+    CHECK(d < -7e59 && d > -7e61) << std::format("{:.11g}\n", d);
   }
 
   // TODO: Test infinite cases
@@ -280,7 +280,7 @@ static void TestPrimeFactors() {
   auto FTOS = [](const std::vector<std::pair<BigInt, int>> &fs) {
       string s;
       for (const auto &[b, i] : fs) {
-        StringAppendF(&s, "%s^%d ", b.ToString().c_str(), i);
+        AppendFormat(&s, "{}^{} ", b.ToString(), i);
       }
       return s;
     };
@@ -535,9 +535,9 @@ static void TestToInt() {
 # define ROUNDTRIP(x) do {                                              \
   BigInt bi((int64_t)(x));                                              \
   std::optional<int64_t> io = bi.ToInt();                               \
-  CHECK(io.has_value()) << StringPrintf("%llx", x) << "("               \
+  CHECK(io.has_value()) << std::format("{:x}", x) << "("                \
                         << bi.ToString(16) << ")";                      \
-  CHECK((x) == io.value()) << StringPrintf("%llx", x) << " vs "         \
+  CHECK((x) == io.value()) << std::format("{:x}", x) << " vs "          \
                            << bi.ToString(16);                          \
 } while (0)
 
@@ -755,12 +755,12 @@ static void TestDiv() {
         BigInt bq = BigInt::QuotRem(BigInt(x), BigInt(y)).first;
 
         CHECK(BigInt::Eq(bz, z)) <<
-          StringPrintf("%d / %d = %d (got %s)\n",
-                       x, y, z, bz.ToString().c_str());
+          std::format("{} / {} = {} (got {})\n",
+                       x, y, z, bz.ToString());
 
         CHECK(BigInt::Eq(bq, z)) <<
-          StringPrintf("%d / %d = %d (got %s)\n",
-                       x, y, z, bq.ToString().c_str());
+          std::format("{} / {} = {} (got {})\n",
+                      x, y, z, bq.ToString());
       }
     }
   }
@@ -776,11 +776,11 @@ static void TestCMod() {
         BigInt br = BigInt::QuotRem(BigInt(x), BigInt(y)).second;
 
         CHECK(BigInt::Eq(bz, z)) <<
-          StringPrintf("%d %% %d = %d (got %s)\n",
-                       x, y, z, bz.ToString().c_str());
+          std::format("{} % {} = {} (got {})\n",
+                       x, y, z, bz.ToString());
         CHECK(BigInt::Eq(br, z)) <<
-          StringPrintf("%d %% %d = %d (got %s)\n",
-                       x, y, z, br.ToString().c_str());
+          std::format("{} % {} = {} (got {})\n",
+                      x, y, z, br.ToString());
 
         // Also check int64 version.
         int64_t ibz = BigInt::CMod(BigInt(x), (int64_t)y);

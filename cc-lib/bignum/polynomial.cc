@@ -1,11 +1,12 @@
 #include "bignum/polynomial.h"
 
-#include <string>
-#include <map>
 #include <cmath>
+#include <format>
+#include <map>
 #include <set>
-#include <vector>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "base/logging.h"
 #include "base/stringprintf.h"
@@ -73,7 +74,7 @@ std::string Term::ToString() const {
   std::string ret;
   for (const auto &[x, e] : product) {
     if (e == 1) ret += x;
-    else StringAppendF(&ret, "%s^%d", x.c_str(), e);
+    else AppendFormat(&ret, "{}^{}", x, e);
   }
   return ret;
 }
@@ -193,7 +194,7 @@ string Polynomial::ToCode(const string &type, const Polynomial &p) {
   auto PowVar = [](const std::string &x, int e) {
     CHECK(e > 0);
     if (e == 1) return x;
-    return StringPrintf("%s_e%d", x.c_str(), e);
+    return std::format("{}_e{}", x.c_str(), e);
   };
 
 
@@ -215,16 +216,16 @@ string Polynomial::ToCode(const string &type, const Polynomial &p) {
       if (e > 1) {
         const auto &[e1, e2] = ClosePowers(&es, e);
         rev_lines.push_back(
-            StringPrintf("const %s %s = %s * %s;",
-                         type.c_str(),
-                         PowVar(x, e).c_str(),
-                         PowVar(x, e1).c_str(),
-                         PowVar(x, e2).c_str()));
+            std::format("const {} {} = {} * {};",
+                         type,
+                         PowVar(x, e),
+                         PowVar(x, e1),
+                         PowVar(x, e2)));
       }
     }
 
     for (int i = rev_lines.size() - 1; i >= 0; i--) {
-      StringAppendF(&code, "  %s\n", rev_lines[i].c_str());
+      AppendFormat(&code, "  {}\n", rev_lines[i]);
     }
   }
 
@@ -232,10 +233,10 @@ string Polynomial::ToCode(const string &type, const Polynomial &p) {
   // compute them once.
 
   auto SummandVar = [](int n) {
-    return StringPrintf("ps_%d", n);
+      return std::format("ps_{}", n);
   };
 
-  StringAppendF(&code, "  // %d summands\n", p.sum.size());
+  AppendFormat(&code, "  // {} summands\n", p.sum.size());
 
   auto TermCode = [&PowVar](int64_t coeff, const Term &term) {
       CHECK(coeff != 0);
@@ -252,11 +253,11 @@ string Polynomial::ToCode(const string &type, const Polynomial &p) {
 
       string ns;
       if (numer.empty()) {
-        ns = StringPrintf("%d", coeff);
+        ns = std::format("{}", coeff);
       } else {
         ns = Join(numer, " * ");
         if (coeff != 1) {
-          ns = StringPrintf("%d * %s", coeff, ns.c_str());
+          ns = std::format("{} * {}", coeff, ns);
         }
       }
 
@@ -265,8 +266,8 @@ string Polynomial::ToCode(const string &type, const Polynomial &p) {
       } else {
         string ds = Join(denom, " * ");
         if (denom.size() != 1)
-          ds = StringPrintf("(%s)", ds.c_str());
-        return StringPrintf("(%s) / %s", ns.c_str(), ds.c_str());
+          ds = std::format("({})", ds);
+        return std::format("({}) / {}", ns, ds);
       }
 
     };
@@ -282,28 +283,28 @@ string Polynomial::ToCode(const string &type, const Polynomial &p) {
 
       string tc = TermCode(numero.value(), t);
       string var = SummandVar(sidx);
-      StringAppendF(&code, "  %s %s = %s;\n",
-                    type.c_str(),
-                    var.c_str(),
-                    tc.c_str());
+      AppendFormat(&code, "  {} {} = {};\n",
+                   type,
+                   var,
+                   tc);
       sidx++;
     }
   }
 
   // And the final sum.
 
-  StringAppendF(&code,
-                "\n"
-                "  return ");
+  AppendFormat(&code,
+               "\n"
+               "  return ");
   {
     for (int sidx = 0; sidx < (int)p.sum.size(); sidx++) {
       if (sidx != 0)
-        StringAppendF(&code, " + ");
-      StringAppendF(&code, "%s", SummandVar(sidx).c_str());
+        AppendFormat(&code, " + ");
+      AppendFormat(&code, "{}", SummandVar(sidx).c_str());
     }
   }
 
-  StringAppendF(&code, ";\n");
+  AppendFormat(&code, ";\n");
 
   return code;
 }
@@ -452,8 +453,7 @@ std::string Polynomial::ToString() const {
       if (ts.empty()) ret += "1";
       ret += ts;
     } else {
-      StringAppendF(&ret, "%s%s", c.ToString().c_str(),
-                    t.ToString().c_str());
+      AppendFormat(&ret, "{}{}", c.ToString(), t.ToString());
     }
   }
   return ret;
