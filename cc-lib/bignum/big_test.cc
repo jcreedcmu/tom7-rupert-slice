@@ -801,7 +801,6 @@ static void TestCMod() {
   } while (0)
 
 static void TestInvert() {
-#if BIG_USE_GMP
   for (const char *bs : {
       "1", "2", "3", "4", "5", "100", "10001", "31337",
       // 2^64
@@ -864,9 +863,6 @@ static void TestInvert() {
   }
 
   printf("Modular inverse OK.\n");
-#else
-  printf("Warning: Modular inverse not implemented.\n");
-#endif
 }
 
 static void TestSwap() {

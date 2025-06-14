@@ -1318,6 +1318,20 @@ bool BigInt::IsPrime(const BigInt &x) {
   }
 }
 
+#else
+
+bool BigInt::IsPrime(const BigInt &x) {
+  std::optional<uint64_t> u64o = x.ToU64();
+  if (u64o.has_value()) {
+    return Factor64::IsPrime(u64o.value());
+  } else {
+    fprintf(stderr, "Unimplemented large factorization");
+    abort();
+    // return MpzIsPrime(x.rep);
+    return 0;
+  }
+}
+
 #endif
 
 BigRat BigRat::FromDecimal(std::string_view num) {

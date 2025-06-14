@@ -141,23 +141,20 @@ struct BigInt {
   // for large numbers.
   inline double ToDouble() const;
 
-  // TODO: Implement with bigz too. There is a very straightforward
-  // implementation.
-  #ifdef BIG_USE_GMP
   // Returns (g, s, t) where g is GCD(a, b) and as + bt = g.
   // (the "Bezout coefficients".)
   inline static std::tuple<BigInt, BigInt, BigInt>
   ExtendedGCD(const BigInt &a, const BigInt &b);
-
-  // Returns the approximate logarithm, base e.
-  inline static double NaturalLog(const BigInt &a);
-  inline static double LogBase2(const BigInt &a);
 
   // Compute the modular inverse of a mod b. Returns nullopt if
   // it does not exist.
   inline static std::optional<BigInt> ModInverse(
       const BigInt &a, const BigInt &b);
 
+  #ifdef BIG_USE_GMP
+  // Returns the approximate logarithm, base e.
+  inline static double NaturalLog(const BigInt &a);
+  inline static double LogBase2(const BigInt &a);
   #endif
 
   // Jacobi symbol (-1, 0, 1). b must be odd.
@@ -187,10 +184,8 @@ struct BigInt {
   static std::vector<std::pair<BigInt, int>>
   PrimeFactorization(const BigInt &x, int64_t max_factor = -1);
 
-  #if BIG_USE_GMP
   // Exact primality test.
   static bool IsPrime(const BigInt &x);
-  #endif
 
   // Get 64 (or so) bits of the number. Will be equal for equal a, but
   // no particular value is guaranteed. Not stable between backends or
@@ -1285,6 +1280,68 @@ int BigInt::Jacobi(const BigInt &a_input,
   }
 }
 
+std::tuple<BigInt, BigInt, BigInt>
+BigInt::ExtendedGCD(const BigInt &a, const BigInt &b) {
+  BigInt s{0}, old_s{1};
+  BigInt t{1}, old_t{0};
+  BigInt r = b, old_r = a;
+
+  while (!BigInt::IsZero(r)) {
+    const auto [quotient, rem] = BigInt::QuotRem(old_r, r);
+
+    old_r = std::move(r);
+    r = std::move(rem);
+
+    // Update Bezout coefficients s and t.
+    BigInt next_s = BigInt::Minus(old_s, BigInt::Times(quotient, s));
+    old_s = std::move(s);
+    s = std::move(next_s);
+
+    BigInt next_t = BigInt::Minus(old_t, BigInt::Times(quotient, t));
+    old_t = std::move(t);
+    t = std::move(next_t);
+  }
+
+  // Now we have
+  // g = old_r
+  // s = old_s
+  // t = old_t
+
+  // The GCD is conventionally non-negative. If old_r is negative
+  // (which can happen if inputs are negative), we negate all three
+  // results to maintain the identity a*s + b*t = g.
+  if (BigInt::Sign(old_r) < 0) {
+    old_r = BigInt::Negate(std::move(old_r));
+    old_s = BigInt::Negate(std::move(old_s));
+    old_t = BigInt::Negate(std::move(old_t));
+  }
+
+  return std::make_tuple(std::move(old_r),
+                         std::move(old_s),
+                         std::move(old_t));
+}
+
+std::optional<BigInt> BigInt::ModInverse(
+    const BigInt &a, const BigInt &b) {
+  // The modulus b must be positive.
+  if (BigInt::LessEq(b, 0)) {
+    return std::nullopt;
+  }
+
+  //   a*s + b*t = g
+  // GCD g must be 1. So then we have
+  //   a*s + 0*t = 1 (mod b)  =>  a*s = 1 (mod b)
+  // So s is the inverse we're looking for.
+  auto [g, s, t] = BigInt::ExtendedGCD(a, b);
+
+  if (!BigInt::Eq(g, 1)) {
+    // No inverse exists.
+    return std::nullopt;
+  }
+
+  // Ensure s is in the canonical range [0, b - 1].
+  return std::make_optional(Mod(s, b));
+}
 
 BigInt BigInt::Negate(const BigInt &a) {
   return BigInt{BzNegate(a.rep), nullptr};
