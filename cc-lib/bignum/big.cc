@@ -748,101 +748,6 @@ static constexpr int FIRST_OMITTED_PRIME = 7927;
 
 #ifndef BIG_USE_GMP
 
-// PERF: Could just use a better algorithm here. The
-// Pollard-Rho implementation below would just need modular
-// power (which we should offer in the interface, anyway).
-
-std::vector<std::pair<BigInt, int>>
-BigInt::PrimeFactorization(const BigInt &x, int64_t mf) {
-  // Simple trial division.
-  // It would not be hard to incorporate Fermat's method too,
-  // for cases that the number has factors close to its square
-  // root too (this may be common?).
-
-  // Factors in increasing order.
-  std::vector<std::pair<BigInt, int>> factors;
-
-  BigInt cur = x;
-  BigInt zero(0);
-  BigInt two(2);
-
-  // Illegal input.
-  if (!BigInt::Greater(x, zero))
-    return factors;
-
-  BigInt max_factor(mf);
-  // Without a max factor, use the starting number itself.
-  if (mf < 0 || BigInt::Greater(max_factor, x))
-    max_factor = x;
-
-  // Add the factor, or increment its exponent if it is the
-  // one already at the end. This requires that the factors
-  // are added in ascending order (which they are).
-  auto PushFactor = [&factors](const BigInt &b) {
-      if (!factors.empty() &&
-          BigInt::Eq(factors.back().first, b)) {
-        factors.back().second++;
-      } else {
-        factors.push_back(make_pair(b, 1));
-      }
-    };
-
-  // First, using the prime list.
-  for (int i = 0; i < (int)PRIMES.size(); /* in loop */) {
-    BigInt prime(PRIMES[i]);
-    if (BigInt::Greater(prime, max_factor))
-      break;
-
-    const auto [q, r] = BigInt::QuotRem(cur, prime);
-    if (BigInt::Eq(r, zero)) {
-      cur = q;
-      if (BigInt::Greater(max_factor, cur))
-        max_factor = cur;
-      PushFactor(prime);
-      // But don't increment i, as it may appear as a
-      // factor many times.
-    } else {
-      i++;
-    }
-  }
-
-  // Once we exhausted the prime list, do the same
-  // but with odd numbers up to the square root.
-  BigInt divisor((int64_t)PRIMES.back());
-  divisor = BigInt::Plus(divisor, two);
-  for (;;) {
-    if (mf >= 0 && BigInt::Greater(divisor, max_factor))
-      break;
-
-    // TODO: Would be faster to compute ceil(sqrt(cur)) each
-    // time we have a new cur, right? We can then just have
-    // the single max_factor as well.
-    BigInt sq = BigInt::Times(divisor, divisor);
-    if (BigInt::Greater(sq, cur))
-      break;
-
-    // TODO: Is it faster to skip ones with small factors?
-    const auto [q, r] = BigInt::QuotRem(cur, divisor);
-    if (BigInt::Eq(r, zero)) {
-      cur = q;
-      PushFactor(divisor);
-      // But don't increment i, as it may appear as a
-      // factor many times.
-    } else {
-      // At least we skip even ones.
-      divisor = BigInt::Plus(divisor, two);
-    }
-  }
-
-  // And the number itself, which we now know is prime
-  // (unless we reached the max factor).
-  if (!BigInt::Eq(cur, BigInt(1))) {
-    PushFactor(cur);
-  }
-
-  return factors;
-}
-
 // PERF: There must be better ways to do this!
 double BigRat::ToDoubleIterative(const BigRat &r_in) {
   static constexpr bool VERBOSE = false;
@@ -1005,15 +910,18 @@ BigInt BigInt::RandTo(const std::function<uint64_t()> &r,
   }
 }
 
-#ifdef BIG_USE_GMP
+// The following are helpers for primality testing and factorization.
+// These just use the public BigInt interface. Note that we also have
+// versions specialized to GMP's mpz type, since we want to avoid
+// packing and unpacking bigints in those inner loops.
 
 // assuming sorted factors array
-void BigInt::InsertFactor(std::vector<std::pair<BigInt, int>> *factors,
-                          mpz_t prime, unsigned int exponent) {
+static void InsertFactor(std::vector<std::pair<BigInt, int>> *factors,
+                         const BigInt &prime, unsigned int exponent) {
   // PERF binary search
   int i;
   for (i = factors->size() - 1; i >= 0; i--) {
-    int cmp = mpz_cmp((*factors)[i].first.rep, prime);
+    int cmp = BigInt::Compare((*factors)[i].first, prime);
     if (cmp == 0) {
       // Increase exponent of existing factor.
       (*factors)[i].second += exponent;
@@ -1025,22 +933,232 @@ void BigInt::InsertFactor(std::vector<std::pair<BigInt, int>> *factors,
 
   // PERF: btree or something?
   // Not found. Insert new factor.
-  BigInt b;
-  mpz_set(b.rep, prime);
   // Note that we have to first add 1 to i, because adding -1 to
   // the iterator would cause undefined behavior!
   factors->insert(factors->begin() + (i + 1),
-                  std::make_pair(std::move(b), exponent));
+                  std::make_pair(prime, exponent));
 }
 
-void BigInt::InsertFactorUI(std::vector<std::pair<BigInt, int>> *factors,
-                            unsigned long prime,
-                            unsigned int exponent) {
+static void InsertFactorUI(std::vector<std::pair<BigInt, int>> *factors,
+                           unsigned long uprime,
+                           unsigned int exponent) {
   // PERF can avoid allocation when it's already present
-  mpz_t pz;
-  mpz_init_set_ui(pz, prime);
-  InsertFactor(factors, pz, exponent);
-  mpz_clear(pz);
+  BigInt prime(uprime);
+  InsertFactor(factors, prime, exponent);
+}
+
+// A single Miller-Rabin test. Returns true if n is definitely composite,
+// false if it is probably prime.
+static bool MillerRabinTest(const BigInt &n, const BigInt &nm1,
+                            const BigInt &d, uint64_t k, const BigInt &a) {
+  // Compute x = a^d mod n
+  BigInt x = BigInt::PowMod(a, d, n);
+
+  if (BigInt::Eq(x, 1) || BigInt::Eq(x, nm1)) {
+    // Probably prime.
+    return false;
+  }
+
+  for (uint64_t i = 1; i < k; i++) {
+    x = BigInt::Times(x, x);
+    x = BigInt::CMod(x, n);
+    if (BigInt::Eq(x, nm1)) {
+      // Probably prime.
+      return false;
+    }
+    if (BigInt::Eq(x, 1)) {
+      // Definitely composite.
+      return true;
+    }
+  }
+
+  // Definitely composite.
+  return true;
+}
+
+static void FactorPollardRho(const BigInt &n,
+                             std::vector<std::pair<BigInt, int>> *factors);
+
+// Deterministic primality test without trial division.
+static bool IsPrimeInternal(const BigInt &n) {
+  fprintf(stderr, "IsPrimeInternal? %s\n", n.ToString().c_str());
+
+  // Once we have a 64-bit number, we use a fast deterministic
+  // algorithm.
+  std::optional<uint64_t> u64o = n.ToU64();
+  if (u64o.has_value()) {
+    return Factor64::IsPrime(u64o.value());
+  }
+
+  // Pre-computation for both tests.
+  BigInt nm1 = BigInt::Minus(n, 1);
+
+  // Quick Miller-Rabin check with base 2. This filters out most
+  // composites very quickly.
+  if (MillerRabinTest(n, nm1,
+                      BigInt::RightShift(nm1, BigInt::BitwiseCtz(nm1)),
+                      BigInt::BitwiseCtz(nm1),
+                      BigInt(2))) {
+    return false;
+  }
+
+  // Recursively factor n - 1.
+  std::vector<std::pair<BigInt, int>> factors_nm1 =
+      BigInt::PrimeFactorization(nm1);
+
+  // Try to find a witness 'a' that proves primality (Lucas) or proves
+  // compositeness (Miller-Rabin).
+  for (int i = 0; i < (int)PRIMES.size(); i++) {
+    BigInt a(PRIMES[i]);
+    if (BigInt::GreaterEq(a, n)) break;
+
+    // --- Lucas Test Part ---
+    bool is_witness = true;
+    for (const auto &[p, exp] : factors_nm1) {
+      BigInt exponent = BigInt::DivExact(nm1, p);
+      BigInt res = BigInt::PowMod(a, exponent, n);
+      if (BigInt::Eq(res, 1)) {
+        is_witness = false;
+        break;
+      }
+    }
+
+    if (is_witness) {
+      // We found a witness. n is proven to be prime.
+      return true;
+    }
+
+    // We already checked a=2. Don't re-check.
+    if (PRIMES[i] > 2) {
+      if (MillerRabinTest(n, nm1,
+                          BigInt::RightShift(nm1, BigInt::BitwiseCtz(nm1)),
+                          BigInt::BitwiseCtz(nm1), a)) {
+        // Definitely composite.
+        return false;
+      }
+    }
+  }
+
+  fprintf(stderr, "Lucas prime test failure.  This should not happen\n");
+  abort();
+  return false;
+}
+
+
+static void FactorPollardRhoInner(
+    const BigInt &n, int64_t a,
+    std::vector<std::pair<BigInt, int>> *factors) {
+
+  if (BigInt::Eq(n, 1)) return;
+
+  if (IsPrimeInternal(n)) {
+    InsertFactor(factors, n, 1);
+    return;
+  }
+
+  // If it fits in 64 bits, use the faster specialized version.
+  std::optional<uint64_t> u64o = n.ToU64();
+  if (u64o.has_value()) {
+    uint64_t b[15];
+    uint8_t e[15];
+    int num = Factor64::FactorizePreallocated(u64o.value(), b, e);
+    for (int i = 0; i < num; i++) {
+      InsertFactor(factors, BigInt(b[i]), e[i]);
+    }
+    return;
+  }
+
+  // Pollard's Rho with Floyd's cycle-finding algorithm.
+  BigInt x(2), y(2), d(1);
+
+  auto F = [&](const BigInt &val) {
+    BigInt v2 = BigInt::Times(val, val);
+    BigInt v2pc = BigInt::Plus(v2, a);
+    return BigInt::CMod(v2pc, n);
+  };
+
+  while (BigInt::Eq(d, 1)) {
+    x = F(x);
+    y = F(F(y));
+    d = BigInt::GCD(BigInt::Abs(BigInt::Minus(x, y)), n);
+  }
+
+  if (BigInt::Eq(d, n)) {
+    // Didn't find a factor. Next a.
+    FactorPollardRhoInner(n, a + 1, factors);
+  } else {
+    // Found a factor. Recursively factor it and the remaining part.
+    FactorPollardRho(d, factors);
+    FactorPollardRho(BigInt::DivExact(n, d), factors);
+  }
+}
+
+// Factor n, writing the factors to the factor vector (which must be
+// sorted).
+static void FactorPollardRho(const BigInt &n,
+                             std::vector<std::pair<BigInt, int>> *factors) {
+  FactorPollardRhoInner(n, 1, factors);
+}
+
+#ifndef BIG_USE_GMP
+// Note: max_factor is ignored here too, so we should probably just
+// retire that parameter now.
+std::vector<std::pair<BigInt, int>>
+BigInt::PrimeFactorization(const BigInt &x, int64_t max_factor) {
+  std::vector<std::pair<BigInt, int>> factors;
+  if (BigInt::LessEq(x, 1)) return factors;
+
+  BigInt cur = x;
+
+  // Factor out powers of 2.
+  if (cur.IsEven()) {
+    uint64_t twos = BigInt::BitwiseCtz(cur);
+    if (twos > 0) {
+      InsertFactorUI(&factors, 2, twos);
+      cur = BigInt::RightShift(cur, twos);
+    }
+    if (BigInt::Eq(cur, 1)) return factors;
+  }
+
+  // Trial division for small odd primes from the list.
+  for (size_t i = 1; i < PRIMES.size(); i++) {
+    int64_t p = PRIMES[i];
+
+    // Optimization: if cur < p*p, then we have exhaustively
+    // trial-divided, so it is prime.
+    if (BigInt::Less(cur, p * p)) {
+      InsertFactor(&factors, cur, 1);
+      return factors;
+    }
+
+    if (BigInt::DivisibleBy(cur, p)) {
+      unsigned int count = 0;
+      do {
+        cur = BigInt::DivExact(cur, p);
+        count++;
+      } while (BigInt::DivisibleBy(cur, p));
+
+      InsertFactorUI(&factors, p, count);
+      if (BigInt::Eq(cur, 1)) return factors;
+    }
+  }
+
+  // Now the general routine.
+  FactorPollardRho(cur, &factors);
+  return factors;
+}
+#endif
+
+// If GMP is enabled, primality testing / factorization code specialized
+// to that representation.
+#ifdef BIG_USE_GMP
+
+void BigInt::InsertFactorMPZ(std::vector<std::pair<BigInt, int>> *factors,
+                             mpz_t prime,
+                             unsigned int exponent) {
+  BigInt b;
+  mpz_set(b.rep, prime);
+  InsertFactor(factors, b, exponent);
 }
 
 void BigInt::FactorUsingDivision(mpz_t t,
@@ -1059,7 +1177,7 @@ void BigInt::FactorUsingDivision(mpz_t t,
         break;
     } else {
       mpz_tdiv_q_ui(t, t, p);
-      InsertFactorUI(factors, p);
+      InsertFactorUI(factors, p, 1);
     }
   }
 }
@@ -1088,32 +1206,32 @@ bool BigInt::MpzIsPrime(const mpz_t n) {
   bool is_prime;
   mpz_t q, a, nm1, tmp;
 
-  if (mpz_cmp_ui (n, 1) <= 0)
+  if (mpz_cmp_ui(n, 1) <= 0)
     return 0;
 
   /* We have already factored out small primes. */
-  if (mpz_cmp_ui (n, (long) FIRST_OMITTED_PRIME * FIRST_OMITTED_PRIME) < 0)
+  if (mpz_cmp_ui(n, (long) FIRST_OMITTED_PRIME * FIRST_OMITTED_PRIME) < 0)
     return 1;
 
-  mpz_inits (q, a, nm1, tmp, NULL);
+  mpz_inits(q, a, nm1, tmp, nullptr);
 
   /* Precomputation for Miller-Rabin.  */
-  mpz_sub_ui (nm1, n, 1);
+  mpz_sub_ui(nm1, n, 1);
 
   /* Find q and k, where q is odd and n = 1 + 2**k * q.  */
-  k = mpz_scan1 (nm1, 0);
-  mpz_tdiv_q_2exp (q, nm1, k);
+  k = mpz_scan1(nm1, 0);
+  mpz_tdiv_q_2exp(q, nm1, k);
 
-  mpz_set_ui (a, 2);
+  mpz_set_ui(a, 2);
 
   /* Perform a Miller-Rabin test, which finds most composites quickly.  */
-  if (!mp_millerrabin (n, nm1, a, tmp, q, k)) {
-    mpz_clears (q, a, nm1, tmp, NULL);
+  if (!mp_millerrabin(n, nm1, a, tmp, q, k)) {
+    mpz_clears(q, a, nm1, tmp, nullptr);
     return false;
   }
 
   /* Factor n-1 for Lucas.  */
-  mpz_set (tmp, nm1);
+  mpz_set(tmp, nm1);
 
   std::vector<std::pair<BigInt, int>> factors =
     PrimeFactorizationInternal(tmp);
@@ -1132,19 +1250,19 @@ bool BigInt::MpzIsPrime(const mpz_t n) {
     if (is_prime)
       goto ret1;
 
-    mpz_set_ui (a, PRIMES[r]);
+    mpz_set_ui(a, PRIMES[r]);
 
-    if (!mp_millerrabin (n, nm1, a, tmp, q, k)) {
+    if (!mp_millerrabin(n, nm1, a, tmp, q, k)) {
       is_prime = false;
       goto ret1;
     }
   }
 
-  fprintf (stderr, "Lucas prime test failure.  This should not happen\n");
-  abort ();
+  fprintf(stderr, "Lucas prime test failure.  This should not happen\n");
+  abort();
 
  ret1:
-  mpz_clears (q, a, nm1, tmp, NULL);
+  mpz_clears(q, a, nm1, tmp, nullptr);
 
   return is_prime;
 }
@@ -1156,76 +1274,76 @@ void BigInt::FactorUsingPollardRho(
   mpz_t t, t2;
   unsigned long long k, l, i;
 
-  mpz_inits (t, t2, NULL);
-  mpz_init_set_si (y, 2);
-  mpz_init_set_si (x, 2);
-  mpz_init_set_si (z, 2);
-  mpz_init_set_ui (P, 1);
+  mpz_inits(t, t2, nullptr);
+  mpz_init_set_si(y, 2);
+  mpz_init_set_si(x, 2);
+  mpz_init_set_si(z, 2);
+  mpz_init_set_ui(P, 1);
   k = 1;
   l = 1;
 
-  while (mpz_cmp_ui (n, 1) != 0) {
+  while (mpz_cmp_ui(n, 1) != 0) {
     for (;;) {
       do {
-        mpz_mul (t, x, x);
-        mpz_mod (x, t, n);
-        mpz_add_ui (x, x, a);
+        mpz_mul(t, x, x);
+        mpz_mod(x, t, n);
+        mpz_add_ui(x, x, a);
 
-        mpz_sub (t, z, x);
-        mpz_mul (t2, P, t);
-        mpz_mod (P, t2, n);
+        mpz_sub(t, z, x);
+        mpz_mul(t2, P, t);
+        mpz_mod(P, t2, n);
 
         if (k % 32 == 1) {
-          mpz_gcd (t, P, n);
-          if (mpz_cmp_ui (t, 1) != 0)
+          mpz_gcd(t, P, n);
+          if (mpz_cmp_ui(t, 1) != 0)
             goto factor_found;
-          mpz_set (y, x);
+          mpz_set(y, x);
         }
-      }
-      while (--k != 0);
+      } while (--k != 0);
 
-      mpz_set (z, x);
+      mpz_set(z, x);
       k = l;
       l = 2 * l;
       for (i = 0; i < k; i++) {
-        mpz_mul (t, x, x);
-        mpz_mod (x, t, n);
-        mpz_add_ui (x, x, a);
+        mpz_mul(t, x, x);
+        mpz_mod(x, t, n);
+        mpz_add_ui(x, x, a);
       }
-      mpz_set (y, x);
+      mpz_set(y, x);
     }
 
   factor_found:
     do {
-      mpz_mul (t, y, y);
-      mpz_mod (y, t, n);
-      mpz_add_ui (y, y, a);
+      mpz_mul(t, y, y);
+      mpz_mod(y, t, n);
+      mpz_add_ui(y, y, a);
 
       mpz_sub (t, z, y);
       mpz_gcd (t, t, n);
-    } while (mpz_cmp_ui (t, 1) == 0);
+    } while (mpz_cmp_ui(t, 1) == 0);
 
-    mpz_divexact (n, n, t); /* divide by t, before t is overwritten */
+    // divide by t, before t is overwritten.
+    mpz_divexact(n, n, t);
 
     // PERF: We could transition to the 64 bit code if it has become
     // small enough.
     if (!MpzIsPrime(t)) {
-      FactorUsingPollardRho (t, a + 1, factors);
+      FactorUsingPollardRho(t, a + 1, factors);
     } else {
-      InsertFactor(factors, t);
+      InsertFactorMPZ(factors, t, 1);
     }
 
     if (MpzIsPrime(n)) {
-      InsertFactor(factors, n);
+      InsertFactorMPZ(factors, n, 1);
       break;
     }
 
-    mpz_mod (x, x, n);
-    mpz_mod (z, z, n);
-    mpz_mod (y, y, n);
+    mpz_mod(x, x, n);
+    mpz_mod(z, z, n);
+    mpz_mod(y, y, n);
   }
 
-  mpz_clears (P, t2, t, z, x, y, nullptr);
+  mpz_clears(P, t2, t, z, x, y, nullptr);
 }
 
 static std::optional<uint64_t> GetU64(const mpz_t rep) {
@@ -1277,7 +1395,7 @@ BigInt::PrimeFactorizationInternal(mpz_t x) {
         // Note: Can't use InsertFactorUI here, as the factor may
         // be larger than unsigned int.
         BigInt p(b[i]);
-        InsertFactor(&factors, p.rep, e[i]);
+        InsertFactor(&factors, p, e[i]);
       }
 
     } else {
@@ -1286,13 +1404,14 @@ BigInt::PrimeFactorizationInternal(mpz_t x) {
 
       if (mpz_cmp_ui(x, 1) != 0) {
         if (MpzIsPrime(x))
-          InsertFactor(&factors, x);
+          InsertFactorMPZ(&factors, x, 1);
         else
           FactorUsingPollardRho(x, 1, &factors);
       }
     }
   } else {
     // 0 is allowed, but they should never be negative.
+    // (XXX: I don't think we should allow zero?)
     assert(mpz_sgn(x) != -1);
   }
 
@@ -1309,30 +1428,45 @@ BigInt::PrimeFactorization(const BigInt &x, int64_t max_factor_ignored) {
   return ret;
 }
 
-bool BigInt::IsPrime(const BigInt &x) {
-  std::optional<uint64_t> u64o = GetU64(x.rep);
-  if (u64o.has_value()) {
-    return Factor64::IsPrime(u64o.value());
-  } else {
-    return MpzIsPrime(x.rep);
-  }
-}
-
-#else
+#endif
 
 bool BigInt::IsPrime(const BigInt &x) {
   std::optional<uint64_t> u64o = x.ToU64();
   if (u64o.has_value()) {
     return Factor64::IsPrime(u64o.value());
   } else {
-    fprintf(stderr, "Unimplemented large factorization");
-    abort();
-    // return MpzIsPrime(x.rep);
-    return 0;
+    // Quick trial division check.
+    for (int64_t p : PRIMES) {
+      if (BigInt::DivisibleBy(x, p)) return false;
+    }
+
+    #if BIG_USE_GMP
+    return MpzIsPrime(x.rep);
+    #else
+    return IsPrimeInternal(x);
+    #endif
   }
 }
 
-#endif
+BigInt BigInt::PowMod(const BigInt &base_in, const BigInt &exp_in,
+                      const BigInt &mod) {
+  BigInt exp = exp_in;
+  BigInt res(1);
+  BigInt base = BigInt::CMod(base_in, mod);
+  while (!BigInt::IsZero(exp)) {
+    if (exp.IsOdd()) {
+      res = BigInt::Times(res, base);
+      res = BigInt::CMod(res, mod);
+    }
+    // PERF: Rather than shifting, we should expose "test bit"
+    // functionality.
+    exp = BigInt::RightShift(exp, 1);
+    base = BigInt::Times(base, base);
+    base = BigInt::CMod(base, mod);
+  }
+  return res;
+}
+
 
 BigRat BigRat::FromDecimal(std::string_view num) {
   // Parse numerator and denominator as bigints.

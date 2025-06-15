@@ -265,6 +265,38 @@ static void TestPow() {
   CHECK(BigRat::Eq(qqq, qcubed));
 }
 
+// Sloooow
+static BigInt ReferencePowMod(const BigInt &base, const BigInt &exp,
+                              const BigInt &mod) {
+  auto eo = exp.ToInt();
+  CHECK(eo.has_value());
+  const int64_t e = eo.value();
+  BigInt res(1);
+
+  for (int i = 0; i < e; i++) {
+    res = BigInt::CMod(BigInt::Times(res, base), mod);
+  }
+
+  return res;
+}
+
+static void TestPowMod() {
+  for (const std::string &aa : {"0", "1", "2", "131", "1751", "31337"}) {
+    BigInt a(aa);
+    for (const std::string &bb : {"0", "1", "2", "17", "1331", "101017"}) {
+      BigInt b(bb);
+
+      for (const std::string &mm : {"2", "3", "5", "8", "65537"}) {
+        BigInt m(mm);
+
+        BigInt r = BigInt::PowMod(a, b, m);
+        BigInt rr = ReferencePowMod(a, b, m);
+        CHECK_SEQ(r.ToString(), rr.ToString());
+      }
+    }
+  }
+}
+
 // TODO: Test/document behavior on negative inputs
 static void TestQuotRem() {
   BigInt a(37);
@@ -317,9 +349,6 @@ static void TestPrimeFactors() {
     CHECK(factors[0].second == 2) << factors[0].second;
   }
 
-  // This will never finish without a better algorithm
-  // in the non-gmp case.
-  #ifdef BIG_USE_GMP
   {
     // Largest 64-bit prime.
     BigInt p("18446744073709551557");
@@ -349,7 +378,6 @@ static void TestPrimeFactors() {
                      BigInt("14855268094714803459647799371")));
     CHECK(factors[2].second == 1);
   }
-#endif
 
   {
     BigInt x(1);
@@ -368,41 +396,38 @@ static void TestPrimeFactors() {
     CHECK(factors.size() == f.size());
     for (int i = 0; i < (int)f.size(); i++) {
       CHECK(factors[i].second == 1);
-      #if BIG_USE_GMP
       CHECK(BigInt::IsPrime(factors[i].first));
-      #endif
       CHECK(BigInt::Eq(factors[i].first, BigInt(f[i])));
     }
   }
 
-  #ifndef BIG_USE_GMP
-  // XXX max_factor is not supported in gmp factorer.
-  {
-    // 100-digit prime; trial factoring will not succeed!
-    BigInt p1("207472224677348520782169522210760858748099647"
-              "472111729275299258991219668475054965831008441"
-              "6732550077");
-    BigInt p2("31337");
+  CHECK(BigInt::IsPrime(BigInt("2847516444895613959067741")));
+  CHECK(!BigInt::IsPrime(BigInt("934765193746581762467777777777777777777777")));
+  CHECK(!BigInt::IsPrime(BigInt(
+                             "934765193746581762467777777777777777777777"
+                             "99999999999999999999999999")));
 
-    BigInt x = BigInt::Times(p1, p2);
+  // This is 7907^8, bigger than 2^64 and only with factors in the
+  // trial division list.
+  CHECK(!BigInt::IsPrime(BigInt("15278964097073166593290816202401")));
 
-    printf("100-digit:\n");
-    // Importantly, we set a max factor (greater than p2, and
-    // greater than the largest value in the primes list).
-    std::vector<std::pair<BigInt, int>> factors =
-      BigInt::PrimeFactorization(x, 40000);
+  CHECK(BigInt::IsPrime(BigInt("351287497542881756276856991")));
+  CHECK(!BigInt::IsPrime(BigInt("351287497542881756276856997")));
 
-    CHECK(factors.size() == 2);
-    CHECK(factors[0].second == 1);
-    CHECK(factors[1].second == 1);
-    CHECK(BigInt::Eq(factors[0].first, p2));
-    CHECK(BigInt::Eq(factors[1].first, p1));
-  }
-  #endif
+  /*
+    too hard for current implementation
+
+    CHECK(BigInt::IsPrime(BigInt("36810898113683429059692379139738721323647376409491014157")));
+
+    CHECK(BigInt::IsPrime(BigInt("2871856218107427379960936944425882732846010327626613179095159878800893591143935691173601490558081638031076860171")));
+
+    CHECK(BigInt::IsPrime(BigInt("23778489029892836999435984213197969543147208"
+                               "12182515510434297800338407156682609569285213"
+                               "24829276602215887604926261909612695238233550"
+                               "161061361")));
+  */
 
   // Primorials
-  #if BIG_USE_GMP
-  // TODO: Enable this when we have IsPrime.
   {
     BigInt prim(1);
     for (uint64_t n = 2; n <= 128; n++) {
@@ -425,7 +450,6 @@ static void TestPrimeFactors() {
       CHECK(BigInt::Eq(product, prim)) << n;
     }
   }
-  #endif
 
   printf("Prime factorization OK.\n");
 }
@@ -1239,6 +1263,7 @@ int main(int argc, char **argv) {
 
   TestPow();
   TestQuotRem();
+  TestPowMod();
 
   TestRatTruncate();
 

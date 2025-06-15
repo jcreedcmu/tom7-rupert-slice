@@ -7,7 +7,7 @@
 #include <cstdint>
 
 struct Factorization {
-  // Prime factorization with trial division (not fast). Input must be > 1.
+  // Fast prime factorization. Input must be > 1.
   // Output is pairs of [prime, exponent] in sorted order (by prime).
   static std::vector<std::pair<uint64_t, int>> Factorize(uint64_t n);
 
@@ -43,7 +43,8 @@ struct Factorization {
   // Not fast! Currently just running IsPrime on odd numbers.
   static uint64_t NextPrime(uint64_t n);
 
-  // Simpler, slower reference version. Generally just useful for testing.
+  // Simpler, slower reference version (trial division). Generally
+  // just useful for testing.
   static std::vector<std::pair<uint64_t, int>> ReferenceFactorize(uint64_t n);
 };
 

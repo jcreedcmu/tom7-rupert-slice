@@ -141,6 +141,10 @@ struct BigInt {
   // for large numbers.
   inline double ToDouble() const;
 
+  // Compute (base^exp) % mod.
+  static BigInt PowMod(const BigInt &base, const BigInt &exp,
+                       const BigInt &mod);
+
   // Returns (g, s, t) where g is GCD(a, b) and as + bt = g.
   // (the "Bezout coefficients".)
   inline static std::tuple<BigInt, BigInt, BigInt>
@@ -171,14 +175,15 @@ struct BigInt {
   // than 2^64-1.
   inline std::optional<uint64_t> ToU64() const;
 
-  // Factors using trial division (slow!)
+  // Compute the prime factorization of x,
   // such that a0^b0 * a1^b1 * ... * an^bn = x,
   // where a0...an are primes in ascending order
-  // and bi is >= 1
+  // and bi is >= 1.
+  // This will be empty for x = 1.
   //
   // If max_factor is not -1, then the final term may
   // be composite if its factors are all greater than this
-  // number.
+  // number. (This argument is currently ignored, though.)
   //
   // Input must be positive.
   static std::vector<std::pair<BigInt, int>>
@@ -197,7 +202,7 @@ struct BigInt {
 
  private:
   friend struct BigRat;
-  #ifdef BIG_USE_GMP
+#ifdef BIG_USE_GMP
   using Rep = mpz_t;
   void SetU64(uint64_t u) {
     // Need to be able to set 4 bytes at a time.
@@ -211,11 +216,6 @@ struct BigInt {
 
   // XXX figure out how to hide this stuff away.
   // Could also move this to a big-util or whatever.
-  static void InsertFactor(std::vector<std::pair<BigInt, int>> *, mpz_t,
-                           unsigned int exponent = 1);
-  static void InsertFactorUI(
-      std::vector<std::pair<BigInt, int>> *, unsigned long,
-      unsigned int exponent = 1);
   static void FactorUsingDivision(
       mpz_t, std::vector<std::pair<BigInt, int>> *);
   static std::vector<std::pair<BigInt, int>>
@@ -224,6 +224,9 @@ struct BigInt {
       mpz_t n, unsigned long a,
       std::vector<std::pair<BigInt, int>> *factors);
   static bool MpzIsPrime(const mpz_t n);
+  static void InsertFactorMPZ(std::vector<std::pair<BigInt, int>> *factors,
+                              mpz_t p,
+                              unsigned int exponent);
 
   #else
   // BigZ is a pointer to a bigz struct, which is the
