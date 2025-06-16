@@ -1,10 +1,12 @@
 
 #include "parser-combinators.h"
 
+#include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "base/logging.h"
-#include "base/stringprintf.h"
 
 TokenSpan<char> CharSpan(const std::string &s) {
   return TokenSpan<char>(s.data(), s.size());
@@ -285,10 +287,10 @@ static void TestFix2() {
             (((Is<char>('l') >> DD) && (Is('i') >> EE)) << Is('e')) >
               [](const auto &p) -> std::string {
                   const auto &[var, exp] = p.first;
-                  return StringPrintf("let val %s = %s in %s end",
-                                      var.c_str(),
-                                      exp.c_str(),
-                                      p.second.c_str());
+                  return std::format("let val {} = {} in {} end",
+                                     var,
+                                     exp,
+                                     p.second);
               };
           return zero || let;
         },
@@ -348,7 +350,7 @@ static void TestFixity() {
   plus.item = "UNUSED";
   plus.precedence = 3;
   plus.binop = [](const std::string &a, const std::string &b) {
-      return StringPrintf("Plus(%s, %s)", a.c_str(), b.c_str());
+      return std::format("Plus({}, {})", a, b);
     };
 
   Item minus;
@@ -357,7 +359,7 @@ static void TestFixity() {
   minus.item = "UNUSED";
   minus.precedence = 3;
   minus.binop = [](const std::string &a, const std::string &b) {
-      return StringPrintf("Minus(%s, %s)", a.c_str(), b.c_str());
+      return std::format("Minus({}, {})", a, b);
     };
 
   Item times;
@@ -366,7 +368,7 @@ static void TestFixity() {
   times.item = "UNUSED";
   times.precedence = 5;
   times.binop = [](const std::string &a, const std::string &b) {
-      return StringPrintf("Times(%s, %s)", a.c_str(), b.c_str());
+      return std::format("Times({}, {})", a, b);
     };
 
   Item bang;
@@ -374,7 +376,7 @@ static void TestFixity() {
   bang.item = "UNUSED";
   bang.precedence = 7;
   bang.unop = [](const std::string &a) {
-      return StringPrintf("Bang(%s)", a.c_str());
+      return std::format("Bang({})", a);
     };
 
   Item huh;
@@ -382,7 +384,7 @@ static void TestFixity() {
   huh.item = "UNUSED";
   huh.precedence = 7;
   huh.unop = [](const std::string &a) {
-      return StringPrintf("Huh(%s)", a.c_str());
+      return std::format("Huh({})", a);
     };
 
   auto Atom = [](const std::string &var) {
@@ -454,7 +456,7 @@ static void TestFixity() {
                Atom("x"), plus, Atom("y"), plus, Atom("z"));
 
   auto Adj = [&](const std::string &a, const std::string &b) {
-      return StringPrintf("App(%s, %s)", a.c_str(), b.c_str());
+      return std::format("App({}, {})", a, b);
     };
 
   CHECK_FIXITY_ADJ("App(f, x)", Associativity::Left, Adj,

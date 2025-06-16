@@ -569,6 +569,8 @@ inline auto Fix(const F &f) {
   return RecursiveParser<Token, Out, F>(f);
 };
 
+// XXX Note that this object may create cycles of shared_ptr,
+// and thus may leak memory.
 template<bool MEMOIZE,
          class Token, class Out1, class Out2, class F1, class F2>
 struct RecursiveParsers2 {
@@ -825,7 +827,7 @@ struct FixityResolver {
         CHECK(!ys.empty());
         Item y = std::move(ys.front());
         ys.pop_front();
-        if (!Resolve(y)) {
+        if (!ResolveInternal(y)) {
           return std::nullopt;
         }
       }
@@ -848,6 +850,7 @@ struct FixityResolver {
 
       xs.push_front(Item::MakeAtom(f.unop(x.item)));
       return true;
+
     } else if (xs.size() >= 3 &&
                xs[0].fixity == Fixity::Atom &&
                xs[1].fixity == Fixity::Infix &&
@@ -864,6 +867,7 @@ struct FixityResolver {
         "an Infix item.";
       xs.push_front(Item::MakeAtom(f.binop(a.item, b.item)));
       return true;
+
     } else if (xs.size() >= 2 &&
                xs[0].fixity == Fixity::Postfix &&
                xs[1].fixity == Fixity::Atom) {
@@ -878,6 +882,7 @@ struct FixityResolver {
 
       xs.push_front(Item::MakeAtom(f.unop(x.item)));
       return true;
+
     } else {
       if (error != nullptr)
         *error = "No reduction applies.";
@@ -885,7 +890,7 @@ struct FixityResolver {
     }
   }
 
-  bool Resolve(const Item &item) {
+  bool ResolveInternal(const Item &item) {
     if (adj_assoc != Associativity::Non &&
         item.fixity == Fixity::Atom &&
         !xs.empty() &&
@@ -900,18 +905,21 @@ struct FixityResolver {
       adj.precedence = 9999;
       adj.binop = adj_op;
       ys.push_front(item);
-      return Resolve(adj);
+      return ResolveInternal(adj);
 
     } else if (item.fixity == Fixity::Atom) {
       xs.push_front(item);
       return true;
+
     } else if (item.fixity == Fixity::Prefix) {
       xs.push_front(item);
       return true;
+
     } else if (xs.size() == 1 &&
                item.fixity == Fixity::Infix) {
       xs.push_front(item);
       return true;
+
     } else if (xs.size() >= 2 &&
                xs[1].fixity != Fixity::Atom &&
                item.fixity == Fixity::Infix) {
@@ -927,23 +935,27 @@ struct FixityResolver {
         xs.push_front(x1);
         xs.push_front(item);
         return true;
+
       } else if (x2.precedence > item.precedence) {
         xs.push_front(x2);
         xs.push_front(x1);
         ys.push_front(item);
         return Reduce();
+
       } else if (x2.assoc == Associativity::Left &&
                  item.assoc == Associativity::Left) {
         xs.push_front(x2);
         xs.push_front(x1);
         ys.push_front(item);
         return Reduce();
+
       } else if (x2.assoc == Associativity::Right &&
                  item.assoc == Associativity::Right) {
         xs.push_front(x2);
         xs.push_front(x1);
         xs.push_front(item);
         return true;
+
       } else {
         // Ambiguous: Same precedence and incompatible (or no)
         // associativity.
@@ -952,10 +964,12 @@ struct FixityResolver {
             "the same precedence and incompatible associativity.";
         return false;
       }
+
     } else if (xs.size() == 1 &&
                item.fixity == Fixity::Postfix) {
       xs.push_front(item);
       return Reduce();
+
     } else if (xs.size() >= 2 &&
                xs[1].fixity != Fixity::Atom &&
                item.fixity == Fixity::Postfix) {
@@ -972,6 +986,7 @@ struct FixityResolver {
           *error = "Ambiguous parse (postfix).";
         return false;
       }
+
     } else {
       // Atom / operator mismatch.
       if (error != nullptr)
