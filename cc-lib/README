@@ -1,4 +1,4 @@
-cc-lib                             Tom 7       12 Jun 2024
+cc-lib                             Tom 7       16 Jun 2025
 
 Like my "sml-lib", this is my attempt to get all of my frequently used
 C++ libraries into a single place so that different copies don't
@@ -93,66 +93,191 @@ re2/         Local copy of a good, free Regular Expression library.
 rapidjson/   Good fast JSON parser. See json_test for example. MIT license.
 gtl/         Bits of the Google Template Library that have been released
              as open source (usually Apache 2.0).
+opencl/      My slapdash crap for programming with OpenCL.
 
-wavesave        - Saves an array of audio samples as a WAV file. Limited input
-                  formats, though it is not hard to add more. See also dr_wav.
-util            - General C++ utilities, accumulated throughout the ages. Some
-                  are pretty embarrassing and should be cleaned up/out.
-heap            - Implementation of binary heaps.
-textsvg         - Pretty trivial support for generating SVG files manually.
-arcfour         - Implementation of the ARCFOUR (alleged RC4) algorithm, which
-                  is a fast and simple cryptographic-ish random stream generator.
-timer           - Utterly trivial timer, in need of further development.
-randutil        - Random number utilities, using arcfour for random byte
-                  generation.
-vector-util     - Some basic utilities on vectors that only depend on portable
-                  stl.
-rle             - (Custom) run-length encoding and decoding.
-threadutil      - Utilities for threaded programming. These are mostly
-                  convenience methods; if you want to do anything fancy
-                  you'll probably want to be managing thread lifetimes
-                  yourself.
-interval-tree   - Stores intervals on a 1D number line, with an efficient query
-                  for intervals that contain a given point.
-color-util      - Does that one thing you always need to do: Convert HSV to RGB.
-lines           - Draw pixely lines using Bresenham's algorithm or anti-aliased
-                  lines using Wu's algorithm.
-base64          - Very simple base64 encoding and decoding.
-bounds          - Simple bounding box implementation, typically used for
-                  generating plots of data
-image           - Headless representation of RGBA images. Load and save various
-                  formats via stb library, but also simple graphics primitives.
-                  I often use this for generating images programmatically.
-webserver       - Simple embeddable webserver that works on win32 and linux.
-simpledxf       - Simple and incomplete parser for DXF (CAD) files. This
-                  file format is insanely complex, but this does some
-                  superficial parsing that may work for extracting basic
-                  geometry.
-xml             - Simple in-memory XML parser using STL data structures, based
-                  on yxml.
-mp3             - Simple interface for decoding MP3s into raw samples, based
-                  on the public-domain minimp3.
-crypt/          - Simple implementations of cryptographic algorithms like AES,
-                  SHA256 and (deprecated) MD5. Perhaps arcfour should be in here
-                  too.
-pi/             - Some code for working on the raspberry pi, particularly
-                  for doing GPIO.
-bignum/         - Simple arbitrary-precision integers and rationals (BSD-like
-                  license). Not as fast as GMP, but easier to compile!
-guitar/         - Guitar chord fingering database.
-opt/            - Black-box function optimization.
-geom/           - Utitlities for geometry and computer graphics: Marching cubes
-                  algorithm, Earth latitude-longitude routines, Hilbert curves.
-stb_image_*     - Lower-level image reading and writing. I usually use the
-                  higher-level image.h.
-tinyexr         - Lower-level reading and writing of the slighly exotic EXR
-                  file format.
-csv             - Parsing of CSV files. Lots more is possible with the library
-                  it wraps ("Vince's CSV Parser").
-factorization   - Factors integers. See also bignum.
-pdf             - PDF generation.
-qr-code         - QR code generator.
-boxes-and-glue  - Line breaking algorithm similar to what TeX uses.
-integer-voronoi - Compute a rasterized 2D voronoi diagram on an integer grid.
-miniz           - Standalone flate/deflate/zip/gzip codec.
-zip             - My simple C++ wrapper for compressed streams, using miniz.
+ansi:
+  Macros and utility functions for ANSI terminal control codes, especially
+  colors.
+wavesave:
+  Saves an array of audio samples as a WAV file. Limited input
+  formats, though it is not hard to add more. See also dr_wav.
+util:
+  General C++ utilities, accumulated throughout the ages. Some
+  are pretty embarrassing and should be cleaned up/out.
+heap:
+  Implementation of binary heaps.
+textsvg:
+  Pretty trivial support for generating SVG files manually.
+arcfour:
+  Implementation of the ARCFOUR (alleged RC4) algorithm, which
+  is a fast and simple cryptographic-ish random stream generator.
+pcg:
+  Permuted Congruential Generators, a decent, fast and small pseudorandom
+  number generator.
+timer:
+  Trivial, portable timer.
+randutil:
+  Random number utilities, using arcfour for random byte generation.
+vector-util:
+  Some basic utilities on vectors that only depend on portable stl.
+map-util:
+  Some basic utilities on associative containers like std::map
+  and std::unordered_map that only depend on portable stl.
+set-util:
+  Some basic utilities for std::set or std::unordered_set.
+array-util:
+  Some basic utilities for std::array.
+list-util:
+  Some basic utilities for std::list.
+tuple-util:
+  Some basic utilities for std::tuple.
+atomic-util:
+  Utilities for programming with atomics; primarily a very fast
+  lock-free counter.
+auto-histo:
+  Histogram utility that automatically sizes and prints to the
+  console, etc.
+autoparallel:
+  Utility that will automatically determine how many threads to
+  use to run some subroutine that is executed a lot of times.
+bitbuffer:
+  Output a stream of unaligned bits as bytes.
+rle:
+  (Custom) run-length encoding and decoding.
+threadutil:
+  Utilities for threaded programming. These are mostly
+  convenience methods; if you want to do anything fancy
+  you'll probably want to be managing thread lifetimes
+  yourself.
+interval-tree:
+  Stores intervals on a 1D number line, with an efficient query
+  for intervals that contain a given point.
+interval-cover:
+  Stores a flattened map from uint64 to data, coalescing consecutive
+  intervals with the same value.
+color-util:
+  Convert between HSV and RGB, LAB color space, perceptual color
+  distance, linear color gradients, etc.
+lastn-buffer:
+  Ring buffer for storing the last N items seen.
+lines:
+  Draw pixely lines using Bresenham's algorithm or anti-aliased
+  lines using Wu's algorithm.
+base64:
+  Very simple base64 encoding and decoding.
+bounds:
+  Simple bounding box implementation, typically used for
+  generating plots of data
+image:
+  Headless representation of RGBA images. Load and save various
+  formats via stb library, but also simple graphics primitives.
+  I often use this for generating images programmatically.
+webserver:
+  Simple embeddable webserver that works on win32 and linux.
+simpledxf:
+  Simple and incomplete parser for DXF (CAD) files. This
+  file format is insanely complex, but this does some
+  superficial parsing that may work for extracting basic
+  geometry.
+xml:
+  Simple in-memory XML parser using STL data structures, based on yxml.
+mp3:
+  Simple interface for decoding MP3s into raw samples, based
+  on the public-domain minimp3.
+crypt:
+  Simple implementations of cryptographic algorithms like AES,
+  SHA256 and (deprecated) MD5. Perhaps arcfour should be in here too.
+pi:
+  Some code for working on the raspberry pi, particularly for doing GPIO.
+bignum:
+  Arbitrary-precision integers and rationals (BSD-like license). Can
+  compile with plain C++ or using GMP.
+guitar:
+  Guitar chord fingering database.
+opt:
+  Black-box function optimization.
+geom:
+  Utitlities for geometry and computer graphics: Marching cubes
+  algorithm, Earth latitude-longitude routines, Hilbert curves.
+stb_image_*:
+  Lower-level image reading and writing. I usually use the
+  higher-level image.h.
+tinyexr:
+  Lower-level reading and writing of the slighly exotic EXR file format.
+  See also image-frgba.
+csv:
+  Parsing of CSV files. Lots more is possible with the library
+  it wraps ("Vince's CSV Parser").
+factorization:
+  Fast factoring and primality testing for 64-bit integers. See also bignum
+  for larger number factors.
+pdf:
+  PDF generation.
+qr-code:
+  QR code generator.
+boxes-and-glue:
+  Line breaking algorithm similar to what TeX uses.
+edit-distance:
+  Classic Levenshtein distance (difference between two strings)
+  calculation.
+union-find:
+  The classic union find data structure for equivalence classes.
+integer-voronoi:
+  Compute a rasterized 2D voronoi diagram on an integer grid.
+miniz:
+  Standalone flate/deflate/zip/gzip codec.
+zip:
+  My simple C++ wrapper for compressed streams, using miniz.
+byte-set:
+  Fast and/or compact sets of 8-bit bytes for model checking applications.
+parser-combinators:
+  Utilities for writing recursive-descent parsers using combinators,
+  like if you were using a functional programming language.
+functional-map:
+  A reasonably efficient functional map implementation, like for a
+  variable context in a compiler implementation.
+functional-set:
+  A reasonably efficient functional set implementation.
+hashing:
+  Templates for creating a hash argument for unordered_map (etc.).
+hexdump:
+  "Pretty" dump of binary data, also decoded as text.
+image-frgba:
+  Images with floating point color channels and EXR support.
+image-resize:
+  Fast and good quality image resizing, based on stb library.
+montgomery64:
+  Represents 64-bit numbers in "Montgomery Form", which allows for fast
+  modular multiplication.
+nice:
+  Portable functions for changing the process's priority.
+optional-iterator:
+  Possibly ill-advised trick for unpacking std::optional.
+packrect:
+  Packs rectangles, like to create a texture image atlas.
+periodically:
+  Little wrapper for periodic actions inside loops, like printing
+  or saving status.
+process-util:
+  Run a command and get its output. Should put more process
+  utilities like that, and probably unify it with Subprocess.
+subprocess:
+  Manipulate subprocesses and do I/O with them, apparently only
+  on Windows.
+rolling-average:
+  Maintain the average of a fixed number of recent samples.
+sorting-network:
+  Fast sorting code for a small fixed-size collection.
+stats:
+  Statistics utilities.
+status-bar:
+  ANSI terminal status bar, for keeping some fixed thing on the
+  bottom of the screen while still allowing console output (as
+  long as you only use this).
+top:
+  Enumerate the names of the running processes.
+utf8:
+  Utilities for manipulating UTF8-encoded strings.
+work-queue:
+  Thread-safe work queue, which can batch inputs.
+
