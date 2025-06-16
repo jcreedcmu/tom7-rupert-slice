@@ -17,7 +17,7 @@ struct Montgomery64 {
   // As a representation invariant, this will be in [0, modulus).
   uint64_t x = 0;
 
-private:
+ private:
   // Use MontgomeryRep64::ToMontgomery to get valid Montgomery forms.
   explicit constexpr Montgomery64(uint64_t x) : x(x) {}
   friend struct MontgomeryRep64;

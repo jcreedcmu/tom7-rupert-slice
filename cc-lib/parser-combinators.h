@@ -1,8 +1,8 @@
 /* Parser combinators by Tom 7.
    I got fed up! */
 
-#ifndef _CC_LIB_PARSE_H
-#define _CC_LIB_PARSE_H
+#ifndef _CC_LIB_PARSER_COMBINATORS_H
+#define _CC_LIB_PARSER_COMBINATORS_H
 
 #include <memory>
 #include <string>
