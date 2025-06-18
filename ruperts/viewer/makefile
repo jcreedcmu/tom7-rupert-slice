@@ -10,11 +10,7 @@ CODEC=../../codec
 # ASAN=-fsanitize=address
 # OPT=-g -O2
 OPT=-g -O3
-
-# -fno-strict-aliasing
-# -I/usr/local/include -I/usr/include
-CXXFLAGS=$(ASAN) $(OPT) -Wall -Wno-format -Wno-unused-function -Wno-deprecated -ISDL/include -I. -I.. -I$(CC_LIB) -I$(SQLITE) -I$(CODEC) --std=c++20
-
+FLTO=-flto=thin
 
 # SDLOPATH=SDL/build
 # SDLOPATH=c:/code/SDL/build
@@ -22,6 +18,10 @@ SDLSDK=c:/code/SDL
 SDLOPATH=$(SDLSDK)/build
 # SDLINCLUDES=-ISDL/include
 SDLINCLUDES=-I$(SDLSDK)/include
+
+# -fno-strict-aliasing
+# -I/usr/local/include -I/usr/include
+CXXFLAGS=$(ASAN) $(OPT) -m64 -D__MINGW32__ $(SDLINCLUDES) $(FLTO) -Wall -Wno-unused-function -I. -I.. -I$(CC_LIB) -I$(SQLITE) -I$(CODEC) --std=c++23
 
 RUPERT_OBJECTS=../polyhedra.o ../mesh.o ../solutions.o ../hull3d.o ../hull.o ../dyson.o ../smallest-sphere.o
 
@@ -38,20 +38,16 @@ UTIL_OBJECTS=$(CC_LIB)/util.o $(CC_LIB)/arcfour.o $(CC_LIB)/base/stringprintf.o 
 
 CODEC_OBJECTS=$(CODEC)/mov.o $(CODEC)/mov-recorder.o
 
-# old
-# XXX can't they just be in CXXFLAGS?
-CPPFLAGS=-Wno-write-strings -m64 -D__MINGW32__ -DHAVE_ALLOCA $(SDLINCLUDES) $(PROFILE) $(FLTO)
-
 %.o : %.cc *.h makefile
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 	echo -n "."
 
 $(CC_LIB)/%.o : $(CC_LIB)/%.cc makefile
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+	@$(CXX) $(CXXFLAGS) -c $< -o $@
 	@echo -n "."
 
 ../%.o : ../%.cc makefile
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+	@$(CXX) $(CXXFLAGS) -c $< -o $@
 	@echo -n "."
 
 $(SQLITE)/%.o : $(SQLITE)/%.cc makefile

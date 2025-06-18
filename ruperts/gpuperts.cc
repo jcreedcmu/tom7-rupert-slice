@@ -14,7 +14,6 @@
 
 #include "ansi.h"
 #include "arcfour.h"
-#include "base/stringprintf.h"
 #include "color-util.h"
 #include "image.h"
 #include "opencl/clutil.h"
@@ -45,7 +44,7 @@ struct RupertGPU {
   // parameter tweaked). So the number of quaternions is 2 + 8 = 10
   // times the number of problem instances.
   RupertGPU(const Polyhedron &poly,
-            int width) : rc(StringPrintf("gpu.%lld", time(nullptr))),
+            int width) : rc(std::format("gpu.{}", time(nullptr))),
                          poly(poly),
                          num_vertices(poly.vertices.size()),
                          num_triangles(poly.faces->triangulation.size()),
@@ -55,12 +54,12 @@ struct RupertGPU {
     CHECK(width > 0);
 
     std::string defines =
-      StringPrintf("#define NUM_VERTICES %d\n"
-                   "#define NUM_TRIANGLES %d\n"
-                   "#define PARAM_H %.17g\n",
-                   num_vertices,
-                   num_triangles,
-                   PARAM_H);
+      std::format("#define NUM_VERTICES {}\n"
+                  "#define NUM_TRIANGLES {}\n"
+                  "#define PARAM_H {:.17g}\n",
+                  num_vertices,
+                  num_triangles,
+                  PARAM_H);
 
     std::string kernel_src =
       defines +
@@ -453,18 +452,18 @@ struct RupertGPU {
           const auto &[oq, iq, t] = so.value();
 
           std::string sol =
-            StringPrintf(
-                "Solution found on iter %d (%lld loops, %lld configs)!\n"
+            std::format(
+                "Solution found on iter {} ({} loops, {} configs)!\n"
                 "outer:\n"
-                "%s\n"
+                "{}\n"
                 "inner:\n"
-                "%s\n"
+                "{}\n"
                 "translation:\n"
-                "x = %.17g\n"
-                "y = %.17g\n",
+                "x = {:.17g}\n"
+                "y = {:.17g}\n",
                 iter, loops, configs,
-                QuatString(oq).c_str(),
-                QuatString(iq).c_str(),
+                QuatString(oq),
+                QuatString(iq),
                 t.x, t.y);
           Util::WriteFile(std::format("{}-gpu-solved.txt", poly.name), sol);
           printf("%s", sol.c_str());
@@ -493,25 +492,25 @@ struct RupertGPU {
         if (status_per.ShouldRun()) {
           double total_time = run_timer.Seconds();
           std::string t =
-            StringPrintf("%.1f%% q + %.1f%% t  "
-                         "%.1f%% ρ  "
-                         "%.1f%% e  "
-                         "%.1f%% s  "
-                         "%.1f%% Δ",
-                         (timing.tweakq * 100.0) / total_time,
-                         (timing.tweakt * 100.0) / total_time,
-                         (timing.rotate * 100.0) / total_time,
-                         (timing.error * 100.0) / total_time,
-                         (timing.solution * 100.0) / total_time,
-                         (timing.grad * 100.0) / total_time);
+            std::format("{:.1f}% q + {:.1f}% t  "
+                        "{:.1f}% ρ  "
+                        "{:.1f}% e  "
+                        "{:.1f}% s  "
+                        "{:.1f}% Δ",
+                        (timing.tweakq * 100.0) / total_time,
+                        (timing.tweakt * 100.0) / total_time,
+                        (timing.rotate * 100.0) / total_time,
+                        (timing.error * 100.0) / total_time,
+                        (timing.solution * 100.0) / total_time,
+                        (timing.grad * 100.0) / total_time);
           status.EmitLine(0, t);
 
           double cps = configs / run_timer.Seconds();
-          status.Progressf(iter, NUM_ITERS,
-                           "%d loops %s configs (" ACYAN("%.1f") "/sec)",
-                           loops,
-                           FormatNum(configs).c_str(),
-                           cps);
+          status.Progress(iter, NUM_ITERS,
+                          "{} loops {} configs (" ACYAN("{:.1f}") "/sec)",
+                          loops,
+                          FormatNum(configs),
+                          cps);
         }
       }
     }

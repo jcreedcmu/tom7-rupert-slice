@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "ansi.h"
-#include "arcfour.h"
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "big-polyhedra.h"
@@ -22,7 +21,6 @@
 #include "run-z3.h"
 #include "status-bar.h"
 #include "timer.h"
-#include "util.h"
 #include "yocto_matht.h"
 #include "z3.h"
 
@@ -400,12 +398,12 @@ void BoundArea(const Boundaries &boundaries,
     AppendFormat(&sanity,
                  "(check-sat)\n"
                  "(get-model)\n");
-    status.Printf("Sanity check satisfiability... (%lld bytes)\n",
-                  (int64_t)sanity.size());
+    status.Print("Sanity check satisfiability... ({} bytes)\n",
+                 sanity.size());
     CHECK(Z3Result::SAT == RunZ3(sanity, {120.0})) << "Couldn't prove "
       "that the setup is satisfiable?";
-    status.Printf("Satisfiable; OK in %s\n",
-                  ANSI::Time(timer.Seconds()).c_str());
+    status.Print("Satisfiable; OK in {}\n",
+                 ANSI::Time(timer.Seconds()));
   }
 
 
@@ -426,11 +424,11 @@ void BoundArea(const Boundaries &boundaries,
     AppendFormat(&sanity,
                  "(check-sat)\n"
                  "(get-model)\n");
-    status.Printf("Sanity check example... (%lld bytes)\n",
-                  (int64_t)sanity.size());
+    status.Print("Sanity check example... ({} bytes)\n",
+                 sanity.size());
     CHECK(Z3Result::SAT == RunZ3(sanity, {120.0}));
-    status.Printf("Example satisfiable; OK in %s\n",
-                  ANSI::Time(timer.Seconds()).c_str());
+    status.Print("Example satisfiable; OK in {}\n",
+                 ANSI::Time(timer.Seconds()));
 
   }
 
@@ -478,7 +476,7 @@ void BoundArea(const Boundaries &boundaries,
       switch (lesseq) {
       case Z3Result::SAT:
         // Possible for the area to be lesseq than the test point.
-        status.Printf("sat: area <= %s", test_point.ToString().c_str());
+        status.Print("sat: area <= {}", test_point.ToString());
         if (test_point <= min_area.ub) {
           min_area.ub = test_point;
           min_area.uclosed = true;
@@ -487,7 +485,7 @@ void BoundArea(const Boundaries &boundaries,
         break;
       case Z3Result::UNSAT:
         // The area is always more than the test point.
-        status.Printf("unsat: area <= %s", test_point.ToString().c_str());
+        status.Print("unsat: area <= {}", test_point.ToString());
         if (test_point >= min_area.lb) {
           min_area.lb = test_point;
           min_area.lclosed = false;
@@ -497,8 +495,8 @@ void BoundArea(const Boundaries &boundaries,
       case Z3Result::UNKNOWN:
         // No info.
         unknown++;
-        status.Printf(ARED("unknown") ": area <= %s",
-                      test_point.ToString().c_str());
+        status.Print(ARED("unknown") ": area <= {}",
+                     test_point.ToString());
         break;
       }
 
@@ -516,7 +514,7 @@ void BoundArea(const Boundaries &boundaries,
       Z3Result lesseq = RunZ3(out, {timeout});
       switch (lesseq) {
       case Z3Result::SAT:
-        status.Printf("sat: area >= %s", test_point.ToString().c_str());
+        status.Print("sat: area >= {}", test_point.ToString());
         // Possible for the area to be greatereq than the test point.
         if (test_point >= max_area.lb) {
           max_area.lb = test_point;
@@ -525,7 +523,7 @@ void BoundArea(const Boundaries &boundaries,
         sat++;
         break;
       case Z3Result::UNSAT:
-        status.Printf("unsat: area >= %s", test_point.ToString().c_str());
+        status.Print("unsat: area >= {}", test_point.ToString());
         // The area is always less than the test point.
         if (test_point <= max_area.ub) {
           max_area.ub = test_point;
@@ -535,8 +533,8 @@ void BoundArea(const Boundaries &boundaries,
         break;
       case Z3Result::UNKNOWN:
         // No info.
-        status.Printf(ARED("unknown") ": area >= %s",
-                      test_point.ToString().c_str());
+        status.Print(ARED("unknown") ": area >= {}",
+                      test_point.ToString());
         unknown++;
         break;
       }
@@ -626,12 +624,12 @@ void BoundEdges(const Boundaries &boundaries,
     AppendFormat(&sanity,
                  "(check-sat)\n"
                  "(get-model)\n");
-    status.Printf("Sanity check satisfiability... (%lld bytes)\n",
-                  (int64_t)sanity.size());
+    status.Print("Sanity check satisfiability... ({} bytes)\n",
+                 sanity.size());
     CHECK(Z3Result::SAT == RunZ3(sanity, {120.0})) << "Couldn't prove "
       "that the setup is satisfiable?";
-    status.Printf("Satisfiable; OK in %s\n",
-                  ANSI::Time(timer.Seconds()).c_str());
+    status.Print("Satisfiable; OK in {}\n",
+                 ANSI::Time(timer.Seconds()));
   }
 
   // Check again with the example quat asserted.
@@ -643,11 +641,11 @@ void BoundEdges(const Boundaries &boundaries,
     AppendFormat(&sanity,
                  "(check-sat)\n"
                  "(get-model)\n");
-    status.Printf("Sanity check example... (%lld bytes)\n",
-                  (int64_t)sanity.size());
+    status.Print("Sanity check example... ({} bytes)\n",
+                 sanity.size());
     CHECK(Z3Result::SAT == RunZ3(sanity, {120.0}));
-    status.Printf("Example satisfiable; OK in %s\n",
-                  ANSI::Time(timer.Seconds()).c_str());
+    status.Print("Example satisfiable; OK in {}\n",
+                 ANSI::Time(timer.Seconds()));
   }
 
   #if 0
@@ -714,8 +712,8 @@ void BoundEdges(const Boundaries &boundaries,
       switch (lesseq) {
       case Z3Result::SAT:
         // Possible for the length to be lesseq than the test point.
-        status.Printf(AMINT("sat")
-                      ": length <= %s", test_point.ToString().c_str());
+        status.Print(AMINT("sat")
+                     ": length <= {}", test_point.ToString());
         if (test_point <= min_sqlen.ub) {
           min_sqlen.ub = test_point;
           min_sqlen.uclosed = true;
@@ -726,8 +724,8 @@ void BoundEdges(const Boundaries &boundaries,
         break;
       case Z3Result::UNSAT:
         // The length is always more than the test point.
-        status.Printf(ASKY("unsat")
-                      ": length <= %s", test_point.ToString().c_str());
+        status.Print(ASKY("unsat")
+                     ": length <= {}", test_point.ToString());
         if (test_point >= min_sqlen.lb) {
           min_sqlen.lb = test_point;
           min_sqlen.lclosed = false;
@@ -739,9 +737,9 @@ void BoundEdges(const Boundaries &boundaries,
       case Z3Result::UNKNOWN:
         // No info.
         unknown++;
-        status.Printf(ARED("unknown") ": length <= %s. timeout now %s",
-                      test_point.ToString().c_str(),
-                      ANSI::Time(timeout).c_str());
+        status.Print(ARED("unknown") ": length <= {}. timeout now {}",
+                     test_point.ToString(),
+                     ANSI::Time(timeout));
         timeout *= 1.25;
         min_sqlen.Failed();
         break;
@@ -761,8 +759,8 @@ void BoundEdges(const Boundaries &boundaries,
       Z3Result lesseq = RunZ3(out, {timeout});
       switch (lesseq) {
       case Z3Result::SAT:
-        status.Printf(AMINT("sat")
-                      ": length >= %s", test_point.ToString().c_str());
+        status.Print(AMINT("sat")
+                     ": length >= {}", test_point.ToString());
         // Possible for the length to be greatereq than the test point.
         if (test_point >= max_sqlen.lb) {
           max_sqlen.lb = test_point;
@@ -773,8 +771,8 @@ void BoundEdges(const Boundaries &boundaries,
         sat++;
         break;
       case Z3Result::UNSAT:
-        status.Printf(ASKY("unsat")
-                      ": length >= %s", test_point.ToString().c_str());
+        status.Print(ASKY("unsat")
+                     ": length >= {}", test_point.ToString());
         // The length is always less than the test point.
         if (test_point <= max_sqlen.ub) {
           max_sqlen.ub = test_point;
@@ -786,9 +784,9 @@ void BoundEdges(const Boundaries &boundaries,
         break;
       case Z3Result::UNKNOWN:
         // No info.
-        status.Printf(ARED("unknown") ": length >= %s. timeout now {}",
-                      test_point.ToString().c_str(),
-                      ANSI::Time(timeout).c_str());
+        status.Print(ARED("unknown") ": length >= {}. timeout now {}",
+                     test_point.ToString(),
+                     ANSI::Time(timeout));
         unknown++;
         timeout *= 1.25;
         max_sqlen.Failed();
