@@ -43,10 +43,10 @@ static void FixAll() {
       printf(ARED("Not valid!!") " Solution #%d\n", sol.id);
 
       db.ExecuteAndPrint(
-          StringPrintf(
+          std::format(
               "update solutions "
               "set invalid = 1 "
-              "where id = %d",
+              "where id = {}",
               sol.id));
 
     } else {
@@ -58,10 +58,10 @@ static void FixAll() {
              sol.clearance, clearance.value());
 
       db.ExecuteAndPrint(
-          StringPrintf(
+          std::format(
               "update solutions "
-              "set ratio = %.17g, clearance = %.17g "
-              "where id = %d",
+              "set ratio = {:.17g}, clearance = {:.17g} "
+              "where id = {}",
               ratio.value(), clearance.value(), sol.id));
     }
 

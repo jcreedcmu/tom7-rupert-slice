@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <ctime>
+#include <format>
 #include <memory>
 #include <optional>
 #include <string>
@@ -14,7 +15,6 @@
 
 #include "auto-histo.h"
 #include "base/logging.h"
-#include "base/stringprintf.h"
 #include "database.h"
 #include "polyhedra.h"
 #include "yocto_matht.h"
@@ -140,7 +140,7 @@ struct SolutionDB {
     std::unordered_map<std::string, Solution>> BestSolutions();
 
   static std::string NopertName(int id) {
-    return StringPrintf("nopert_%d", id);
+    return std::format("nopert_{}", id);
   }
 
   void AddSolution(const std::string &polyhedron,

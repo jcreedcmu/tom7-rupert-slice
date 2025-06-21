@@ -17,7 +17,6 @@
 #include "ansi.h"
 #include "arcfour.h"
 #include "base/logging.h"
-#include "base/stringprintf.h"
 #include "bounds.h"
 #include "color-util.h"
 #include "dirty.h"
@@ -41,7 +40,7 @@ double IsNear(double a, double b) {
   const double e = std::abs(fv - gv);                                   \
   CHECK(e < 0.0000001) << "Expected " << #f << " and " << #g <<         \
     " to be close, but got: " <<                                        \
-    StringPrintf("%.17g and %.17g, with err %.17g", fv, gv, e);         \
+    std::format("{:.17g} and {:.17g}, with err {:.17g}", fv, gv, e);   \
   } while (0)
 
 template<typename T>
@@ -106,8 +105,8 @@ static void DrawPoints(const std::vector<vec2> &pts,
   for (int i = 0; i < pts.size(); i++) {
     const auto &[sx, sy] = scaler.Scale(pts[i].x, pts[i].y);
     std::string label =
-      in_hull.contains(i) ? StringPrintf("%d+", i) :
-      StringPrintf("%d", i);
+      in_hull.contains(i) ? std::format("{}+", i) :
+      std::format("{}", i);
     const int w = label.size() * ImageRGBA::TEXT2X_WIDTH;
     const int h = ImageRGBA::TEXT2X_HEIGHT;
     const auto &[x, y] =
@@ -121,7 +120,7 @@ static void DrawPoints(const std::vector<vec2> &pts,
   for (int i = 0; i < hull.size(); i++) {
     int v = hull[i];
     const auto &[sx, sy] = scaler.Scale(pts[v].x, pts[v].y);
-    std::string label = StringPrintf("=%d", i);
+    std::string label = std::format("={}", i);
     const int w = label.size() * ImageRGBA::TEXT2X_WIDTH;
     const int h = ImageRGBA::TEXT2X_HEIGHT;
     const auto &[x, y] =
@@ -145,8 +144,8 @@ static void CheckHullProperties(int line_num,
   for (int a : hull) inhull.insert(a);
 
   auto FailWithImage = [line_num, what, &v, &hull](const char *err) {
-      DrawPoints(v, hull, StringPrintf("%s-test-fail.png",
-                                       what));
+      DrawPoints(v, hull, std::format("{}-test-fail.png",
+                                      what));
       LOG(FATAL) << "\nFrom line " << line_num << "<" << what << ">"
                  << ": Bad hull (" << err << ")";
     };
@@ -246,7 +245,7 @@ template <class F> static void TestHullRegression2(
 
   // DrawPoints(pts, {}, "regression2.png");
   auto hull = ComputeHull(pts);
-  DrawPoints(pts, hull, StringPrintf("regression-%s-2.png", what));
+  DrawPoints(pts, hull, std::format("regression-{}-2.png", what));
 
   CHECK(hull.size() >= 3) << hull.size();
 }
@@ -328,7 +327,7 @@ static void TestHull(const char *what, F ComputeHull) {
 
     std::vector<int> hull = ComputeHull(shadow);
     CheckHullProperties(__LINE__, shadow, hull, what);
-    DrawPoints(shadow, hull, StringPrintf("cubo-%s.png", what));
+    DrawPoints(shadow, hull, std::format("cubo-{}.png", what));
     CHECK(hull.size() == 8) << hull.size();
   }
 
@@ -394,8 +393,8 @@ static void TestHull(const char *what, F ComputeHull) {
             }
 
             /*
-            DrawPoints(v, hull, StringPrintf("%s-%d-test.png",
-                                             what, count));
+            DrawPoints(v, hull, std::format("{}-{}-test.png",
+                                            what, count));
             */
             count++;
           }

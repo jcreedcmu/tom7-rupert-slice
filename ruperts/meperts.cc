@@ -328,7 +328,7 @@ struct Meperts {
         // Only succeed once.
         if (should_die) return;
 
-        status.Printf(AGREEN("Success") "!\n");
+        status.Print(AGREEN("Success") "!\n");
         should_die = true;
 
         const auto &[err1, err2] = LossParts(args);

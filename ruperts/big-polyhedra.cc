@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "ansi.h"
-#include "base/stringprintf.h"
 #include "bignum/big-numbers.h"
 #include "bignum/big-overloads.h"
 #include "bignum/big.h"
@@ -34,7 +33,7 @@ static double IsNear(double a, double b) {
   const double e = std::abs(fv - gv);                                   \
   CHECK(e < 0.0000001) << "Expected " << #f << " and " << #g <<         \
     " to be close, but got: " <<                                        \
-    StringPrintf("%.17g and %.17g, with err %.17g", fv, gv, e);         \
+    std::format("{:.17g} and {:.17g}, with err {:.17g}", fv, gv, e);    \
   } while (0)
 
 std::string ColorRat(const char *ansi_color,
@@ -77,39 +76,39 @@ std::string FrameString(const BigFrame &f) {
 
 // XXX use ColorRat
 std::string QuatString(const BigQuat &q) {
-  return StringPrintf(
-      "x: " ARED("%s") " ≅ %.17g\n"
-      "y: " AGREEN("%s") " ≅ %.17g\n"
-      "z: " ABLUE("%s") " ≅ %.17g\n"
-      "w: " AYELLOW("%s") " ≅ %.17g\n",
-      q.x.ToString().c_str(), q.x.ToDouble(),
-      q.y.ToString().c_str(), q.y.ToDouble(),
-      q.z.ToString().c_str(), q.z.ToDouble(),
-      q.w.ToString().c_str(), q.w.ToDouble());
+  return std::format(
+      "x: " ARED("{}") " ≅ {:.17g}\n"
+      "y: " AGREEN("{}") " ≅ {:.17g}\n"
+      "z: " ABLUE("{}") " ≅ {:.17g}\n"
+      "w: " AYELLOW("{}") " ≅ {:.17g}\n",
+      q.x.ToString(), q.x.ToDouble(),
+      q.y.ToString(), q.y.ToDouble(),
+      q.z.ToString(), q.z.ToDouble(),
+      q.w.ToString(), q.w.ToDouble());
 }
 
 std::string PlainVecString(const BigVec2 &v) {
-  return StringPrintf(
-      "BigVec2{\n"
-      "  x = %s ≅ %.17g\n"
-      "  y = %s ≅ %.17g\n"
-      "}\n",
-      v.x.ToString().c_str(), v.x.ToDouble(),
-      v.y.ToString().c_str(), v.y.ToDouble());
+  return std::format(
+      "BigVec2{{\n"
+      "  x = {} ≅ {:.17g}\n"
+      "  y = {} ≅ {:.17g}\n"
+      "}}\n",
+      v.x.ToString(), v.x.ToDouble(),
+      v.y.ToString(), v.y.ToDouble());
 }
 
 std::string PlainQuatString(const BigQuat &q) {
-  return StringPrintf(
-      "BigQuat{\n"
-      "  x = %s ≅ %.17g\n"
-      "  y = %s ≅ %.17g\n"
-      "  z = %s ≅ %.17g\n"
-      "  w = %s ≅ %.17g\n"
-      "}\n",
-      q.x.ToString().c_str(), q.x.ToDouble(),
-      q.y.ToString().c_str(), q.y.ToDouble(),
-      q.z.ToString().c_str(), q.z.ToDouble(),
-      q.w.ToString().c_str(), q.w.ToDouble());
+  return std::format(
+      "BigQuat{{\n"
+      "  x = {} ≅ {:.17g}\n"
+      "  y = {} ≅ {:.17g}\n"
+      "  z = {} ≅ {:.17g}\n"
+      "  w = {} ≅ {:.17g}\n"
+      "}}\n",
+      q.x.ToString(), q.x.ToDouble(),
+      q.y.ToString(), q.y.ToDouble(),
+      q.z.ToString(), q.z.ToDouble(),
+      q.w.ToString(), q.w.ToDouble());
 }
 
 BigQuat MakeBigQuat(const quat4 &smallquat) {
@@ -397,13 +396,13 @@ std::vector<int> BigHull(const std::vector<BigVec2> &bigvs) {
     vec2 dv(v.x.ToDouble(), v.y.ToDouble());
     const std::optional<int> old = duplicates.Get(dv);
     CHECK(!old.has_value()) <<
-      StringPrintf("Maybe too close to use "
-                   "double QuickHull to compute BigHull (old: %d = %s); "
-                   "new: %d = %s\n",
-                   old.value(),
-                   VecString(dvs[old.value()]).c_str(),
-                   i,
-                   VecString(dv).c_str());
+      std::format("Maybe too close to use "
+                  "double QuickHull to compute BigHull (old: {} = {}); "
+                  "new: {} = {}\n",
+                  old.value(),
+                  VecString(dvs[old.value()]),
+                  i,
+                  VecString(dv));
     duplicates.Add(dv, i);
     dvs.emplace_back(dv);
   }

@@ -4,7 +4,7 @@ Diagnostics:
     FastCheckFilter: Strict
   MissingIncludes: Strict
   Includes:
-    IgnoreHeader: [base/logging.h, <cstdint>, <cstddef>]
+    IgnoreHeader: [base/logging.h, cstdint, cstddef, __chrono/duration.h]
 
 # I'm not showing these, so disable them in the hopes of saving
 # time.

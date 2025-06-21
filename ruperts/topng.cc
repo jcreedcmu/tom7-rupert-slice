@@ -3,12 +3,11 @@
 
 #include "ansi.h"
 
+#include <format>
 #include <string_view>
 #include <utility>
 #include <vector>
-#include <string>
 
-#include "base/stringprintf.h"
 #include "polyhedra.h"
 #include "rendering.h"
 #include "solutions.h"
@@ -42,7 +41,7 @@ static void RenderAny(std::string_view name) {
     rendering.RenderMesh(sinner);
     rendering.RenderBadPoints(sinner, souter);
 
-    rendering.Save(StringPrintf("topng-%s.png", std::string(name).c_str()));
+    rendering.Save(std::format("topng-{}.png", name));
   }
 
   std::vector<int> outer_hull = QuickHull(souter.vertices);
@@ -53,8 +52,7 @@ static void RenderAny(std::string_view name) {
     rendering.RenderHullDistance(souter, outer_hull);
     rendering.RenderHull(souter, outer_hull, 0x0000FFFF);
     rendering.RenderHull(sinner, inner_hull, 0x00FF0077);
-    rendering.Save(StringPrintf("topng-%s-hulls.png",
-                                std::string(name).c_str()));
+    rendering.Save(std::format("topng-{}-hulls.png", name));
   }
 }
 

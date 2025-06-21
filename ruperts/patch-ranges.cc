@@ -69,8 +69,8 @@ static void Histo() {
 
         status_per.RunIf([&]() {
             /*
-            status_bar.Printf("%s",
-                              all_histo.SimpleANSI(30).c_str());
+            status_bar.Print("{}",
+                             all_histo.SimpleANSI(30).c_str());
             */
             status_bar.Progress(done.load(), pairs.size(),
                                 "[{}] Loading...", score_size);
@@ -114,7 +114,7 @@ static void Histo() {
   }
 
   Util::WriteFile("scube-score-quantiles.txt", out);
-  status_bar.Printf("Wrote quantiles.\n");
+  status_bar.Print("Wrote quantiles.\n");
 
   if (all_scores.empty()) {
     printf(ARED("Empty!") "\n");

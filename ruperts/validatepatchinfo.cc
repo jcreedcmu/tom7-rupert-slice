@@ -67,8 +67,7 @@ static void ValidatePatchInfo() {
       if (!IsPolyConvex(outer_poly)) {
         if (code_ok) {
           std::string cs = std::format("{:b}", code);
-          status.Printf(ARED("%s") " not convex\n",
-                        cs.c_str());
+          status.Print(ARED("{}") " not convex\n", cs);
           Polyhedron rpoly = Rotate(small_poly, frame);
           Rendering rendering(small_poly, 1920, 1080);
           rendering.RenderMesh(Shadow(rpoly));

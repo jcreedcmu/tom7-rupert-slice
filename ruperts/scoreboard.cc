@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <format>
 #include <limits>
 #include <map>
 #include <set>
@@ -12,7 +13,6 @@
 #include <vector>
 
 #include "ansi.h"
-#include "base/stringprintf.h"
 #include "polyhedra.h"
 #include "solutions.h"
 #include "util.h"
@@ -26,11 +26,11 @@ std::string FullMethodName(const char *color,
   std::string name = SolutionDB::MethodName(method);
   (void)Util::TryStripPrefix("METHOD_", &name);
   if (method == SolutionDB::METHOD_IMPROVE_RATIO) {
-    return StringPrintf("%s%s" ANSI_RESET "[" AWHITE("%d") "]",
-                        color, name.c_str(), source);
+    return std::format("{}{}" ANSI_RESET "[" AWHITE("{}") "]",
+                       color, name, source);
   } else {
-    return StringPrintf("%s%s" ANSI_RESET,
-                        color, name.c_str());
+    return std::format("{}{}" ANSI_RESET,
+                       color, name);
   }
 }
 

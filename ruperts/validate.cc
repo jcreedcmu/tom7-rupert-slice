@@ -32,7 +32,7 @@ double IsNear(double a, double b) {
   const double e = std::abs(fv - gv);                                   \
   CHECK(e < 0.0000001) << "Expected " << #f << " and " << #g <<         \
     " to be close, but got: " <<                                        \
-    StringPrintf("%.17g and %.17g, with err %.17g", fv, gv, e);         \
+    std::format("{:.17g} and {:.17g}, with err {:.17g}", fv, gv, e);    \
   } while (0)
 
 static void Validate() {
@@ -174,7 +174,7 @@ static void Validate() {
         rendering.MarkPoints(small_sinner, {ptidx}, 20.0f, 0xFF0000AA);
       }
 
-      rendering.Save(StringPrintf("validate-%d.png", ptidx));
+      rendering.Save(std::format("validate-{}.png", ptidx));
     };
 
   // std::vector<int> inner_hull = BigHull(sinner.vertices);

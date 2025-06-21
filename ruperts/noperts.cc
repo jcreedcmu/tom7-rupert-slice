@@ -1237,9 +1237,9 @@ static void UnOpt(int64_t num_points) {
               infeasible++;
               // Not feasible.
               /*
-              status->Printf("Infeasible (%d pts; %d hull) with badness %f",
-                             (int)points.size(), (int)hull.size(),
-                             badness);
+              status->Print("Infeasible ({} pts; {} hull) with badness {}",
+                            (int)points.size(), (int)hull.size(),
+                            badness);
               */
               return std::pair(badness, false);
             }
@@ -1253,7 +1253,7 @@ static void UnOpt(int64_t num_points) {
             if (!opoly.has_value()) {
               // This can happen if the hull has degenerate faces
               // (colinear points?).
-              // status->Printf("wasn't convex??");
+              // status->Print("wasn't convex??");
               degenerate++;
               return LargeOpt::INFEASIBLE;
             }
@@ -1275,7 +1275,7 @@ static void UnOpt(int64_t num_points) {
               }
               CHECK(iters <= NOPERT_ITERS);
               /*
-              status->Printf("Feasible! %d iters\n", iters);
+              status->Print("Feasible! {} iters\n", iters);
               */
               return std::make_pair(NOPERT_ITERS - iters, true);
             }
@@ -1335,7 +1335,7 @@ static void UnOpt(int64_t num_points) {
             const double total_time = run_timer.Seconds();
             if (total_time > MAX_SECONDS) {
               should_die = true;
-              status->Printf("Time's up!");
+              status->Print("Time's up!");
               return;
             }
 
@@ -1393,7 +1393,7 @@ static void UnOpt(int64_t num_points) {
           CHECK(besto.has_value()) << "We sampled a feasible arg to start.";
           const auto &[args, outer_loss] = besto.value();
           if (outer_loss == 0.0) {
-            status->Printf("Success!");
+            status->Print("Success!");
             // Success!
             MutexLock ml(&m);
             // If multiple threads finish at the same time, we save all
@@ -1641,6 +1641,7 @@ static void DoAdversary(int64_t num_points) {
 }
 
 // Note this is sensitive to the order of the quad's vertices.
+[[maybe_unused]]
 static double NonPlanarity1(const vec3 &v0,
                             const vec3 &v1,
                             const vec3 &v2,
@@ -2031,7 +2032,7 @@ static constexpr int METHOD = SolutionDB::NOPERT_METHOD_FLATTEN76;
     std::string old = Util::ReadFile(filename);
     if (!old.empty()) {
       done = IntervalCoverUtil::ParseBool(old);
-      status->Printf("Loaded " AYELLOW("%s") "\n", filename.c_str());
+      status->Print("Loaded " AYELLOW("{}") "\n", filename);
     }
 
     // "done" because there's nothing to do.

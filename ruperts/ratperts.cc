@@ -30,7 +30,6 @@
 #include "arcfour.h"
 #include "atomic-util.h"
 #include "auto-histo.h"
-#include "base/stringprintf.h"
 #include "big-polyhedra.h"
 #include "bignum/big-overloads.h"
 #include "bignum/big.h"
@@ -136,7 +135,7 @@ struct BigSolver {
     rendering.RenderTriangulation(souter, 0xAA0000FF);
     rendering.RenderTriangulation(sinner, 0x00FF00AA);
     rendering.Save(filename);
-    status->Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+    status->Print("Wrote " AGREEN("{}") "\n", filename.c_str());
   }
 
   void Solved(const BigQuat &outer_rot,
@@ -149,8 +148,8 @@ struct BigSolver {
       return;
     should_die = true;
 
-    status->Printf("Solved! %lld iters, %lld attempts, in %s\n", iters.Read(),
-                   attempts.Read(), ANSI::Time(run_timer.Seconds()).c_str());
+    status->Print("Solved! {} iters, {} attempts, in {}\n", iters.Read(),
+                  attempts.Read(), ANSI::Time(run_timer.Seconds()));
 
     std::string suffix = std::format("{}-{}-{}",
                                      LowerMethod(),
@@ -161,16 +160,16 @@ struct BigSolver {
                outer_rot, inner_rot, translation);
 
     std::string contents =
-      StringPrintf("outer_rot:\n%s\n"
-                   "inner_rot:\n%s\n"
-                   "translation:\n%s\n",
-                   PlainQuatString(outer_rot).c_str(),
-                   PlainQuatString(inner_rot).c_str(),
-                   PlainVecString(translation).c_str());
+      std::format("outer_rot:\n{}\n"
+                  "inner_rot:\n{}\n"
+                  "translation:\n{}\n",
+                  PlainQuatString(outer_rot),
+                  PlainQuatString(inner_rot),
+                  PlainVecString(translation));
 
     std::string sfile = std::format("solution-{}.txt", suffix);
     Util::WriteFile(sfile, contents);
-    status->Printf("Wrote " AGREEN("%s") "\n", sfile.c_str());
+    status->Print("Wrote " AGREEN("{}") "\n", sfile);
 
     // SaveSolution(polyhedron, outer_frame, inner_frame, METHOD);
   }
@@ -179,8 +178,8 @@ struct BigSolver {
     attempts.Reset();
     iters.Reset();
 
-    status->Printf("Running on " APURPLE("%s") ".\n",
-                   polyhedron.name.c_str());
+    status->Print("Running on " APURPLE("{}") ".\n",
+                  polyhedron.name);
 
     ParallelFan(
       NUM_OUTER_THREADS,
@@ -202,11 +201,11 @@ struct BigSolver {
                             attempts.Read());
               iters.Reset();
               attempts.Reset();
-              status->Printf(
-                  "[" AWHITE("rational") " " APURPLE("%s")
-                  "] Time limit exceeded after %s\n",
-                  polyhedron.name.c_str(),
-                  ANSI::Time(run_timer.Seconds()).c_str());
+              status->Print(
+                  "[" AWHITE("rational") " " APURPLE("{}")
+                  "] Time limit exceeded after {}\n",
+                  polyhedron.name,
+                  ANSI::Time(run_timer.Seconds()));
               return;
             }
           }
@@ -445,11 +444,10 @@ struct BigSolver {
       Opt::Minimize<D>(Loss, lb, ub, 1000, 2, 1, rc->Byte());
     [[maybe_unused]] const double opt_sec = opt_timer.Seconds();
 
-    status->Printf(AYELLOW("%s") " | Done in %s. Best errs #%d\n",
-                   histo.UnlabeledHoriz(32).c_str(),
-                   ANSI::Time(opt_timer.Seconds()).c_str(),
-                   local_best_errors);
-
+    status->Print(AYELLOW("{}") " | Done in {}. Best errs #{}\n",
+                  histo.UnlabeledHoriz(32),
+                  ANSI::Time(opt_timer.Seconds()),
+                  local_best_errors);
 
     const auto &[orot, irot, itrans] = MakeConfig(args);
     return std::make_tuple(error, orot, irot, itrans);

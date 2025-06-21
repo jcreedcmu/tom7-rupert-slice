@@ -347,8 +347,8 @@ struct HowManyRep {
                     std::format("max {:.11g}", bounds.MaxY()));
 
     img.Save("howmanyrep.png");
-    status->Printf("Wrote howmanyrep.png. %lld samples. Max %.11g",
-                   samples, bounds.MaxY());
+    status->Print("Wrote howmanyrep.png. {} samples. Max {:.11g}",
+                  samples, bounds.MaxY());
   }
 
 };

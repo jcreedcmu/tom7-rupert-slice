@@ -35,7 +35,7 @@ SolutionDB::SolutionDB(const char *dbfile) {
       break;
     }
 
-    f = StringPrintf("../%s", f.c_str());
+    f = std::format("../{}", f);
   }
 
   if (db.get() == nullptr) {
@@ -49,15 +49,15 @@ SolutionDB::SolutionDB(const char *dbfile) {
 
 
 std::string SolutionDB::FrameString(const frame3 &frame) {
-  return StringPrintf(
+  return std::format(
       // x
-      "%.17g,%.17g,%.17g,"
+      "{:.17g},{:.17g},{:.17g},"
       // y
-      "%.17g,%.17g,%.17g,"
+      "{:.17g},{:.17g},{:.17g},"
       // z
-      "%.17g,%.17g,%.17g,"
+      "{:.17g},{:.17g},{:.17g},"
       // o
-      "%.17g,%.17g,%.17g",
+      "{:.17g},{:.17g},{:.17g}",
       frame.x.x, frame.x.y, frame.x.z,
       frame.y.x, frame.y.y, frame.y.z,
       frame.z.x, frame.z.y, frame.z.z,
@@ -160,17 +160,17 @@ void SolutionDB::AddNopertAttempt(int points, int64_t attempts,
     double start = h.BucketLeft(i);
     if (start >= 0.0 ||
         h.buckets[i] > 0.0) {
-      StringAppendF(&histo, "%.3f=%lld",
-                    start, (int64_t)h.buckets[i]);
+      AppendFormat(&histo, "{:.3f}={}",
+                   start, h.buckets[i]);
     }
   }
 
   db->ExecuteAndPrint(
-      StringPrintf(
+      std::format(
           "insert into nopertattempts "
           "(points, attempts, iterhisto, createdate, method) "
-          "values (%d, %lld, '%s', %lld, %d)",
-          points, attempts, histo.c_str(), time(nullptr), method));
+          "values ({}, {}, '{}', {}, {})",
+          points, attempts, histo, time(nullptr), method));
 }
 
 std::vector<SolutionDB::NopertAttempt>
@@ -201,16 +201,16 @@ void SolutionDB::AddNopert(const Polyhedron &poly, int method) {
   std::string vs;
   for (const vec3 &v : poly.vertices) {
     if (!vs.empty()) vs.push_back(',');
-    StringAppendF(&vs, "%.17g,%.17g,%.17g", v.x, v.y, v.z);
+    AppendFormat(&vs, "{:.17g},{:.17g},{:.17g}", v.x, v.y, v.z);
   }
 
   db->ExecuteAndPrint(
-      StringPrintf(
+      std::format(
           "insert into noperts "
           "(points, vertices, createdate, method) "
-          "values (%d, '%s', %lld, %d)",
-          (int)poly.vertices.size(),
-          vs.c_str(), time(nullptr), method));
+          "values ({}, '{}', {}, {})",
+          poly.vertices.size(),
+          vs, time(nullptr), method));
 }
 
 // Expects a specific column order; see below.
@@ -363,11 +363,11 @@ std::vector<SolutionDB::Attempt> SolutionDB::GetAttemptsForNoperts() {
 void SolutionDB::AddAttempt(const std::string &poly, int method, int source,
                             double best,
                             int64_t iters, int64_t evals) {
-  db->ExecuteAndPrint(StringPrintf(
+  db->ExecuteAndPrint(std::format(
       "insert into attempts (polyhedron, createdate, method, source, "
       "best, iters, evals) "
-      "values ('%s', %lld, %d, %d, %.17g, %lld, %lld)",
-      poly.c_str(), time(nullptr), method, source, best, iters, evals));
+      "values ('{}', {}, {}, {}, {:.17g}, {}, {})",
+      poly, time(nullptr), method, source, best, iters, evals));
 }
 
 void SolutionDB::AddSolution(const std::string &polyhedron,
@@ -376,16 +376,16 @@ void SolutionDB::AddSolution(const std::string &polyhedron,
                              int method, int source,
                              double ratio, double clearance) {
   db->ExecuteAndPrint(
-      StringPrintf(
+      std::format(
           "insert into solutions "
           "(polyhedron, method, source, outerframe, innerframe, "
           "createdate, ratio, clearance, invalid) "
-          "values ('%s', %d, %d, '%s', '%s', %lld, %.17g, %.17g, 0)",
-          polyhedron.c_str(),
+          "values ('{}', {}, {}, '{}', '{}', {}, {:.17g}, {:.17g}, 0)",
+          polyhedron,
           method,
           source,
-          FrameString(outer_frame).c_str(),
-          FrameString(inner_frame).c_str(),
+          FrameString(outer_frame),
+          FrameString(inner_frame),
           time(nullptr),
           ratio, clearance));
 }

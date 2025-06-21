@@ -39,7 +39,7 @@ let
 in
 
   let
-    val portrait = image-load "d:\\video\\ruperts\\rupert-portrait.png"
+    val portrait = image-load "d:\\video\\ruperts\\rupert-pub.png"
 
     val anim-frames : image-handle vec = auto-draw portrait
       {(AutoDrawArg)

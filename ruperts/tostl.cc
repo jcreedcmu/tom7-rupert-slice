@@ -2,10 +2,10 @@
 #include "ansi.h"
 
 #include <cstdlib>
-#include <string_view>
+#include <format>
 #include <string>
+#include <string_view>
 
-#include "base/stringprintf.h"
 #include "polyhedra.h"
 #include "solutions.h"
 #include "yocto_matht.h"
@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
 
   CHECK(argc > 2) << "./tostl.exe polyhedronname [output.stl]";
   std::string name = argv[1];
-  std::string file = StringPrintf("%s.stl", std::string(name).c_str());
+  std::string file = std::format("{}.stl", name);
 
   if (argc >= 3) file = argv[2];
 

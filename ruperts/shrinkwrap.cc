@@ -24,7 +24,6 @@
 #include "arcfour.h"
 #include "atomic-util.h"
 #include "base/logging.h"
-#include "base/stringprintf.h"
 #include "dyson.h"
 #include "factorization.h"
 #include "mesh.h"
@@ -273,7 +272,7 @@ static auto Manual() {
       }
     }
 
-    status.Printf("Manual cube: %dx%dx%d\n", j, k, l);
+    status.Print("Manual cube: {}x{}x{}\n", j, k, l);
 
     std::array<frame3, NUM_CUBES> arr;
     int idx = 0;
@@ -466,10 +465,10 @@ static Eval Evaluate(ArcFour *rc,
   eval.sphere = SmallestSphere::Smallest(rc, all_points);
   double t = smallest_timer.Seconds();
   if (t > 1) {
-    status.Printf("Slow sphere call (%s):\n", ANSI::Time(t).c_str());
+    status.Print("Slow sphere call ({}):\n", ANSI::Time(t).c_str());
     for (const vec3 &pt : all_points) {
-      status.Printf("{%.17g, %.17g, %.17g},\n",
-                    pt.x, pt.y, pt.z);
+      status.Print("{{{:.17g}, {:.17g}, {:.17g}}},\n",
+                   pt.x, pt.y, pt.z);
     }
   }
   return eval;
@@ -551,8 +550,8 @@ struct OptimizeTuner {
   }
 
   std::string InfoString() {
-    return StringPrintf("(%d it %d d %d at)",
-                        cur.iters, cur.depth, cur.attempts);
+    return std::format("({} it {} d {} at)",
+                       cur.iters, cur.depth, cur.attempts);
   }
 
   double goal_sec = 1.0;
@@ -582,16 +581,16 @@ struct Shrinkwrap {
     for (int m = 0; m < manual.size(); m++) {
       const std::array<frame3, NUM_CUBES> &cubes = manual[m];
       Eval eval = Evaluate(&rc, cubes);
-      status.Printf("Manual solution #%d has radius: %.11g\n", m,
-                    eval.sphere.second);
+      status.Print("Manual solution #{} has radius: {:.11g}\n", m,
+                   eval.sphere.second);
       std::string filename =
         std::format("shrinkwrap-manual{}-{}.stl", m, NUM_CUBES);
       CubesToSTL(cubes, {eval.sphere}, filename);
-      status.Printf("Wrote " AGREEN("%s") "\n",
-                    filename.c_str());
+      status.Print("Wrote " AGREEN("{}") "\n",
+                   filename.c_str());
       double radius = eval.sphere.second;
       if (!db.HasSolutionWithRadius(NUM_CUBES, radius)) {
-        status.Printf("Add to database.\n");
+        status.Print("Add to database.\n");
         db.AddSolution(cubes, ShrinklutionDB::METHOD_MANUAL, 0, radius);
       }
 
@@ -1146,29 +1145,29 @@ struct Shrinkwrap {
           // would be to actually compute that all the points
           // are inside.
           radius < 0.99 * error) {
-        status.Printf(ARED("Invalid") " Got radius %.6g "
-                      "but error %.6g from method %s", radius, error,
-                      ShrinklutionDB::MethodName(method));
+        status.Print(ARED("Invalid") " Got radius {:.6g} "
+                     "but error {:.6g} from method {}", radius, error,
+                     ShrinklutionDB::MethodName(method));
         for (int i = 0; i < NUM_CUBES; i++) {
-          status.Printf("Cube %d:\n%s\n", i, FrameString(cubes[i]).c_str());
+          status.Print("Cube {}:\n{}\n", i, FrameString(cubes[i]));
         }
         invalid++;
       } else {
         best_error = error;
-        status.Printf("New best! %.17g with method " APURPLE("%s") "\n",
-                      best_error,
-                      ShrinklutionDB::MethodName(method));
+        status.Print("New best! {:.17g} with method " APURPLE("{}") "\n",
+                     best_error,
+                     ShrinklutionDB::MethodName(method));
 
         AddGood(Good{.radius = eval.sphere.second, .cubes = cubes});
 
         writer.Delay([this, method, c = std::move(cubes), eval]() {
           for (int i = 0; i < NUM_CUBES; i++) {
-            status.Printf("Cube %d:\n%s\n", i, FrameString(c[i]).c_str());
+            status.Print("Cube {}:\n{}\n", i, FrameString(c[i]));
           }
-          status.Printf(ABLUE("Radius") ": %.11g\n", eval.sphere.second);
+          status.Print(ABLUE("Radius") ": {:.11g}\n", eval.sphere.second);
           std::string filename = std::format("shrinkwrap{}.stl", NUM_CUBES);
           CubesToSTL(c, {eval.sphere}, filename);
-          status.Printf("Wrote " AGREEN("%s") "\n", filename.c_str());
+          status.Print("Wrote " AGREEN("{}") "\n", filename);
           db.AddSolution<NUM_CUBES>(c, method, 0, eval.sphere.second);
         });
       }

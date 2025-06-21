@@ -1,7 +1,6 @@
 
 // Like churro, but for distortions of the snub cube.
 
-#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -11,7 +10,6 @@
 #include <ctime>
 #include <format>
 #include <functional>
-#include <limits>
 #include <mutex>
 #include <numbers>
 #include <optional>
@@ -24,7 +22,6 @@
 #include "ansi.h"
 #include "arcfour.h"
 #include "atomic-util.h"
-#include "base/stringprintf.h"
 #include "big-csg.h"
 #include "big-polyhedra.h"
 #include "bignum/big.h"
@@ -39,7 +36,6 @@
 #include "status-bar.h"
 #include "threadutil.h"
 #include "timer.h"
-#include "util.h"
 #include "yocto_matht.h"
 
 DECLARE_COUNTERS(solve_attempts, solved, hard, noperts, footballs);
@@ -60,10 +56,10 @@ using frame3 = yocto::frame<double, 3>;
 
 static std::string ConfigString(
     double theta, double phi, double stretch) {
-  return StringPrintf("%.6g" ABLUE("θ")
-                      "%.6g" ACYAN("φ")
-                      "%.6g" APURPLE("ρ") " ",
-                      theta, phi, stretch);
+  return std::format("{:.6g}" ABLUE("θ")
+                     "{:.6g}" ACYAN("φ")
+                     "{:.6g}" APURPLE("ρ") " ",
+                     theta, phi, stretch);
 
 }
 
@@ -183,11 +179,11 @@ DoSolve(int thread_idx,
       // angle
 
       if (iter > MIN_VERBOSE_ITERS) {
-        status->Printf("%s " AYELLOW("solved") " after "
-                       AWHITE("%d") " iters (%s).\n",
-                       ConfigString(theta, phi, stretch).c_str(),
-                       iter,
-                       ANSI::Time(solve_timer.Seconds()).c_str());
+        status->Print("{} " AYELLOW("solved") " after "
+                      AWHITE("{}") " iters ({}).\n",
+                      ConfigString(theta, phi, stretch),
+                      iter,
+                      ANSI::Time(solve_timer.Seconds()));
       }
       return std::make_tuple(OuterFrame(args),
                              InnerFrame(args),
@@ -291,6 +287,7 @@ Tree3D<double, bool> GetDoneTree(NDSolutions<3> &sols) {
   return done;
 }
 
+[[maybe_unused]]
 static void DoFootball() {
   solve_attempts.Reset();
   solved.Reset();
@@ -298,8 +295,8 @@ static void DoFootball() {
 
   NDSolutions<3> sols("football.nds");
   if (sols.Size() > 0) {
-    status->Printf("Continuing from " AWHITE("%lld") " sols.",
-                   sols.Size());
+    status->Print("Continuing from " AWHITE("{}") " sols.",
+                  sols.Size());
   }
 
   // Keep hard, noperts
@@ -391,8 +388,8 @@ static void DoFootball() {
   auto MaybeSave = [&]() {
       save_per.RunIf([&]() {
           sols.Save();
-          status->Printf("Saved " AWHITE("%lld") "\n",
-                         sols.Size());
+          status->Print("Saved " AWHITE("{}") "\n",
+                        sols.Size());
         });
     };
 
@@ -505,8 +502,8 @@ static void DoFootball() {
         }
       });
 
-  status->Printf("Done in %s.\n",
-                 ANSI::Time(run_timer.Seconds()).c_str());
+  status->Print("Done in {}.\n",
+                ANSI::Time(run_timer.Seconds()));
   sols.Save();
 }
 
@@ -590,25 +587,25 @@ static void GetSol() {
   status.Statusf("Done.\n");
 
   CHECK(valid > 0);
-  status.Printf("Took %s. Saw " ARED("%lld") " invalid solutions\n"
-                 "(and " AWHITE("%lld") " valid improving solutions)\n"
-                 "on the way.\n",
-                 ANSI::Time(findbest_timer.Seconds()).c_str(),
-                 invalid, valid);
+  status.Print("Took {}. Saw " ARED("{}") " invalid solutions\n"
+               "(and " AWHITE("{}") " valid improving solutions)\n"
+               "on the way.\n",
+               ANSI::Time(findbest_timer.Seconds()),
+               invalid, valid);
 
   const auto &[key, score, outer, inner] = sols[best_idx];
 
   const auto &[theta, phi, stretch] = key;
   BigPoly football = BigFootball(theta, phi, stretch, 100);
   CHECK(ValidateSolution(football, outer, inner, 100));
-  status.Printf("Solution " AGREEN("OK") "!\n");
+  status.Print("Solution " AGREEN("OK") "!\n");
 
-  status.Printf("Best stretch %.17g at %lld\n"
-                 "Config: %s\n"
-                 "Clearance %.17g.\n",
-                 best_stretch, best_idx,
-                 ConfigString(theta, phi, stretch).c_str(),
-                 score);
+  status.Print("Best stretch {:.17g} at {}\n"
+               "Config: {}\n"
+               "Clearance {:.17g}.\n",
+               best_stretch, best_idx,
+               ConfigString(theta, phi, stretch),
+               score);
 
   Polyhedron poly = Football(key[0], key[1], key[2]);
   Rendering rendering(poly, 1920, 1080);
@@ -629,7 +626,7 @@ static void GetSol() {
 
     std::string filename = "football-residue.stl";
     SaveAsSTL(residue, filename);
-    status.Printf("Wrote %s", filename.c_str());
+    status.Print("Wrote {}", filename);
   }
 }
 
@@ -723,8 +720,8 @@ static void Extrapolate() {
   auto MaybeSave = [&]() {
       save_per.RunIf([&]() {
           sols.Save();
-          status->Printf("Saved " AWHITE("%lld") "\n",
-                         sols.Size());
+          status->Print("Saved " AWHITE("{}") "\n",
+                        sols.Size());
         });
     };
   // Get a picture of the full space by running these in random
@@ -772,8 +769,8 @@ static void Extrapolate() {
         }
       });
 
-  status->Printf("Done in %s.\n",
-                 ANSI::Time(run_timer.Seconds()).c_str());
+  status->Print("Done in {}.\n",
+                ANSI::Time(run_timer.Seconds()));
   sols.Save();
 }
 #endif

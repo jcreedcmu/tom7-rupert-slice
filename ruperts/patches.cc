@@ -760,15 +760,15 @@ struct PatchEnumerator {
       "answer here";
 
     if (z3result == Z3Result::UNSAT) {
-      status.Printf("Code %s is impossible.\n",
-                    PartialCodeString(depth, code).c_str());
+      status.Print("Code {} is impossible.\n",
+                   PartialCodeString(depth, code));
       return;
     }
 
     if (depth == boundaries.Size()) {
       // Then we have a complete code.
-      status.Printf(AGREEN("Nonempty") ": %s\n",
-                    PartialCodeString(depth, code).c_str());
+      status.Print(AGREEN("Nonempty") ": {}\n",
+                   PartialCodeString(depth, code));
       nonempty_patches.push_back(code);
       return;
     }
@@ -782,10 +782,10 @@ struct PatchEnumerator {
   std::vector<uint64_t> Enumerate() {
     Timer timer;
     EnumerateRec(0, 0);
-    status.Printf("Computed %lld patches in %s (%lld z3 calls)\n",
-                  (int64_t)nonempty_patches.size(),
-                  ANSI::Time(timer.Seconds()).c_str(),
-                  z3calls);
+    status.Print("Computed {} patches in {} ({} z3 calls)\n",
+                 nonempty_patches.size(),
+                 ANSI::Time(timer.Seconds()),
+                 z3calls);
     return nonempty_patches;
 
     #if 0
@@ -843,8 +843,7 @@ static void WriteMaskAndExampleFile(const Boundaries &boundaries) {
                    const uint64_t mask =
                      GetCodeMask(boundaries, code, false);
 
-                   status.Printf("%d. Code %s ok\n",
-                                 idx, std::format("{:b}", code).c_str());
+                   status.Print("{}. Code {:b} ok\n", idx, code);
 
                    {
                      MutexLock ml(&mu);

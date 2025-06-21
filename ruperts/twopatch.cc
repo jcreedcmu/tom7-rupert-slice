@@ -137,9 +137,9 @@ struct TwoPatch {
 
     if (sols.Size() >= TARGET_SAMPLES) {
       pairs_done++;
-      status->Printf(ACYAN("%s") ": Already have %lld samples.",
-                     TwoPatchFilename(outer_code, inner_code).c_str(),
-                     (int64_t)sols.Size());
+      status->Print(ACYAN("{}") ": Already have {} samples.",
+                    TwoPatchFilename(outer_code, inner_code),
+                    sols.Size());
       return;
     }
 
@@ -420,10 +420,10 @@ struct TwoPatch {
 
     sols.Save();
     std::string filename = TwoPatchFilename(outer_code, inner_code);
-    status->Printf("Done in %s: Saved %lld sols to %s",
-                   ANSI::Time(run_timer.Seconds()).c_str(),
-                   (int64_t)sols.Size(),
-                   filename.c_str());
+    status->Print("Done in {}: Saved {} sols to {}",
+                  ANSI::Time(run_timer.Seconds()),
+                  sols.Size(),
+                  filename);
     pairs_done++;
   }
 
@@ -446,7 +446,7 @@ static void UpdateStatus() {
   std::vector<std::pair<uint64_t, PatchInfo::CanonicalPatch>> cc =
     MapToSortedVec(patchinfo.canonical);
 
-  status.Printf("Radix: %d\n", (int)cc.size());
+  status.Print("Radix: {}", (int)cc.size());
 
   std::string matrix;
 
@@ -467,13 +467,13 @@ static void UpdateStatus() {
       } else {
         if (nsols >= TARGET_SAMPLES) {
           AppendFormat(&out, "done {} {}\n", outer, inner);
-          status.Printf("%d %d done.", outer, inner);
+          status.Print("{} {} done.", outer, inner);
           done++;
           matrix += AGREEN("⏹");
         } else {
           AppendFormat(&out, "reserved {} {}\n", outer, inner);
-          status.Printf("%d %d %.2f%%", outer, inner,
-                        (nsols * 100.0) / TARGET_SAMPLES);
+          status.Print("{} {} {:.2f}%", outer, inner,
+                       (nsols * 100.0) / TARGET_SAMPLES);
           partial++;
           matrix += AYELLOW("∘");
         }
@@ -492,8 +492,8 @@ static void UpdateStatus() {
 
 static void RunWork(StatusBar *status, int start_outer, int start_inner) {
   PatchInfo patchinfo = LoadPatchInfo(PATCH_INFO_FILE);
-  status->Printf(
-      "Total to run: %d * %d = %d",
+  status->Print(
+      "Total to run: {} * {} = {}",
       (int)patchinfo.canonical.size(),
       (int)patchinfo.canonical.size(),
       (int)(patchinfo.canonical.size() * patchinfo.canonical.size()));
@@ -521,8 +521,8 @@ static void RunWork(StatusBar *status, int start_outer, int start_inner) {
       // the file.
       if (patch_status.reserved.contains(std::make_pair(outer, inner))) {
         if (!Util::ExistsFile(filename)) {
-          status->Printf("%llx %llx is reserved but not by us.",
-                         code1, code2);
+          status->Print("{:x} {:x} is reserved but not by us.",
+                        code1, code2);
           continue;
         }
       }
@@ -533,16 +533,16 @@ static void RunWork(StatusBar *status, int start_outer, int start_inner) {
       two_patch.Solve();
 
       if (CLOUD) {
-        status->Printf("Copy to storage bucket.\n");
+        status->Print("Copy to storage bucket.\n");
         std::string cmd = std::format(
             "gsutil -q cp {} gs://tom7-ruperts/ && "
             "rm -f {}",
             filename, filename);
-        status->Printf(AGREY("%s"), cmd.c_str());
+        status->Print(AGREY("{}"), cmd.c_str());
         if (0 == std::system(cmd.c_str())) {
-          status->Printf(AGREEN("OK"));
+          status->Print(AGREEN("OK"));
         } else {
-          status->Printf(ARED("FAILED"));
+          status->Print(ARED("FAILED"));
         }
 
         // Either way, add it to the done set.

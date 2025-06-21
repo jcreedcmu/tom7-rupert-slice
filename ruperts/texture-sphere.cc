@@ -5,11 +5,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
-#include <limits>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <numbers>
 #include <optional>
+#include <semaphore>
 #include <span>
 #include <string>
 #include <thread>
@@ -17,19 +18,16 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <semaphore>
 
 #include "ansi.h"
 #include "arcfour.h"
 #include "array-util.h"
 #include "atomic-util.h"
-#include "auto-histo.h"
 #include "big-polyhedra.h"
 #include "bounds.h"
 #include "color-util.h"
 #include "geom/tree-nd.h"
 #include "image.h"
-#include "map-util.h"
 #include "mesh.h"
 #include "nd-solutions.h"
 #include "patches.h"
@@ -543,21 +541,21 @@ TexturedTriangle TextureOneTriangle(const TriangularMesh3D &mesh,
         },
         8);
   } else {
-    status.Printf(ARED("Empty triangle?") " %d %d to %d %d\n"
-                  "pxa: %s\n"
-                  "pxb: %s\n"
-                  "pxc: %s\n"
-                  "ta: %s\n"
-                  "tb: %s\n"
-                  "tc: %s\n",
-                  start_x, start_y,
-                  end_x, end_y,
-                  VecString(pxa).c_str(),
-                  VecString(pxb).c_str(),
-                  VecString(pxc).c_str(),
-                  VecString(ta).c_str(),
-                  VecString(tb).c_str(),
-                  VecString(tc).c_str());
+    status.Print(ARED("Empty triangle?") " {} {} to {} {}\n"
+                 "pxa: {}\n"
+                 "pxb: {}\n"
+                 "pxc: {}\n"
+                 "ta: {}\n"
+                 "tb: {}\n"
+                 "tc: {}\n",
+                 start_x, start_y,
+                 end_x, end_y,
+                 VecString(pxa),
+                 VecString(pxb),
+                 VecString(pxc),
+                 VecString(ta),
+                 VecString(tb),
+                 VecString(tc));
   }
 
   return TexturedTriangle{

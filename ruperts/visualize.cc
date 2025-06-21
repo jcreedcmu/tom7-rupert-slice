@@ -100,7 +100,7 @@ static void AnimateHull(std::string_view filename) {
     DrawHull(hull1, 0xFFFFFFAA);
     // DrawHull(hull2, 0x00FFFF33);
 
-    // img.Save(StringPrintf("hull%d.png", i));
+    // img.Save(std::format("hull{}.png", i));
 
     rec.AddFrame(std::move(img));
 
@@ -140,7 +140,7 @@ static void AnimateHull(std::string_view filename) {
 
 [[maybe_unused]]
 static void Visualize(const Polyhedron &poly) {
-  // ArcFour rc(StringPrintf("seed.%lld", time(nullptr)));
+  // ArcFour rc(std::format("seed.{}", time(nullptr)));
   ArcFour rc("fixed-seed");
 
   CHECK(PlanarityError(poly) < 1.0e-10);

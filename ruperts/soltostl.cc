@@ -45,7 +45,7 @@ static void RenderPNG(const Polyhedron &polyhedron,
     rendering.RenderMesh(sinner);
     rendering.RenderBadPoints(sinner, souter);
 
-    rendering.Save(StringPrintf("soltostl-%s.png", std::string(name).c_str()));
+    rendering.Save(std::format("soltostl-{}.png", name));
   }
 
   std::vector<int> outer_hull = QuickHull(souter.vertices);
@@ -56,8 +56,7 @@ static void RenderPNG(const Polyhedron &polyhedron,
     rendering.RenderHullDistance(souter, outer_hull);
     rendering.RenderHull(souter, outer_hull, 0x0000FFFF);
     rendering.RenderHull(sinner, inner_hull, 0x00FF0077);
-    rendering.Save(StringPrintf("soltostl-%s-hulls.png",
-                                std::string(name).c_str()));
+    rendering.Save(std::format("soltostl-{}-hulls.png", name));
   }
 }
 

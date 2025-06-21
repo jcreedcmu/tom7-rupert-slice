@@ -233,7 +233,7 @@ void Rendering::RenderHull(const Mesh2D &mesh,
     const vec2 &v0 = mesh.vertices[hull[i]];
     const auto &[x, y] = ToScreen(v0);
     img.BlendText32(x - 12, y - 12, 0xFFFF00FF,
-                     StringPrintf("%d", i));
+                     std::format("{}", i));
   }
   */
 }

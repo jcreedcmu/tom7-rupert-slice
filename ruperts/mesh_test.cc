@@ -3,12 +3,12 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <tuple>
 #include <vector>
 
 #include "ansi.h"
 #include "base/logging.h"
-#include "base/stringprintf.h"
 #include "yocto_matht.h"
 
 using vec3 = yocto::vec<double, 3>;
@@ -23,7 +23,7 @@ double IsNear(double a, double b) {
   const double e = std::abs(fv - gv);                                   \
   CHECK(e < 0.0000001) << "Expected " << #f << " and " << #g <<         \
     " to be close, but got: " <<                                        \
-    StringPrintf("%.17g and %.17g, with err %.17g", fv, gv, e);         \
+    std::format("{:.17g} and {:.17g}, with err {:.17g}", fv, gv, e);    \
   } while (0)
 
 static void VolumeOfCube() {

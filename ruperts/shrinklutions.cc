@@ -1,6 +1,5 @@
 #include "shrinklutions.h"
 
-#include <cstdint>
 #include <ctime>
 #include <format>
 #include <memory>
@@ -9,24 +8,24 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <format>
 
 #include "base/logging.h"
-#include "base/stringprintf.h"
 #include "database.h"
 #include "util.h"
 
 using frame3 = ShrinklutionDB::frame3;
 
 std::string ShrinklutionDB::FrameString(const frame3 &frame) {
-  return StringPrintf(
+  return std::format(
       // x
-      "%.17g,%.17g,%.17g,"
+      "{:.17g},{:.17g},{:.17g},"
       // y
-      "%.17g,%.17g,%.17g,"
+      "{:.17g},{:.17g},{:.17g},"
       // z
-      "%.17g,%.17g,%.17g,"
+      "{:.17g},{:.17g},{:.17g},"
       // o
-      "%.17g,%.17g,%.17g",
+      "{:.17g},{:.17g},{:.17g}",
       frame.x.x, frame.x.y, frame.x.z,
       frame.y.x, frame.y.y, frame.y.z,
       frame.z.x, frame.z.y, frame.z.z,
@@ -184,11 +183,11 @@ void ShrinklutionDB::AddSolution(int num,
                                  int method, int source,
                                  double radius) {
   db->ExecuteAndPrint(
-      StringPrintf(
+      std::format(
           "insert into shrinksol "
           "(num, cubes, method, source, createdate, radius, invalid) "
-          "values (%d, '%s', %d, %d, %lld, %.17g, 0)",
-          num, CubesString(cubes).c_str(),
+          "values ({}, '{}', {}, {}, {}, {:.17g}, 0)",
+          num, CubesString(cubes),
           method,
           source,
           time(nullptr),

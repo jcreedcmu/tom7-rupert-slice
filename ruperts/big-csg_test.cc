@@ -5,15 +5,16 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <format>
 
 #include "ansi.h"
 #include "arcfour.h"
 #include "base/logging.h"
 #include "mesh.h"
+#include "periodically.h"
+#include "polyhedra.h"
 #include "randutil.h"
 #include "yocto_matht.h"
-#include "polyhedra.h"
-#include "periodically.h"
 
 using vec2 = yocto::vec<double, 2>;
 
@@ -27,9 +28,10 @@ static inline double IsNear(double a, double b) {
   const double e = std::abs(fv - gv);                                   \
   CHECK(e < 0.0000001) << "Expected " << #f << " and " << #g <<         \
     " to be close, but got: " <<                                        \
-    StringPrintf("%.17g and %.17g, with err %.17g", fv, gv, e);         \
+    std::format("{:.17g} and {:.17g}, with err {:.17g}", fv, gv, e);    \
   } while (0)
 
+[[maybe_unused]]
 static void StressTest() {
   Polyhedron poly = Cube();
   ArcFour rc("stress");
@@ -161,12 +163,12 @@ int main(int argc, char **argv) {
   ANSI::Init();
   printf("\n");
 
-  // MakeHoleRegression1();
-  // MakeHoleRegression2();
-  // MakeHoleRegression3();
+  MakeHoleRegression1();
+  MakeHoleRegression2();
+  MakeHoleRegression3();
   MakeHoleRegression4();
 
-  // TestMakeHole();
+  TestMakeHole();
   // StressTest();
 
   printf("OK\n");

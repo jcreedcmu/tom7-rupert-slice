@@ -144,7 +144,7 @@ static void SaveImprovement(SolutionDB *db,
     GetClearance(poly, outer_frame, inner_frame);
 
   if (!new_ratio.has_value() || !new_clearance.has_value()) {
-    status->Printf(ARED("SOLUTION IS INVALID!?") "\n");
+    status->Print(ARED("SOLUTION IS INVALID!?") "\n");
     return;
   }
 
@@ -202,7 +202,7 @@ static void SaveImprovement(SolutionDB *db,
       GetRatio(poly, old.outer_frame, old.inner_frame);
 
     if (old_ratio.has_value()) {
-      old_ratio_str = StringPrintf(APURPLE("%.7g"), old_ratio.value());
+      old_ratio_str = std::format(APURPLE("{:.7g}"), old_ratio.value());
     }
   }
 
@@ -244,18 +244,18 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
   const double start_loss = MethodLoss(poly,
                                        original_outer_frame,
                                        original_inner_frame);
-  status->Printf("[" AYELLOW("%d") "] "
-                 "Starting loss: %s%.17g" ANSI_RESET "\n",
-                 thread_idx,
-                 start_loss < 0.999999 ? ANSI_GREEN :
-                 start_loss < 0.0 ? ANSI_YELLOW :
-                 start_loss == 0.0 ? ANSI_ORANGE : ANSI_RED,
-                 start_loss);
+  status->Print("[" AYELLOW("{}") "] "
+                "Starting loss: {}{:.17g}" ANSI_RESET "\n",
+                thread_idx,
+                start_loss < 0.999999 ? ANSI_GREEN :
+                start_loss < 0.0 ? ANSI_YELLOW :
+                start_loss == 0.0 ? ANSI_ORANGE : ANSI_RED,
+                start_loss);
 
   if (start_loss > 0.0) {
-    status->Printf("[" AYELLOW("%d") "] "
-                   ABLOOD("✘") " " ARED("Bogus") ".\n",
-                   thread_idx);
+    status->Print("[" AYELLOW("{}") "] "
+                  ABLOOD("✘") " " ARED("Bogus") ".\n",
+                  thread_idx);
     return std::nullopt;
   }
 
@@ -286,13 +286,13 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
         options.bar_empty  = 0x001a03FF;
 
         arrow =
-          StringPrintf(AORANGE("%.7g") AGREEN(" → ") ACYAN("%.7g"),
-                       start_loss, best_loss);
+          std::format(AORANGE("{:.7g}") AGREEN(" → ") ACYAN("{:.7g}"),
+                      start_loss, best_loss);
       } else {
         arrow =
-          StringPrintf(ARED("%.3g") " " AYELLOW("%s"),
-                       start_loss,
-                       histo.UnlabeledHoriz(20).c_str());
+          std::format(ARED("{:.3g}") " " AYELLOW("{}"),
+                      start_loss,
+                      histo.UnlabeledHoriz(20));
       }
 
       int target_iters =
@@ -301,9 +301,9 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
 
       std::string bar = ANSI::ProgressBar(
           iter, target_iters,
-          StringPrintf("%d " AWHITE("%s") "[%d] %s",
-                       iter,
-                       short_name.c_str(), source, arrow.c_str()),
+          std::format("{} " AWHITE("{}") "[{}] {}",
+                      iter,
+                      short_name, source, arrow),
           improve_timer.Seconds(),
           options);
       update_status(bar);
@@ -387,10 +387,10 @@ static std::optional<std::pair<frame3, frame3>> TryImprove(
     histo.Observe(error);
 
     if (error < 0.0 && error < best_loss) {
-      status->Printf("[" AYELLOW("%d") "] Iter %d: " AGREEN("Success!") " "
-                     ABLUE("%.17g") " → " ACYAN("%.17g") "\n",
-                     thread_idx, iter,
-                     best_loss, error);
+      status->Print("[" AYELLOW("{}") "] Iter {}: " AGREEN("Success!") " "
+                    ABLUE("{:.17g}") " → " ACYAN("{:.17g}") "\n",
+                    thread_idx, iter,
+                    best_loss, error);
 
       frame3 outer_frame = OuterFrame(args);
       frame3 inner_frame = InnerFrame(args);
@@ -420,7 +420,7 @@ struct Imperts {
   static constexpr int NUM_THREADS = 8;
 
   std::mutex m;
-  ArcFour rc = ArcFour(StringPrintf("work.%lld", time(nullptr)));
+  ArcFour rc = ArcFour(std::format("work.{}", time(nullptr)));
   SolutionDB db;
   // map solution id to the count of attempts to improve
   std::unordered_map<int, int> num_attempted;
@@ -452,7 +452,7 @@ struct Imperts {
       std::unordered_map<std::string, double> best_ratio;
       using namespace std::chrono_literals;
       std::this_thread::sleep_for(1s);
-      status->Printf("Refresh solution db.");
+      status->Print("Refresh solution db.");
       std::vector<Attempt> attempts = db.GetAllAttempts();
       for (const Attempt &att : attempts) {
         if (IsImproveMethod(att.method)) {
@@ -489,13 +489,13 @@ struct Imperts {
 
       #define APINK(s) AFGCOLOR(230, 168, 225, s)
       for (const auto &[name, best] : best_ratio) {
-        status->Printf(AWHITE("%s") " (%s) has " AGREEN("%d")
-                       " sols, best ratio "
-                       APINK("%.17g") "\n",
-                       PolyhedronShortName(name).c_str(),
-                       name.c_str(),
-                       num_solutions[name],
-                       best);
+        status->Print(AWHITE("{}") " ({}) has " AGREEN("{}")
+                      " sols, best ratio "
+                      APINK("{:.17g}") "\n",
+                      PolyhedronShortName(name),
+                      name,
+                      num_solutions[name],
+                      best);
       }
 
       for (Solution &sol : all_solutions) {
@@ -535,29 +535,29 @@ struct Imperts {
         double eps = evals / total_time;
 
         std::string timing =
-          StringPrintf(
-              "%s "
-              "[" AWHITE("%.1f") "/s] "
+          std::format(
+              "{} "
+              "[" AWHITE("{:.1f}") "/s] "
               " " AGREY("=") "  "
-              "%s " APURPLE("gen") " + "
-              "%s " ABLUE("sol"),
-              ANSI::Time(total_time).c_str(),
+              "{} " APURPLE("gen") " + "
+              "{} " ABLUE("sol"),
+              ANSI::Time(total_time),
               eps,
-              ANSI::Time(total_gen_sec).c_str(),
-              ANSI::Time(total_solve_sec).c_str());
+              ANSI::Time(total_gen_sec),
+              ANSI::Time(total_solve_sec));
 
         std::string msg =
-          StringPrintf(
-              ACYAN("%s") AWHITE("∫") " "
-              ABLUE("%s") AWHITE("∎") " "
-              ARED("%s") ABLOOD("=") " "
-              AGREEN("%s") AWHITE("↓") " "
-              "Queue: %d",
-              FormatNum(evals).c_str(),
-              FormatNum(polys).c_str(),
-              FormatNum(notimproved).c_str(),
-              FormatNum(improved).c_str(),
-              (int)work_queue.size());
+          std::format(
+              ACYAN("{}") AWHITE("∫") " "
+              ABLUE("{}") AWHITE("∎") " "
+              ARED("{}") ABLOOD("=") " "
+              AGREEN("{}") AWHITE("↓") " "
+              "Queue: {}",
+              FormatNum(evals),
+              FormatNum(polys),
+              FormatNum(notimproved),
+              FormatNum(improved),
+              work_queue.size());
 
 
         std::vector<std::string> status_lines;
@@ -582,8 +582,8 @@ struct Imperts {
     ParallelFan(
       NUM_THREADS,
       [&](int thread_idx) {
-        ArcFour rc(StringPrintf("imperts.%d.%lld\n",
-                                thread_idx, time(nullptr)));
+        ArcFour rc(std::format("imperts.{}.{}\n",
+                               thread_idx, time(nullptr)));
 
         for (;;) {
           {
@@ -594,7 +594,7 @@ struct Imperts {
           Timer gen_timer;
           std::optional<Solution> osol = GetWork();
           if (!osol.has_value()) {
-            status->Printf("No more work.\n");
+            status->Print("No more work.\n");
             MutexLock ml(&m);
             should_die = true;
             return;
@@ -606,10 +606,10 @@ struct Imperts {
           polyhedra++;
           const double gen_sec = gen_timer.Seconds();
 
-          status->Printf("[" AYELLOW("%d") "] #%d. " AWHITE("%s") " "
-                         "(via %s)\n",
-                         thread_idx, solution.id, poly.name.c_str(),
-                         SolutionDB::MethodName(solution.method));
+          status->Print("[" AYELLOW("{}") "] #{}. " AWHITE("{}") " "
+                        "(via {})\n",
+                        thread_idx, solution.id, poly.name,
+                        SolutionDB::MethodName(solution.method));
 
           Timer solve_timer;
           int64_t iters = 0, evals = 0;
