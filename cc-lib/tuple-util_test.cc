@@ -1,17 +1,17 @@
 #include "tuple-util.h"
 
-#include <list>
+#include <cstdio>
+#include <format>
 #include <tuple>
 #include <cstdlib>
 
 #include "base/logging.h"
-#include "base/stringprintf.h"
 
 using namespace std;
 
 
 static void TestMapTuple() {
-    auto t2 = MapTuple([](int i) { return StringPrintf("%d", i); },
+  auto t2 = MapTuple([](int i) { return std::format("{}", i); },
                      std::make_tuple(5, 6, 7));
 
   const auto &[a, b, c] = t2;

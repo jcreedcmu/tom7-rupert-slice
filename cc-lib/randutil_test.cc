@@ -1,10 +1,16 @@
 #include "randutil.h"
 
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <format>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "arcfour.h"
 #include "base/logging.h"
-#include "base/stringprintf.h"
 
 using namespace std;
 
@@ -37,7 +43,7 @@ static void TestShuffleArray() {
 // Test that Shuffle produces each permutation with even
 // probability. It's pretty easy to get this wrong!
 static void TestShuffle(int n, double absolute_error) {
-  ArcFour rc(StringPrintf("test_%d", n));
+  ArcFour rc(std::format("test_{}", n));
 
   unordered_map<string, int64_t> counts;
   static constexpr int ITERS = 10000000;

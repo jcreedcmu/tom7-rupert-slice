@@ -26,6 +26,7 @@
  **************************************************************************/
 
 #include <cstdio>
+#include <cstring>
 static constexpr bool DEBUG_MINIZ = false;
 
 
@@ -4497,9 +4498,9 @@ mz_bool mz_zip_reader_extract_to_mem_no_alloc1(mz_zip_archive *pZip, mz_uint fil
 
     if (st) {
         file_stat = *st;
-    } else
-    if (!mz_zip_reader_file_stat(pZip, file_index, &file_stat))
+    } else if (!mz_zip_reader_file_stat(pZip, file_index, &file_stat)) {
         return MZ_FALSE;
+    }
 
     /* A directory or zero length file */
     if ((file_stat.m_is_directory) || (!file_stat.m_comp_size))

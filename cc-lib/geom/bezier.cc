@@ -21,6 +21,7 @@
 // Ported to C++ by Tom Murphy VII in 2021. Also released to
 // the public domain.
 
+#include <cstdlib>
 #include <tuple>
 // #include "GraphicsGems.h"
 
@@ -136,7 +137,7 @@ struct BezierImpl {
       /* Find distances for candidate points  */
       for (i = 0; i < n_solutions; i++) {
         p = Bezier(V, DEGREE, t_candidate[i],
-                   (Point2 *)NULL, (Point2 *)NULL);
+                   (Point2 *)nullptr, (Point2 *)nullptr);
         new_dist = V2SquaredLength(V2Sub(&P, &p, &v));
         if (new_dist < *dist) {
           *dist = new_dist;
@@ -154,7 +155,7 @@ struct BezierImpl {
 
     /*  Return the point on the curve at parameter value t */
     // printf("t : %4.12f\n", t);
-    return Bezier(V, DEGREE, *t, (Point2 *)NULL, (Point2 *)NULL);
+    return Bezier(V, DEGREE, *t, (Point2 *)nullptr, (Point2 *)nullptr);
   }
 
 
@@ -522,12 +523,12 @@ struct BezierImpl {
       }
     }
 
-    if (Left != NULL) {
+    if (Left != nullptr) {
       for (j = 0; j <= degree; j++) {
         Left[j]  = Vtemp[j][0];
       }
     }
-    if (Right != NULL) {
+    if (Right != nullptr) {
       for (j = 0; j <= degree; j++) {
         Right[j] = Vtemp[degree-j][j];
       }

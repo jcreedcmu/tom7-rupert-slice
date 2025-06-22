@@ -1,15 +1,20 @@
 
 #include "threadutil.h"
 
-#include <vector>
+#include <algorithm>
+#include <cstdio>
+#include <format>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
-#include "base/stringprintf.h"
-#include "base/logging.h"
+#include "ansi.h"
 #include "base/do-not-optimize.h"
+#include "base/logging.h"
 #include "periodically.h"
 #include "timer.h"
-#include "ansi.h"
 
 using namespace std;
 
@@ -61,7 +66,7 @@ static void TestMap() {
   {
     vector<string> v;
     for (int i = 0; i < 100; i++)
-      v.push_back(StringPrintf("hello %d", i));
+      v.push_back(std::format("hello {}", i));
 
     auto F = [](const string &s) { return s + " world"; };
 

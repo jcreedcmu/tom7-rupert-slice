@@ -1,17 +1,19 @@
 
 #include "hilbert-curve.h"
 
-#include <string>
+#include <algorithm>
+#include <cinttypes>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <cmath>
-#include <cinttypes>
+#include <format>
+#include <string>
+#include <tuple>
 
-#include "base/logging.h"
-#include "base/stringprintf.h"
 #include "arcfour.h"
-#include "randutil.h"
+#include "base/logging.h"
 #include "image.h"
+#include "randutil.h"
 
 using uint8 = uint8_t;
 
@@ -36,7 +38,7 @@ static void DrawLine() {
     oldx = x;
     oldy = y;
   }
-  std::string filename = StringPrintf("lines-%d.png", base);
+  std::string filename = std::format("lines-{}.png", base);
   img.ScaleBy(4).Save(filename);
   printf("Wrote %s\n", filename.c_str());
 }
@@ -56,7 +58,7 @@ static void Brightness() {
     uint8 v = std::clamp(0, (int)round(f * 255.0), 255);
     img.SetPixel(x, y, v, v, v, 0xFF);
   }
-  std::string filename = StringPrintf("brightness-%d.png", base);
+  std::string filename = std::format("brightness-{}.png", base);
   img.Save(filename);
   printf("Wrote %s\n", filename.c_str());
 }

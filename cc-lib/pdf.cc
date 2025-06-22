@@ -35,28 +35,34 @@ Done.
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <ctype.h>
 #include <errno.h>
 #include <format>
+#include <initializer_list>
 #include <inttypes.h>
 #include <math.h>
 #include <numbers>
+#include <optional>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 #include <string_view>
 #include <sys/stat.h>
 #include <time.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "base/logging.h"
 #include "base/stringprintf.h"
+#include "hashing.h"
 #include "image.h"
 #include "map-util.h"
 #include "qr-code.h"
@@ -105,7 +111,7 @@ static const uint16_t *find_font_widths(PDF::BuiltInFont font);
 using FontEncoding = PDF::FontEncoding;
 
 static std::string Float(float f) {
-  std::string s = StringPrintf("%.6f", f);
+  std::string s = std::format("{:.6f}", f);
   for (;;) {
     if (s.empty()) return "0";
     // Trailing zeroes do nothing
@@ -709,7 +715,7 @@ static int UTF8ToWinAnsiEncoding(const char *utf8, int len, uint8_t *res) {
   if (code > 255) {
     const auto co = MapCodepointWinAnsi(code);
     CHECK(co.has_value()) <<
-      StringPrintf("Unsupported UTF-8 character: 0x%x 0o%o %s",
+      std::format("Unsupported UTF-8 character: 0x{:x} 0o{:o} {}",
                    code, code, utf8);
     *res = co.value();
   } else {
@@ -753,7 +759,7 @@ static std::string PDFDocEncodeString(std::string_view utf8_text) {
       if (latin1 >= 32 && latin1 <= 128) {
         ret.push_back(latin1);
       } else {
-        StringAppendF(&ret, "\\%03o", latin1);
+        AppendFormat(&ret, "\\{:03o}", latin1);
       }
     }
   }
@@ -1461,7 +1467,7 @@ PDF::StreamObj *PDF::AddStreamObject(
                  (int)contents.size());
     sobj->stream.append(contents);
   }
-  StringAppendF(&sobj->stream, "\nendstream\n");
+  AppendFormat(&sobj->stream, "\nendstream\n");
 
   return sobj;
 }
@@ -2365,16 +2371,16 @@ void PDF::AddLine(float x1, float y1,
                   float width, uint32_t color_rgb,
                   Page *page) {
   std::string str;
-  StringAppendF(&str, "%s w\n", Float(width).c_str());
-  StringAppendF(&str, "%s %s m\n", Float(x1).c_str(), Float(y1).c_str());
-  StringAppendF(&str, "/DeviceRGB CS\n");
-  StringAppendF(&str, "%s %s %s RG\n",
-                Float(PDF_RGB_R_FLOAT(color_rgb)).c_str(),
-                Float(PDF_RGB_G_FLOAT(color_rgb)).c_str(),
-                Float(PDF_RGB_B_FLOAT(color_rgb)).c_str());
-  StringAppendF(&str, "%s %s l S\n",
-                Float(x2).c_str(),
-                Float(y2).c_str());
+  AppendFormat(&str, "{} w\n", Float(width));
+  AppendFormat(&str, "{} {} m\n", Float(x1), Float(y1));
+  AppendFormat(&str, "/DeviceRGB CS\n");
+  AppendFormat(&str, "{} {} {} RG\n",
+               Float(PDF_RGB_R_FLOAT(color_rgb)),
+               Float(PDF_RGB_G_FLOAT(color_rgb)),
+               Float(PDF_RGB_B_FLOAT(color_rgb)));
+  AppendFormat(&str, "{} {} l S\n",
+               Float(x2),
+               Float(y2));
 
   AppendDrawCommand(page, std::move(str));
 }
@@ -2384,20 +2390,20 @@ void PDF::AddCubicBezier(float x1, float y1, float x2, float y2, float xq1,
                          uint32_t color_rgb, Page *page) {
   std::string str;
 
-  StringAppendF(&str, "%s w\n", Float(width).c_str());
-  StringAppendF(&str, "%s %s m\n", Float(x1).c_str(), Float(y1).c_str());
-  StringAppendF(&str, "/DeviceRGB CS\n");
-  StringAppendF(&str, "%s %s %s RG\n",
-                Float(PDF_RGB_R_FLOAT(color_rgb)).c_str(),
-                Float(PDF_RGB_G_FLOAT(color_rgb)).c_str(),
-                Float(PDF_RGB_B_FLOAT(color_rgb)).c_str());
-  StringAppendF(&str, "%s %s %s %s %s %s c S\n",
-                Float(xq1).c_str(),
-                Float(yq1).c_str(),
-                Float(xq2).c_str(),
-                Float(yq2).c_str(),
-                Float(x2).c_str(),
-                Float(y2).c_str());
+  AppendFormat(&str, "{} w\n", Float(width));
+  AppendFormat(&str, "{} {} m\n", Float(x1), Float(y1));
+  AppendFormat(&str, "/DeviceRGB CS\n");
+  AppendFormat(&str, "{} {} {} RG\n",
+               Float(PDF_RGB_R_FLOAT(color_rgb)),
+               Float(PDF_RGB_G_FLOAT(color_rgb)),
+               Float(PDF_RGB_B_FLOAT(color_rgb)));
+  AppendFormat(&str, "{} {} {} {} {} {} c S\n",
+               Float(xq1),
+               Float(yq1),
+               Float(xq2),
+               Float(yq2),
+               Float(x2),
+               Float(y2));
 
   AppendDrawCommand(page, std::move(str));
 }
@@ -2426,37 +2432,41 @@ void PDF::AddEllipse(float x, float y,
     (4.0f / 3.0f) * (float)(std::numbers::sqrt2 - 1.0f) * yradius;
 
   if (!PDF_IS_TRANSPARENT(fill_color)) {
-    StringAppendF(&str, "/DeviceRGB CS\n");
-    StringAppendF(&str, "%s %s %s rg\n",
-                  Float(PDF_RGB_R_FLOAT(fill_color)).c_str(),
-                  Float(PDF_RGB_G_FLOAT(fill_color)).c_str(),
-                  Float(PDF_RGB_B_FLOAT(fill_color)).c_str());
+    AppendFormat(&str, "/DeviceRGB CS\n");
+    AppendFormat(&str, "{} {} {} rg\n",
+                 Float(PDF_RGB_R_FLOAT(fill_color)),
+                 Float(PDF_RGB_G_FLOAT(fill_color)),
+                 Float(PDF_RGB_B_FLOAT(fill_color)));
   }
 
   /* stroke color */
-  StringAppendF(&str, "/DeviceRGB CS\n");
-  StringAppendF(&str, "%s %s %s RG\n",
-                Float(PDF_RGB_R_FLOAT(color)).c_str(),
-                Float(PDF_RGB_G_FLOAT(color)).c_str(),
-                Float(PDF_RGB_B_FLOAT(color)).c_str());
+  AppendFormat(&str, "/DeviceRGB CS\n");
+  AppendFormat(&str, "{} {} {} RG\n",
+               Float(PDF_RGB_R_FLOAT(color)),
+               Float(PDF_RGB_G_FLOAT(color)),
+               Float(PDF_RGB_B_FLOAT(color)));
 
-  StringAppendF(&str, "%s w ", Float(width).c_str());
+  AppendFormat(&str, "{} w ", Float(width));
 
   // TODO: Original code had two decimal places here; we can use Float()?
-  StringAppendF(&str, "%.2f %.2f m ", (x + xradius), (y));
-  StringAppendF(&str, "%.2f %.2f %.2f %.2f %.2f %.2f c ", (x + xradius),
-                (y - ly), (x + lx), (y - yradius), x, (y - yradius));
-  StringAppendF(&str, "%.2f %.2f %.2f %.2f %.2f %.2f c ", (x - lx),
-                (y - yradius), (x - xradius), (y - ly), (x - xradius), y);
-  StringAppendF(&str, "%.2f %.2f %.2f %.2f %.2f %.2f c ", (x - xradius),
-                (y + ly), (x - lx), (y + yradius), x, (y + yradius));
-  StringAppendF(&str, "%.2f %.2f %.2f %.2f %.2f %.2f c ", (x + lx),
-                (y + yradius), (x + xradius), (y + ly), (x + xradius), y);
+  AppendFormat(&str, "{:.2f} {:.2f} m ", (x + xradius), (y));
+  AppendFormat(&str,
+               "{:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} c ", (x + xradius),
+               (y - ly), (x + lx), (y - yradius), x, (y - yradius));
+  AppendFormat(&str,
+               "{:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} c ", (x - lx),
+               (y - yradius), (x - xradius), (y - ly), (x - xradius), y);
+  AppendFormat(&str,
+               "{:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} c ", (x - xradius),
+               (y + ly), (x - lx), (y + yradius), x, (y + yradius));
+  AppendFormat(&str,
+               "{:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} c ", (x + lx),
+               (y + yradius), (x + xradius), (y + ly), (x + xradius), y);
 
   if (PDF_IS_TRANSPARENT(fill_color))
-    StringAppendF(&str, "%s", "S ");
+    AppendFormat(&str, "{}", "S ");
   else
-    StringAppendF(&str, "%s", "B ");
+    AppendFormat(&str, "{}", "B ");
 
   AppendDrawCommand(page, std::move(str));
 }
@@ -2472,17 +2482,17 @@ void PDF::AddRectangle(float x, float y,
                        float width, float height, float border_width,
                        uint32_t color, Page *page) {
   std::string str;
-  StringAppendF(&str, "%s %s %s RG ",
-                Float(PDF_RGB_R_FLOAT(color)).c_str(),
-                Float(PDF_RGB_G_FLOAT(color)).c_str(),
-                Float(PDF_RGB_B_FLOAT(color)).c_str());
+  AppendFormat(&str, "{} {} {} RG ",
+               Float(PDF_RGB_R_FLOAT(color)),
+               Float(PDF_RGB_G_FLOAT(color)),
+               Float(PDF_RGB_B_FLOAT(color)));
 
-  StringAppendF(&str, "%s w ", Float(border_width).c_str());
-  StringAppendF(&str, "%s %s %s %s re S",
-                Float(x).c_str(),
-                Float(y).c_str(),
-                Float(width).c_str(),
-                Float(height).c_str());
+  AppendFormat(&str, "{} w ", Float(border_width));
+  AppendFormat(&str, "{} {} {} {} re S",
+               Float(x),
+               Float(y),
+               Float(width),
+               Float(height));
 
   AppendDrawCommand(page, str);
 }
@@ -2494,24 +2504,24 @@ void PDF::AddFilledRectangle(
 
   std::string str;
 
-  StringAppendF(&str, "%s %s %s rg ",
-                Float(PDF_RGB_R_FLOAT(color_fill)).c_str(),
-                Float(PDF_RGB_G_FLOAT(color_fill)).c_str(),
-                Float(PDF_RGB_B_FLOAT(color_fill)).c_str());
+  AppendFormat(&str, "{} {} {} rg ",
+               Float(PDF_RGB_R_FLOAT(color_fill)),
+               Float(PDF_RGB_G_FLOAT(color_fill)),
+               Float(PDF_RGB_B_FLOAT(color_fill)));
 
   if (border_width > 0) {
-    StringAppendF(&str, "%s %s %s RG ",
-                  Float(PDF_RGB_R_FLOAT(color_border)).c_str(),
-                  Float(PDF_RGB_G_FLOAT(color_border)).c_str(),
-                  Float(PDF_RGB_B_FLOAT(color_border)).c_str());
-    StringAppendF(&str, "%s w ", Float(border_width).c_str());
-    StringAppendF(&str, "%s %s %s %s re B",
-                  Float(x).c_str(), Float(y).c_str(),
-                  Float(width).c_str(), Float(height).c_str());
+    AppendFormat(&str, "{} {} {} RG ",
+                 Float(PDF_RGB_R_FLOAT(color_border)),
+                 Float(PDF_RGB_G_FLOAT(color_border)),
+                 Float(PDF_RGB_B_FLOAT(color_border)));
+    AppendFormat(&str, "{} w ", Float(border_width));
+    AppendFormat(&str, "{} {} {} {} re B",
+                  Float(x), Float(y),
+                  Float(width), Float(height));
   } else {
-    StringAppendF(&str, "%s %s %s %s re f",
-                  Float(x).c_str(), Float(y).c_str(),
-                  Float(width).c_str(), Float(height).c_str());
+    AppendFormat(&str, "{} {} {} {} re f",
+                 Float(x), Float(y),
+                 Float(width), Float(height));
   }
 
   AppendDrawCommand(page, str);
@@ -2527,43 +2537,43 @@ bool PDF::AddCustomPath(const std::vector<PathOp> &ops,
 
   // TODO: Use Float() in here.
   if (!PDF_IS_TRANSPARENT(fill_color)) {
-    StringAppendF(&str, "/DeviceRGB CS\n");
-    StringAppendF(&str, "%f %f %f rg\n",
+    AppendFormat(&str, "/DeviceRGB CS\n");
+    AppendFormat(&str, "{} {} {} rg\n",
                   PDF_RGB_R_FLOAT(fill_color),
                   PDF_RGB_G_FLOAT(fill_color),
                   PDF_RGB_B_FLOAT(fill_color));
   }
 
-  StringAppendF(&str, "%f w\n", stroke_width);
-  StringAppendF(&str, "/DeviceRGB CS\n");
-  StringAppendF(&str, "%f %f %f RG\n",
-                PDF_RGB_R_FLOAT(stroke_color),
-                PDF_RGB_G_FLOAT(stroke_color),
-                PDF_RGB_B_FLOAT(stroke_color));
+  AppendFormat(&str, "{} w\n", stroke_width);
+  AppendFormat(&str, "/DeviceRGB CS\n");
+  AppendFormat(&str, "{} {} {} RG\n",
+               PDF_RGB_R_FLOAT(stroke_color),
+               PDF_RGB_G_FLOAT(stroke_color),
+               PDF_RGB_B_FLOAT(stroke_color));
 
   for (PathOp operation : ops) {
     switch (operation.op) {
     case 'm':
-      StringAppendF(&str, "%f %f m\n", operation.x1, operation.y1);
+      AppendFormat(&str, "{} {} m\n", operation.x1, operation.y1);
       break;
     case 'l':
-      StringAppendF(&str, "%f %f l\n", operation.x1, operation.y1);
+      AppendFormat(&str, "{} {} l\n", operation.x1, operation.y1);
       break;
     case 'c':
-      StringAppendF(&str, "%f %f %f %f %f %f c\n", operation.x1,
-                    operation.y1, operation.x2, operation.y2,
-                    operation.x3, operation.y3);
+      AppendFormat(&str, "{} {} {} {} {} {} c\n", operation.x1,
+                   operation.y1, operation.x2, operation.y2,
+                   operation.x3, operation.y3);
       break;
     case 'v':
-      StringAppendF(&str, "%f %f %f %f v\n", operation.x1, operation.y1,
-                    operation.x2, operation.y2);
+      AppendFormat(&str, "{} {} {} {} v\n", operation.x1, operation.y1,
+                   operation.x2, operation.y2);
       break;
     case 'y':
-      StringAppendF(&str, "%f %f %f %f y\n", operation.x1, operation.y1,
-                    operation.x2, operation.y2);
+      AppendFormat(&str, "{} {} {} {} y\n", operation.x1, operation.y1,
+                   operation.x2, operation.y2);
       break;
     case 'h':
-      StringAppendF(&str, "h\n");
+      AppendFormat(&str, "h\n");
       break;
     default:
       SetErr(-errno, "Invalid operation");
@@ -2572,9 +2582,9 @@ bool PDF::AddCustomPath(const std::vector<PathOp> &ops,
   }
 
   if (PDF_IS_TRANSPARENT(fill_color))
-    StringAppendF(&str, "%s", "S ");
+    AppendFormat(&str, "{}", "S ");
   else
-    StringAppendF(&str, "%s", "B ");
+    AppendFormat(&str, "{}", "B ");
 
   AppendDrawCommand(page, std::move(str));
 
@@ -2590,16 +2600,16 @@ bool PDF::AddPolygon(
   std::string str;
 
   // TODO: Use Float() in here.
-  StringAppendF(&str, "%f %f %f RG ",
-                PDF_RGB_R_FLOAT(color),
-                PDF_RGB_G_FLOAT(color),
-                PDF_RGB_B_FLOAT(color));
-  StringAppendF(&str, "%f w ", border_width);
-  StringAppendF(&str, "%f %f m ", points[0].first, points[0].second);
+  AppendFormat(&str, "{} {} {} RG ",
+               PDF_RGB_R_FLOAT(color),
+               PDF_RGB_G_FLOAT(color),
+               PDF_RGB_B_FLOAT(color));
+  AppendFormat(&str, "{} w ", border_width);
+  AppendFormat(&str, "{} {} m ", points[0].first, points[0].second);
   for (int i = 1; i < (int)points.size(); i++) {
-    StringAppendF(&str, "%f %f l ", points[i].first, points[i].second);
+    AppendFormat(&str, "{} {} l ", points[i].first, points[i].second);
   }
-  StringAppendF(&str, "h S");
+  AppendFormat(&str, "h S");
 
   AppendDrawCommand(page, str);
   return true;
@@ -2614,19 +2624,19 @@ bool PDF::AddFilledPolygon(
   std::string str;
 
   // TODO: Use Float() in here.
-  StringAppendF(&str, "%f %f %f RG ",
-                PDF_RGB_R_FLOAT(color),
-                PDF_RGB_G_FLOAT(color),
-                PDF_RGB_B_FLOAT(color));
-  StringAppendF(&str, "%f %f %f rg ",
-                PDF_RGB_R_FLOAT(color), PDF_RGB_G_FLOAT(color),
-                PDF_RGB_B_FLOAT(color));
-  StringAppendF(&str, "%f w ", border_width);
-  StringAppendF(&str, "%f %f m ", points[0].first, points[0].second);
+  AppendFormat(&str, "{} {} {} RG ",
+               PDF_RGB_R_FLOAT(color),
+               PDF_RGB_G_FLOAT(color),
+               PDF_RGB_B_FLOAT(color));
+  AppendFormat(&str, "{} {} {} rg ",
+               PDF_RGB_R_FLOAT(color), PDF_RGB_G_FLOAT(color),
+               PDF_RGB_B_FLOAT(color));
+  AppendFormat(&str, "{} w ", border_width);
+  AppendFormat(&str, "{} {} m ", points[0].first, points[0].second);
   for (int i = 1; i < (int)points.size(); i++) {
-    StringAppendF(&str, "%f %f l ", points[i].first, points[i].second);
+    AppendFormat(&str, "{} {} l ", points[i].first, points[i].second);
   }
-  StringAppendF(&str, "h f");
+  AppendFormat(&str, "h f");
 
   AppendDrawCommand(page, std::move(str));
   return true;
@@ -2703,14 +2713,14 @@ static std::optional<std::string> EncodePDFText(
 
       CHECK(codepoint <= 0xFFFF) << "Only 16-bit codepoints are "
         "currently supported. You need something like 'surrogate pairs' "
-        "here. Got: U+" << StringPrintf("%08x", codepoint);
+        "here. Got: U+" << std::format("{:08x}", codepoint);
       if (auto it = cmap.find(codepoint); it != cmap.end()) {
-        StringAppendF(&ret, "%04x", it->second);
+        AppendFormat(&ret, "{:04x}", it->second);
       } else {
         if (true || VERBOSE) {
           printf("Missing glyph for U+%04x\n", codepoint);
         }
-        StringAppendF(&ret, "0000");
+        AppendFormat(&ret, "0000");
       }
     }
     ret.push_back('>');
@@ -2724,15 +2734,15 @@ static std::optional<std::string> EncodePDFText(
 static void SetTextPositionAndAngle(std::string *str,
                                     float xoff, float yoff, float angle) {
   if (angle != 0.0f) {
-    StringAppendF(str, "%s %s %s %s %s %s Tm ",
-                  Float(cosf(angle)).c_str(),
-                  Float(sinf(angle)).c_str(),
-                  Float(-sinf(angle)).c_str(),
-                  Float(cosf(angle)).c_str(),
-                  Float(xoff).c_str(),
-                  Float(yoff).c_str());
+    AppendFormat(str, "{} {} {} {} {} {} Tm ",
+                 Float(cosf(angle)),
+                 Float(sinf(angle)),
+                 Float(-sinf(angle)),
+                 Float(cosf(angle)),
+                 Float(xoff),
+                 Float(yoff));
   } else {
-    StringAppendF(str, "%s %s TD ", Float(xoff).c_str(), Float(yoff).c_str());
+    AppendFormat(str, "{} {} TD ", Float(xoff), Float(yoff));
   }
 }
 
@@ -2746,11 +2756,11 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
 
   std::string str = "BT ";
 
-  StringAppendF(&str, "/GS%d gs ", alpha);
+  AppendFormat(&str, "/GS{} gs ", alpha);
   SetTextPositionAndAngle(&str, xoff, yoff, angle);
 
-  StringAppendF(&str, "/F%d %s Tf ", current_font->font_index,
-                Float(size).c_str());
+  AppendFormat(&str, "/F{} {} Tf ", current_font->font_index,
+               Float(size));
 
   uint8_t r = PDF_RGB_R(color);
   uint8_t g = PDF_RGB_G(color);
@@ -2759,18 +2769,18 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
   // If greyscale, we can make this smaller with "0 g" to "1 g" (white).
   if (r == g && r == b) {
     if (r == 0) {
-      StringAppendF(&str, "0 g ");
+      AppendFormat(&str, "0 g ");
     } else {
-      StringAppendF(&str, "%s g ",
-                    Float(PDF_COLOR_FLOAT(r)).c_str());
+      AppendFormat(&str, "{} g ",
+                   Float(PDF_COLOR_FLOAT(r)));
     }
   } else {
-    StringAppendF(&str, "%s %s %s rg ",
-                  Float(PDF_COLOR_FLOAT(r)).c_str(),
-                  Float(PDF_COLOR_FLOAT(g)).c_str(),
-                  Float(PDF_COLOR_FLOAT(b)).c_str());
+    AppendFormat(&str, "{} {} {} rg ",
+                 Float(PDF_COLOR_FLOAT(r)),
+                 Float(PDF_COLOR_FLOAT(g)),
+                 Float(PDF_COLOR_FLOAT(b)));
   }
-  StringAppendF(&str, "%s Tc ", Float(spacing).c_str());
+  AppendFormat(&str, "{} Tc ", Float(spacing));
 
   if (const std::optional<std::string> encoded_text =
       EncodePDFText(text, current_font->encoding,
@@ -2781,9 +2791,9 @@ bool PDF::pdf_add_text_spacing(const std::string &text, float size, float xoff,
     return false;
   }
 
-  StringAppendF(&str,
-                " Tj "
-                "ET");
+  AppendFormat(&str,
+               " Tj "
+               "ET");
 
   AppendDrawCommand(page, std::move(str));
   return true;
@@ -2814,18 +2824,18 @@ bool PDF::AddSpacedLine(const SpacedLine &line,
 
   std::string str = "BT ";
 
-  StringAppendF(&str, "/GS%d gs ", alpha);
+  AppendFormat(&str, "/GS{} gs ", alpha);
   SetTextPositionAndAngle(&str, xoff, yoff, angle);
 
-  StringAppendF(&str, "/F%d %s Tf ", current_font->font_index,
-                Float(size).c_str());
-  StringAppendF(&str, "%s %s %s rg ",
-                Float(PDF_RGB_R_FLOAT(color)).c_str(),
-                Float(PDF_RGB_G_FLOAT(color)).c_str(),
-                Float(PDF_RGB_B_FLOAT(color)).c_str());
-  // StringAppendF(&str, "%f Tc ", spacing);
+  AppendFormat(&str, "/F{} {} Tf ", current_font->font_index,
+               Float(size));
+  AppendFormat(&str, "{} {} {} rg ",
+               Float(PDF_RGB_R_FLOAT(color)),
+               Float(PDF_RGB_G_FLOAT(color)),
+               Float(PDF_RGB_B_FLOAT(color)));
+  // AppendFormat(&str, "{} Tc ", spacing);
 
-  StringAppendF(&str, "[ ");
+  AppendFormat(&str, "[ ");
 
   // PDF uses 1/1000ths of a unit here, and defaults to negative space
   // (this is typically used for kerning). This is independent of the
@@ -2837,7 +2847,7 @@ bool PDF::AddSpacedLine(const SpacedLine &line,
     if (const std::optional<std::string> encoded_text =
         EncodePDFText(text, current_font->encoding,
                       current_font->glyph_from_codepoint)) {
-      StringAppendF(&str, "%s ", encoded_text.value().c_str());
+      AppendFormat(&str, "{} ", encoded_text.value());
     } else {
       SetErr(-EINVAL, "Could not encode text in PDF encoding.");
       return false;
@@ -2845,11 +2855,11 @@ bool PDF::AddSpacedLine(const SpacedLine &line,
 
     // The last spacing is ignored (and the syntax does not allow it).
     if (i != (int)line.size() - 1) {
-      StringAppendF(&str, "%s ", Float(gap * gap_scale).c_str());
+      AppendFormat(&str, "{} ", Float(gap * gap_scale));
     }
   }
-  StringAppendF(&str,
-                "] TJ ET");
+  AppendFormat(&str,
+               "] TJ ET");
 
   AppendDrawCommand(page, std::move(str));
   return true;
@@ -3582,21 +3592,21 @@ PDF::ImageObj *PDF::pdf_add_raw_grayscale8(const uint8_t *data,
 
   const int idx = (int)objects.size();
   std::string str =
-    StringPrintf("<<\n"
-                 "  /Type /XObject\n"
-                 "  /Name /Image%d\n"
-                 "  /Subtype /Image\n"
-                 "  /ColorSpace /DeviceGray\n"
-                 "  /Height %d\n"
-                 "  /Width %d\n"
-                 "  /BitsPerComponent 8\n"
-                 "  /Length %lu\n"
-                 ">>stream\n",
-                 idx, height, width,
-                 (unsigned long)(data_len + 1));
+    std::format("<<\n"
+                "  /Type /XObject\n"
+                "  /Name /Image{}\n"
+                "  /Subtype /Image\n"
+                "  /ColorSpace /DeviceGray\n"
+                "  /Height {}\n"
+                "  /Width {}\n"
+                "  /BitsPerComponent 8\n"
+                "  /Length {}\n"
+                ">>stream\n",
+                idx, height, width,
+                (unsigned long)(data_len + 1));
 
   str.append((const char *)data, width * height);
-  StringAppendF(&str, ">\nendstream\n");
+  AppendFormat(&str, ">\nendstream\n");
 
   ImageObj *iobj = AddObject(new ImageObj);
   CHECK(iobj);
@@ -3658,12 +3668,12 @@ bool PDF::pdf_add_image(ImageObj *image, float x, float y,
   image->page = page;
 
   std::string str;
-  StringAppendF(&str, "q ");
-  StringAppendF(&str, "%s 0 0 %s %s %s cm ",
-                Float(width).c_str(), Float(height).c_str(),
-                Float(x).c_str(), Float(y).c_str());
-  StringAppendF(&str, "/Image%d Do ", image->index);
-  StringAppendF(&str, "Q");
+  AppendFormat(&str, "q ");
+  AppendFormat(&str, "{} 0 0 {} {} {} cm ",
+               Float(width), Float(height),
+               Float(x), Float(y));
+  AppendFormat(&str, "/Image{} Do ", image->index);
+  AppendFormat(&str, "Q");
 
   pdf_add_stream(page, std::move(str));
   return true;
@@ -3680,19 +3690,19 @@ static Object *pdf_add_raw_rgb24(pdf_doc *pdf,
   dstr str = INIT_DSTR;
   size_t data_len = (size_t)width * (size_t)height * 3;
 
-  StringAppendF(&str,
-              "<<\n"
-              "  /Type /XObject\n"
-              "  /Name /Image%d\n"
-              "  /Subtype /Image\n"
-              "  /ColorSpace /DeviceRGB\n"
-              "  /Height %d\n"
-              "  /Width %d\n"
-              "  /BitsPerComponent 8\n"
-              "  /Length %lu\n"
-              ">>stream\n",
-              flexarray_size(&pdf->objects), height, width,
-              (unsigned long)(data_len + 1));
+  AppendFormat(&str,
+               "<<\n"
+               "  /Type /XObject\n"
+               "  /Name /Image{}\n"
+               "  /Subtype /Image\n"
+               "  /ColorSpace /DeviceRGB\n"
+               "  /Height {}\n"
+               "  /Width {}\n"
+               "  /BitsPerComponent 8\n"
+               "  /Length {}\n"
+               ">>stream\n",
+               flexarray_size(&pdf->objects), height, width,
+               (unsigned long)(data_len + 1));
 
   len = dstr_len(&str) + data_len + strlen(endstream) + 1;
   if (dstr_ensure(&str, len) < 0) {
@@ -3811,23 +3821,23 @@ bool PDF::pdf_add_jpeg_data(float x, float y, float display_width,
   CHECK(obj != nullptr);
 
   int index = (int)objects.size();
-  StringAppendF(&obj->stream,
-                "<<\n"
-                "  /Type /XObject\n"
-                "  /Name /Image%d\n"
-                "  /Subtype /Image\n"
-                "  /ColorSpace %s\n"
-                "  /Width %d\n"
-                "  /Height %d\n"
-                "  /BitsPerComponent 8\n"
-                "  /Filter /DCTDecode\n"
-                "  /Length %lu\n"
-                ">>stream\n",
-                index,
-                (header.ncolors == 1) ? "/DeviceGray" : "/DeviceRGB",
-                header.width, header.height, (unsigned long) len);
+  AppendFormat(&obj->stream,
+               "<<\n"
+               "  /Type /XObject\n"
+               "  /Name /Image{}\n"
+               "  /Subtype /Image\n"
+               "  /ColorSpace {}\n"
+               "  /Width {}\n"
+               "  /Height {}\n"
+               "  /BitsPerComponent 8\n"
+               "  /Filter /DCTDecode\n"
+               "  /Length {}\n"
+               ">>stream\n",
+               index,
+               (header.ncolors == 1) ? "/DeviceGray" : "/DeviceRGB",
+               header.width, header.height, (unsigned long)len);
   obj->stream.append((const char*)jpeg_data, len);
-  StringAppendF(&obj->stream, "\nendstream\n");
+  AppendFormat(&obj->stream, "\nendstream\n");
 
   get_img_display_dimensions(header.width,
                              header.height,
@@ -3990,10 +4000,10 @@ bool PDF::pdf_add_png_data(float x, float y,
 
   switch (header.color_type) {
   case PNG_COLOR_GREYSCALE:
-    StringAppendF(&color_space, "/DeviceGray");
+    AppendFormat(&color_space, "/DeviceGray");
     break;
   case PNG_COLOR_RGB:
-    StringAppendF(&color_space, "/DeviceRGB");
+    AppendFormat(&color_space, "/DeviceRGB");
     break;
   case PNG_COLOR_INDEXED:
     if (palette_buffer_length == 0) {
@@ -4001,20 +4011,22 @@ bool PDF::pdf_add_png_data(float x, float y,
       goto free_buffers;
     }
     // Write the color palette to the color_palette buffer
-    StringAppendF(&color_space,
-                  "[ /Indexed\n"
-                  "  /DeviceRGB\n"
-                  "  %lu\n"
-                  "  <",
-                  (unsigned long)(palette_buffer_length - 1));
+    AppendFormat(&color_space,
+                 "[ /Indexed\n"
+                 "  /DeviceRGB\n"
+                 "  {}\n"
+                 "  <",
+                 (unsigned long)(palette_buffer_length - 1));
     // write individual palette values
     // the index value for every RGB value is determined by its position
     // (0, 1, 2, ...)
     for (size_t i = 0; i < palette_buffer_length; i++) {
-      StringAppendF(&color_space, "%02X%02X%02X ", palette_buffer[i].red,
-                    palette_buffer[i].green, palette_buffer[i].blue);
+      AppendFormat(&color_space, "{:02X}{:02X}{:02X} ",
+                   palette_buffer[i].red,
+                   palette_buffer[i].green,
+                   palette_buffer[i].blue);
     }
-    StringAppendF(&color_space, ">\n]");
+    AppendFormat(&color_space, ">\n]");
     break;
 
   default:
@@ -4034,28 +4046,28 @@ bool PDF::pdf_add_png_data(float x, float y,
   {
     const int idx = (int)objects.size();
     final_data =
-      StringPrintf(
-              "<<\n"
-              "  /Type /XObject\n"
-              "  /Name /Image%d\n"
-              "  /Subtype /Image\n"
-              "  /ColorSpace %s\n"
-              "  /Width %u\n"
-              "  /Height %u\n"
-              "  /Interpolate true\n"
-              "  /BitsPerComponent %u\n"
-              "  /Filter /FlateDecode\n"
-              "  /DecodeParms << /Predictor 15 /Colors %d "
-              "/BitsPerComponent %u /Columns %u >>\n"
-              "  /Length %zu\n"
-              ">>stream\n",
-              idx, color_space.c_str(),
-              header.width, header.height, header.bit_depth, ncolors,
-              header.bit_depth, header.width, png_data_total_length);
+      std::format(
+          "<<\n"
+          "  /Type /XObject\n"
+          "  /Name /Image{}\n"
+          "  /Subtype /Image\n"
+          "  /ColorSpace {}\n"
+          "  /Width {}\n"
+          "  /Height {}\n"
+          "  /Interpolate true\n"
+          "  /BitsPerComponent {}\n"
+          "  /Filter /FlateDecode\n"
+          "  /DecodeParms << /Predictor 15 /Colors {} "
+          "/BitsPerComponent {} /Columns {} >>\n"
+          "  /Length {}\n"
+          ">>stream\n",
+          idx, color_space,
+          header.width, header.height, header.bit_depth, ncolors,
+          header.bit_depth, header.width, png_data_total_length);
 
     final_data.append(std::string_view((const char*)png_data_temp,
                                        png_data_total_length));
-    StringAppendF(&final_data, "\nendstream\n");
+    AppendFormat(&final_data, "\nendstream\n");
   }
 
   obj = AddObject(new ImageObj);
@@ -4249,7 +4261,7 @@ std::string PDF::AddTTF(std::string_view filename,
       &ttf, &native_ascent, &native_descent, &native_linegap);
 
   Font *font = new Font;
-  std::string font_name = StringPrintf("Font%d", next_font_index);
+  std::string font_name = std::format("Font{}", next_font_index);
   font->font_index = next_font_index;
   next_font_index++;
   embedded_fonts[font_name] = font;
@@ -4438,7 +4450,7 @@ std::string PDF::AddTTF(std::string_view filename,
     // adobe's (unexplained) example.
     std::string cmap_name =
       // "Adobe-Identity-UCS";
-      StringPrintf("CMap%d", font->font_index);
+      std::format("CMap{}", font->font_index);
     std::string resource;
 
     // Following example 5.17 in PDF 1.3 spec.
@@ -4596,7 +4608,7 @@ std::string PDF::Font::BaseFont() const {
   if (builtin_font.has_value()) {
     return BuiltInFontName(builtin_font.value());
   } else {
-    return StringPrintf("Font%d", font_index);
+    return std::format("Font{}", font_index);
   }
 }
 

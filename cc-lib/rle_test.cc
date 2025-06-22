@@ -1,10 +1,10 @@
 
 #include "rle.h"
 
+#include <cstdio>
 #include <vector>
 #include <string>
 #include <cstdint>
-#include <time.h>
 
 #include "base/stringprintf.h"
 #include "base/logging.h"
@@ -20,7 +20,7 @@ using namespace std;
 static string ShowVector(const vector<uint8> &v) {
   string s = "{";
   for (int i = 0; i < (int)v.size(); i++) {
-    s += StringPrintf("%d, ", v[i]);
+    AppendFormat(&s, "{}, ", v[i]);
   }
   return s + "}";
 }

@@ -4,10 +4,11 @@
 
 #include "wavesave.h"
 
-#include <string>
-#include <vector>
-#include <utility>
+#include <algorithm>
 #include <cstdint>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace std;
 

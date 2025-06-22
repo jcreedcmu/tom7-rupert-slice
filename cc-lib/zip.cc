@@ -3,6 +3,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <format>
+#include <span>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -28,10 +33,9 @@ static_assert((BUFFER_SIZE & (BUFFER_SIZE - 1)) == 0,
 
 namespace {
 
-#if DEBUG_ZIP
 [[maybe_unused]]
 static std::string DumpString(std::string_view s) {
-  std::string out = StringPrintf("%d bytes:\n", (int)s.size());
+  std::string out = std::format("{} bytes:\n", s.size());
 
   for (int p = 0; p < (int)s.size(); p += 16) {
     // Print line, first hex, then ascii
@@ -39,38 +43,38 @@ static std::string DumpString(std::string_view s) {
       int idx = p + i;
       if (idx < (int)s.size()) {
         uint8_t c = s[idx];
-        StringAppendF(&out, "%02x ", c);
+        AppendFormat(&out, "{:02x} ", c);
       } else {
-        StringAppendF(&out, " . ");
+        AppendFormat(&out, " . ");
       }
     }
 
-    StringAppendF(&out, "| ");
+    AppendFormat(&out, "| ");
 
     for (int i = 0; i < 16; i++) {
       int idx = p + i;
       if (idx < (int)s.size()) {
         uint8_t c = s[idx];
         if (c >= 32 && c < 127) {
-          StringAppendF(&out, "%c", c);
+          AppendFormat(&out, "{}", (char)c);
         } else {
-          StringAppendF(&out, ".");
+          AppendFormat(&out, ".");
         }
       } else {
-        StringAppendF(&out, " ");
+        AppendFormat(&out, " ");
       }
     }
 
-    StringAppendF(&out, "\n");
+    AppendFormat(&out, "\n");
   }
 
   return out;
 }
 
+[[maybe_unused]]
 static std::string DumpVector(const std::vector<uint8_t> &v) {
   return DumpString(std::string_view{(const char *)v.data(), v.size()});
 }
-#endif
 
 // TODO PERF: I initially thought I could write decompressed data
 // directly into this deque of vectors. But miniz seems to want to
@@ -494,9 +498,11 @@ struct DBImpl : public ZIP::DecodeBuffer {
         "call.";
 
       CHECK(status != TINFL_STATUS_BAD_PARAM) << "Bug? " <<
-        StringPrintf("%p %zu %p %p %lld\n",
-                     data, (size_t)in_bytes, circ.get(), circ.get() + circ_pos,
-                     (int64_t)out_bytes);
+        std::format("{} {} {} {} {}\n",
+                    (intptr_t)data, (size_t)in_bytes,
+                    (intptr_t)circ.get(),
+                    (intptr_t)(circ.get() + circ_pos),
+                    (int64_t)out_bytes);
 
       CHECK(status != TINFL_STATUS_FAILED) <<
         "Flate stream is corrupt (miscellaneous).";
@@ -733,7 +739,6 @@ std::vector<uint8_t> ZIP::RGBEncodeAsPNG(int width, int height,
   free(enc);
   return ret;
 }
-
 
 void ZIP::CCLibHeader::SetFlags(uint32_t f) {
   flags_msb_first[3] = f & 0xFF; f >>= 8;

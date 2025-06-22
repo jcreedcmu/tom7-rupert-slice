@@ -2,30 +2,27 @@
 #include "sdlutil.h"
 
 #include <algorithm>
-#include <cstdio>
+#include <cstdint>
 #include <cstdlib>
+#include <format>
 #include <memory>
 #include <stdlib.h>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <utility>
-#include <cstdint>
+#include <vector>
 
 // XXX probably just prefer the ImageRGBA interface?
 #include "SDL_endian.h"
 #include "SDL_events.h"
+#include "SDL_stdinc.h"
 #include "SDL_timer.h"
-#include "stb_image.h"
-#include "stb_image_write.h"
-
-#include "image.h"
+#include "SDL_video.h"
 
 #include "base/logging.h"
 #include "base/stringprintf.h"
-
-#include "SDL_stdinc.h"
-#include "SDL_video.h"
+#include "image.h"
+#include "stb_image_write.h"
 
 using namespace std;
 
@@ -1528,15 +1525,15 @@ std::string sdlutil::SurfaceInfo(SDL_Surface *surf) {
 #endif
 
   std::string info =
-    StringPrintf("Surface sized %d x %d\n",
-                 surf->w, surf->h);
+    std::format("Surface sized {} x {}\n",
+                surf->w, surf->h);
 
-  StringAppendF(
+  AppendFormat(
       &info,
-      "  bits/bytes per pixel: %d/%d\n"
-      "  RGBA loss: %d %d %d %d\n"
-      "  RGBA shifts: %d %d %d %d\n"
-      "  RGBA masks: %x %x %x %x\n",
+      "  bits/bytes per pixel: {}/{}\n"
+      "  RGBA loss: {} {} {} {}\n"
+      "  RGBA shifts: {} {} {} {}\n"
+      "  RGBA masks: {:x} {:x} {:x} {:x}\n",
       surf->format->BitsPerPixel,
       surf->format->BytesPerPixel,
       surf->format->Rloss,
@@ -1554,9 +1551,9 @@ std::string sdlutil::SurfaceInfo(SDL_Surface *surf) {
 
   const int f = surf->flags;
 
-  StringAppendF(&info, "Flags:\n");
+  AppendFormat(&info, "Flags:\n");
 #define INFO(flag, str) \
-  StringAppendF(&info, "  %s " str "\n", (f & (flag))?"X":" ");
+  AppendFormat(&info, "  {} " str "\n", (f & (flag))?"X":" ");
   INFO(SDL_HWSURFACE,   "In Video Memory");
   INFO(SDL_ASYNCBLIT,   "Asynch blits if possible");
   INFO(SDL_ANYFORMAT,   "Any pixel format");
