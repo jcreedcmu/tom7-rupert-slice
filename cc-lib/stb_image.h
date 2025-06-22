@@ -1,20 +1,7 @@
-/* stb_image - v2.28 - public domain image loader - http://nothings.org/stb
+/* stb_image - v2.30 - public domain image loader - http://nothings.org/stb
                                   no warranty implied; use at your own risk
 
-   Do this:
-      #define STB_IMAGE_IMPLEMENTATION
-   before you include this file in *one* C or C++ file to create the implementation.
-
-   // i.e. it should look like this:
-   #include ...
-   #include ...
-   #include ...
-   #define STB_IMAGE_IMPLEMENTATION
-   #include "stb_image.h"
-
-   You can #define STBI_ASSERT(x) before the #include to avoid using assert.h.
-   And #define STBI_MALLOC, STBI_REALLOC, and STBI_FREE to avoid using malloc,realloc,free
-
+   modified by tom7 for cc-lib
 
    QUICK NOTES:
       Primarily of interest to game developers and other people who can
@@ -41,13 +28,14 @@
 
    Full documentation under "DOCUMENTATION" below.
 
-
 LICENSE
 
   See end of file for license information.
 
 RECENT REVISION HISTORY:
 
+      2.30  (2024-05-31) avoid erroneous gcc warning
+      2.29  (2023-05-xx) optimizations
       2.28  (2023-01-29) many error fixes, security errors, just tons of stuff
       2.27  (2021-07-11) document stbi_info better, 16-bit PNM support, bug fixes
       2.26  (2020-07-13) many minor fixes
@@ -74,8 +62,7 @@ RECENT REVISION HISTORY:
 
    See end of file for full revision history.
 
-
- ============================    Contributors    =========================
+============================    Contributors    =========================
 
  Image formats                          Extensions, features
     Sean Barrett (jpeg, png, bmp)          Jetro Lauha (stbi_info)
@@ -126,6 +113,7 @@ RECENT REVISION HISTORY:
 
 #ifndef STBI_INCLUDE_STB_IMAGE_H
 #define STBI_INCLUDE_STB_IMAGE_H
+
 
 // DOCUMENTATION
 //
@@ -366,7 +354,7 @@ RECENT REVISION HISTORY:
 //    very big.
 
 #ifndef STBI_NO_STDIO
-#include <stdio.h>
+#include <cstdio>
 #endif // STBI_NO_STDIO
 
 #define STBI_VERSION 1
@@ -381,7 +369,7 @@ enum
    STBI_rgb_alpha  = 4
 };
 
-#include <stdlib.h>
+#include <cstdlib>
 typedef unsigned char stbi_uc;
 typedef unsigned short stbi_us;
 
@@ -528,8 +516,5 @@ STBIDEF int   stbi_zlib_decode_buffer(char *obuffer, int olen, const char *ibuff
 STBIDEF char *stbi_zlib_decode_noheader_malloc(const char *buffer, int len, int *outlen);
 STBIDEF int   stbi_zlib_decode_noheader_buffer(char *obuffer, int olen, const char *ibuffer, int ilen);
 
-//
-//
-////   end header file   /////////////////////////////////////////////////////
 #endif // STBI_INCLUDE_STB_IMAGE_H
 
