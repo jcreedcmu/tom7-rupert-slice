@@ -92,11 +92,13 @@ struct ZIP {
   // Deliberately avoiding the dependency on image.h, but you can
   // call it as EncodeAsPNG(img.Width(), img.Height(), img.ToBuffer8());
   static std::vector<uint8_t> EncodeAsPNG(int width, int height,
-                                          const std::vector<uint8_t> &rgba);
+                                          const std::vector<uint8_t> &rgba,
+                                          int level = 9);
 
   // Same, with RGB pixels.
   static std::vector<uint8_t> RGBEncodeAsPNG(int width, int height,
-                                             const std::vector<uint8_t> &rgb);
+                                             const std::vector<uint8_t> &rgb,
+                                             int level = 9);
 
   // Custom file format. I should also support pkzip and gzip here.
   // gzip, annoyingly, stores the size mod 2^32, which is a practical

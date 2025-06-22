@@ -81,10 +81,15 @@ struct Buf {
     W32At(idx, s);
   }
 
-  void AddBuf(const Buf &other) {
-    for (uint8_t b : other.bytes) {
+  void AddSpan(std::span<const uint8_t> v) {
+    bytes.reserve(bytes.size() + v.size());
+    for (uint8_t b : v) {
       bytes.push_back(b);
     }
+  }
+
+  void AddBuf(const Buf &other) {
+    AddSpan(other.bytes);
   }
 
   inline void AddChunk(Chunk &other);
@@ -118,6 +123,11 @@ struct Chunk : public Buf {
     finalized = true;
   }
 
+  size_t DataSize() const {
+    CHECK(bytes.size() >= 8);
+    return bytes.size() - 8;
+  }
+
   // Sets the chunk size (in the destination, not source).
   void AddChunk(const Chunk &other) {
     CHECK(other.Size() >= 4);
@@ -141,7 +151,8 @@ uint32_t PNG::CRC(std::span<const uint8_t> s) {
   return (uint32_t)mz_crc32(MZ_CRC32_INIT, s.data(), s.size());
 }
 
-std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img) {
+std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img,
+                                         int level) {
   // First thing we do is count the number of distinct pixels.
   // If we have more than 256, then we cannot use indexed color,
   // so we bail to the miniz implementation.
@@ -156,7 +167,7 @@ std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img) {
 
   if (color_count.size() > 256) {
     // XXX detect RGB and use RGBEncodeAsPNG.
-    return ZIP::EncodeAsPNG(img.Width(), img.Height(), img.ToBuffer8());
+    return ZIP::EncodeAsPNG(img.Width(), img.Height(), img.ToBuffer8(), level);
   }
 
   // Palette ordering mostly doesn't matter. We put opaque colors last
@@ -200,6 +211,12 @@ std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img) {
       }
     }();
 
+  // Index of the color in the palette.
+  std::unordered_map<uint32_t, uint8_t> color_index;
+  for (int i = 0; i < (int)palette.size(); i++) {
+    color_index[palette[i].first] = i;
+  }
+
   Buf buf;
   // Magic
   buf.WFixedString("\x89PNG\x0d\x0a\x1a\x0a");
@@ -220,9 +237,128 @@ std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img) {
 
   buf.AddChunk(ihdr);
 
-  // TODO: Add Palette
-  // TODO: Add Transparency
-  // TODO: Add Pixel data
+  Chunk plte("PLTE");
+  for (const auto &[rgba, count_] : palette) {
+    uint8_t r = (rgba >> 24) & 0xFF;
+    uint8_t g = (rgba >> 16) & 0xFF;
+    uint8_t b = (rgba >> 8) & 0xFF;
+    plte.W8(r);
+    plte.W8(g);
+    plte.W8(b);
+  }
+
+  buf.AddChunk(plte);
+
+  Chunk trns("tRNS");
+  for (int i = 0; i < (int)palette.size(); i++) {
+    const auto &[rgba, count_] = palette[i];
+    uint8_t a = rgba & 0xFF;
+    if (a == 0xFF) {
+      // Once we hit a fully opaque color, we don't
+      // need to write any more; these are at the end
+      // of the palette and PNG will assume a = 0xFF.
+      break;
+    }
+    trns.W8(a);
+  }
+
+  // If all opaque, don't even add the chunk.
+  if (trns.DataSize() > 0) {
+    buf.AddChunk(trns);
+  }
+
+  Buf udata;
+
+  for (int y = 0; y < (int)img.Height(); y++) {
+    // TODO(twm): Use other filters here, at least
+    // heuristically.
+    udata.W8(0x00);
+
+    uint8_t current_byte = 0;
+    for (int x = 0; x < (int)img.Width(); x++) {
+      uint32_t c = img.GetPixel32(x, y);
+      auto it = color_index.find(c);
+      CHECK(it != color_index.end()) << "Bug: Missing color";
+
+      uint8_t idx = it->second;
+      switch (bpp) {
+      case 1: {
+        [[assume(idx < 2)]];
+        current_byte <<= 1;
+        current_byte |= idx;
+        if ((x & 0b1111) == 0b1111) {
+          udata.W8(current_byte);
+          current_byte = 0;
+        }
+        break;
+      }
+      case 2: {
+        [[assume(idx < 4)]];
+        current_byte <<= 2;
+        current_byte |= idx;
+        if ((x & 0b11) == 0b11) {
+          udata.W8(current_byte);
+          current_byte = 0;
+        }
+        break;
+      }
+      case 4: {
+        [[assume(idx < 16)]];
+        current_byte <<= 4;
+        current_byte |= idx;
+        if (x & 1) {
+          udata.W8(current_byte);
+          current_byte = 0;
+        }
+        break;
+      }
+      case 8:
+        udata.W8(idx);
+        break;
+      default:
+        LOG(FATAL) << "Bad bpp";
+      }
+    }
+
+    // Flush incomplete pixels.
+    switch (bpp) {
+    case 1: {
+      const int slack = (0b1111 - (img.Width() & 0b1111));
+      if (slack > 0) {
+        current_byte <<= slack;
+        udata.W8(current_byte);
+      }
+      break;
+    }
+    case 2: {
+      const int slack = (0b11 - (img.Width() & 0b11)) * 2;
+      if (slack > 0) {
+        current_byte <<= slack;
+        udata.W8(current_byte);
+      }
+      break;
+    }
+    case 4: {
+      const int slack = (0b1 - (img.Width() & 0b1)) * 4;
+      if (slack > 0) {
+        current_byte <<= slack;
+        udata.W8(current_byte);
+      }
+      break;
+    }
+    case 8:
+      // Always evenly dividing.
+      break;
+    default:
+      LOG(FATAL) << "Bad bpp";
+    }
+  }
+
+  // Now compress data.
+  Chunk idat("IDAT");
+  idat.AddSpan(ZIP::ZlibVector(udata.bytes, level));
+  udata.bytes.clear();
+  buf.AddChunk(idat);
 
   Chunk iend("IEND");
   buf.AddChunk(iend);

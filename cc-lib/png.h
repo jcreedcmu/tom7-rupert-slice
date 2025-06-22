@@ -19,8 +19,8 @@ struct PNG {
   // different colors. You can get smaller files by quantizing the colors
   // ahead of time; the biggest savings happens when you have <= 2^1, 2^2,
   // 2^4, or 2^8 distinct RGBA values in the image.
-  static std::vector<uint8_t> EncodeInMemory(const ImageRGBA &img);
-
+  static std::vector<uint8_t> EncodeInMemory(const ImageRGBA &img,
+                                             int level = 7);
 
   // Details.
 

@@ -713,11 +713,12 @@ std::string ZIP::UnZlibString(std::string_view s) {
 }
 
 std::vector<uint8_t> ZIP::EncodeAsPNG(int width, int height,
-                                      const std::vector<uint8_t> &rgba) {
+                                      const std::vector<uint8_t> &rgba,
+                                      int level) {
   CHECK((int)rgba.size() == width * height * 4) << rgba.size();
   size_t enc_len = 0;
   void *enc = tdefl_write_image_to_png_file_in_memory_ex(
-      rgba.data(), width, height, 4, &enc_len, 9, false);
+      rgba.data(), width, height, 4, &enc_len, level, false);
   CHECK(enc != nullptr);
 
   std::vector<uint8_t> ret(enc_len);
@@ -727,11 +728,12 @@ std::vector<uint8_t> ZIP::EncodeAsPNG(int width, int height,
 }
 
 std::vector<uint8_t> ZIP::RGBEncodeAsPNG(int width, int height,
-                                         const std::vector<uint8_t> &rgb) {
+                                         const std::vector<uint8_t> &rgb,
+                                         int level) {
   CHECK((int)rgb.size() == width * height * 3) << rgb.size();
   size_t enc_len = 0;
   void *enc = tdefl_write_image_to_png_file_in_memory_ex(
-      rgb.data(), width, height, 3, &enc_len, 9, false);
+      rgb.data(), width, height, 3, &enc_len, level, false);
   CHECK(enc != nullptr);
 
   std::vector<uint8_t> ret(enc_len);
