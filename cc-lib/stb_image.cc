@@ -1,6 +1,8 @@
 
 #include "stb_image.h"
+#include <format>
 
+#undef DEBUG_STB_IMAGE
 
 #if defined(STBI_ONLY_JPEG) || defined(STBI_ONLY_PNG) || defined(STBI_ONLY_BMP) \
   || defined(STBI_ONLY_TGA) || defined(STBI_ONLY_GIF) || defined(STBI_ONLY_PSD) \
@@ -430,6 +432,7 @@ STBIDEF const char *stbi_failure_reason(void)
    return stbi__g_failure_reason;
 }
 
+
 #ifndef STBI_NO_FAILURE_STRINGS
 static int stbi__err(const char *str)
 {
@@ -553,6 +556,12 @@ static int stbi__mul2shorts_valid(int a, int b)
 
 #define stbi__errpf(x,y)   ((float *)(size_t) (stbi__err(x,y)?NULL:NULL))
 #define stbi__errpuc(x,y)  ((unsigned char *)(size_t) (stbi__err(x,y)?NULL:NULL))
+
+// - tom7
+#if DEBUG_STB_IMAGE
+#undef stbi__err
+#define stbi__err(x, y) ([&](){ LOG(FATAL) << x << " " << y; }(), 0)
+#endif
 
 STBIDEF void stbi_image_free(void *retval_from_stbi_load)
 {
@@ -4178,7 +4187,15 @@ static int stbi__create_png_image_raw(stbi__png *a, stbi_uc *raw, stbi__uint32 r
    // we used to check for exact match between raw_len and img_len on non-interlaced PNGs,
    // but issue #276 reported a PNG in the wild that had extra data at the end (all zeros),
    // so just check for raw_len < img_len always.
-   if (raw_len < img_len) return stbi__err("not enough pixels","Corrupt PNG");
+   if (raw_len < img_len) {
+     #if DEBUG_STB_IMAGE
+       LOG(FATAL) <<
+         std::format("width {}, height {}, bpp {}, raw_len {}, img_len {}\n",
+                     width, y, depth, raw_len, img_len);
+     #endif
+
+     return stbi__err("not enough pixels","Corrupt PNG");
+   }
 
    // Allocate two scan lines worth of filter workspace buffer.
    filter_buf = (stbi_uc *) stbi__malloc_mad2(img_width_bytes, 2, 0);

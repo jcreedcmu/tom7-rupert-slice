@@ -134,9 +134,6 @@ struct ZIP {
   */
 
   // With a ZLIB header and Adler-32 checksum at the end (RFC 1950).
-  // This format is not great because the length field is only
-  // 32-bit (it should work with data >4GB, but it means the length
-  // is not really useful). The checksum also has some weaknesses.
   static std::vector<uint8_t> ZlibVector(const std::vector<uint8_t> &v,
                                          int level = 7);
   static std::string ZlibString(std::string_view s, int level = 7);

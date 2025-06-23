@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <initializer_list>
 #include <span>
 #include <string_view>
@@ -111,7 +112,7 @@ struct Chunk : public Buf {
 
   void Finalize() {
     CHECK(!finalized) << "Can only finalize once.";
-    CHECK(bytes.size() > 8);
+    CHECK(bytes.size() >= 8) << bytes.size();
     CHECK(bytes.size() < int64_t{0x100000008});
     // Length only measures the data section.
     W32At(0, (uint32_t)(bytes.size() - 8));
@@ -124,16 +125,13 @@ struct Chunk : public Buf {
   }
 
   size_t DataSize() const {
-    CHECK(bytes.size() >= 8);
-    return bytes.size() - 8;
-  }
-
-  // Sets the chunk size (in the destination, not source).
-  void AddChunk(const Chunk &other) {
-    CHECK(other.Size() >= 4);
-    size_t pos = bytes.size();
-    AddBuf(other);
-    W32At(pos, other.Size());
+    if (finalized) {
+      CHECK(bytes.size() >= 12);
+      return bytes.size() - 12;
+    } else {
+      CHECK(bytes.size() >= 8);
+      return bytes.size() - 8;
+    }
   }
 
   bool finalized = false;
@@ -237,6 +235,8 @@ std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img,
 
   buf.AddChunk(ihdr);
 
+  fprintf(stderr, "Palette size: %d\n", (int)palette.size());
+
   Chunk plte("PLTE");
   for (const auto &[rgba, count_] : palette) {
     uint8_t r = (rgba >> 24) & 0xFF;
@@ -272,7 +272,8 @@ std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img,
   for (int y = 0; y < (int)img.Height(); y++) {
     // TODO(twm): Use other filters here, at least
     // heuristically.
-    udata.W8(0x00);
+    constexpr uint8_t FILTER = 0x00;
+    udata.W8(FILTER);
 
     uint8_t current_byte = 0;
     for (int x = 0; x < (int)img.Width(); x++) {
@@ -286,7 +287,7 @@ std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img,
         [[assume(idx < 2)]];
         current_byte <<= 1;
         current_byte |= idx;
-        if ((x & 0b1111) == 0b1111) {
+        if ((x & 0b111) == 0b111) {
           udata.W8(current_byte);
           current_byte = 0;
         }
@@ -320,28 +321,28 @@ std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img,
       }
     }
 
-    // Flush incomplete pixels.
+    // Flush incomplete pixels for the scanline.
     switch (bpp) {
     case 1: {
-      const int slack = (0b1111 - (img.Width() & 0b1111));
+      const int slack = img.Width() & 0b1111;
       if (slack > 0) {
-        current_byte <<= slack;
+        current_byte <<= (0b1000 - slack);
         udata.W8(current_byte);
       }
       break;
     }
     case 2: {
-      const int slack = (0b11 - (img.Width() & 0b11)) * 2;
+      const int slack = img.Width() & 0b11;
       if (slack > 0) {
-        current_byte <<= slack;
+        current_byte <<= (0b100 - slack) * 2;
         udata.W8(current_byte);
       }
       break;
     }
     case 4: {
-      const int slack = (0b1 - (img.Width() & 0b1)) * 4;
+      const int slack = img.Width() & 0b1;
       if (slack > 0) {
-        current_byte <<= slack;
+        current_byte <<= (0b10 - slack) * 4;
         udata.W8(current_byte);
       }
       break;
@@ -363,6 +364,5 @@ std::vector<uint8_t> PNG::EncodeInMemory(const ImageRGBA &img,
   Chunk iend("IEND");
   buf.AddChunk(iend);
 
-  LOG(FATAL) << "unimplemented";
-  return {};
+  return std::move(buf.bytes);
 }

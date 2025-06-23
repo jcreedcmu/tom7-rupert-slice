@@ -293,7 +293,7 @@ byte-set_test.exe : byte-set_test.o byte-set.o $(BASE) $(TEST_UTIL)
 byte-set_bench.exe : byte-set_bench.o byte-set.o $(BASE) $(TEST_UTIL)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-png_test.exe : png.o png_test.o zip.o miniz.o image.o stb_image.o stb_image_write.o $(BASE) $(TEST_UTIL)
+png_test.exe : png.o png_test.o zip.o miniz.o image.o stb_image.o stb_image_write.o color-util.o $(BASE) $(TEST_UTIL)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 clean :
