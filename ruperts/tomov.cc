@@ -12,6 +12,7 @@
 #include "arcfour.h"
 #include "image.h"
 #include "mov-recorder.h"
+#include "mov.h"
 #include "periodically.h"
 #include "polyhedra.h"
 #include "rendering.h"
@@ -33,7 +34,8 @@ static void AnimateMesh(const Polyhedron &poly, std::string_view filename) {
 
   constexpr int SIZE = 2160;
   constexpr int FRAMES = 10 * 60;
-  MovRecorder rec(filename, SIZE, SIZE);
+  MovRecorder rec(filename, SIZE, SIZE,
+                  MOV::DURATION_60, MOV::Codec::PNG_CCLIB);
 
   Periodically status_per(1.0);
   for (int i = 0; i < FRAMES; i++) {

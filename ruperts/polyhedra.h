@@ -560,6 +560,9 @@ std::optional<Polyhedron> PolyhedronFromConvexVertices(
 std::optional<Polyhedron> PolyhedronFromVertices(
     std::vector<vec3> vertices, std::string_view name = "");
 
+// For P/A/C solids. Returns the name of the dual.
+std::string DualPolyhedron(std::string_view name);
+
 // Return a newly constructed polyhedron (from below) by its name,
 // or abort.
 Polyhedron PolyhedronByName(std::string_view name);

@@ -1866,11 +1866,50 @@ struct NameMap {
       }) {}
   std::vector<std::tuple<std::string, std::string, std::string>> names;
 };
+
+struct DualMap {
+  DualMap() : duals(
+      std::vector<std::pair<std::string, std::string>>{
+        {"tetrahedron", "tetrahedron"},
+        {"cube", "octahedron"},
+        {"dodecahedron", "icosahedron"},
+
+        {"triakistetrahedron", "truncatedtetrahedron"},
+        {"cuboctahedron", "rhombicdodecahedron"},
+        {"truncatedcube", "triakisoctahedron"},
+        {"tetrakishexahedron", "truncatedoctahedron"},
+        {"rhombicuboctahedron", "deltoidalicositetrahedron"},
+        {"snubcube", "pentagonalicositetrahedron"},
+        {"rhombictriacontahedron", "icosidodecahedron"},
+        {"truncatedcuboctahedron", "disdyakisdodecahedron"},
+        {"truncateddodecahedron", "triakisicosahedron"},
+        {"pentakisdodecahedron", "truncatedicosahedron"},
+        {"rhombicosidodecahedron", "deltoidalhexecontahedron"},
+        {"snubdodecahedron", "pentagonalhexecontahedron"},
+        {"disdyakistriacontahedron", "truncatedicosidodecahedron"},
+      }) {}
+  // Every P/A/C polyhedron appears on at least one side.
+  std::vector<std::pair<std::string, std::string>> duals;
+};
 }  // namespace
 
 static const NameMap &GetNameMap() {
   static const NameMap *m = new NameMap;
   return *m;
+}
+
+static const DualMap &GetDualMap() {
+  static const DualMap *m = new DualMap;
+  return *m;
+}
+
+std::string DualPolyhedron(std::string_view name) {
+  for (const auto &[a, b] : GetDualMap().duals) {
+    if (name == a) return b;
+    if (name == b) return a;
+  }
+  LOG(FATAL) << "Bad polyhedron name or missing from dual map: " << name;
+  return "";
 }
 
 std::string PolyhedronShortName(std::string_view name) {
