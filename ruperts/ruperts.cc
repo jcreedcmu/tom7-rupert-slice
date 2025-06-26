@@ -1147,7 +1147,12 @@ static void GrindNoperts() {
   std::unordered_set<int> banned = {
     2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
     20, 21, 22, 23, 25,
-    24, 60, 61, 62, 63 };
+    24, 60, 61, 62, 63,
+
+    // already have plenty of coverage for this believed nopert,
+    // but I want the other small ones to get good coverage too
+    76,
+  };
 
   constexpr int MAX_VERTICES = 20;
 

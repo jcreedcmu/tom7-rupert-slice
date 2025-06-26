@@ -40,10 +40,10 @@ static void AnimateDuals(std::string_view filename) {
       // and archimedean
       "cuboctahedron",
       "icosidodecahedron",
-      "rhombicosidodecahedron",
+      "rhombicosidodecahedron", // *
       "rhombicuboctahedron",
-      "snubcube",
-      "snubdodecahedron",
+      "snubcube", // *
+      "snubdodecahedron", // *
       "truncatedcube",
       "truncatedcuboctahedron",
       "truncateddodecahedron",
@@ -51,6 +51,11 @@ static void AnimateDuals(std::string_view filename) {
       "truncatedicosidodecahedron",
       "truncatedoctahedron",
       "truncatedtetrahedron",
+
+      // catalan unsolved
+      //     "pentagonalhexecontahedron",
+      // "deltoidalhexecontahedron",
+
     }) {
     top.push_back(PolyhedronByName(s));
     bot.push_back(PolyhedronByName(DualPolyhedron(s)));

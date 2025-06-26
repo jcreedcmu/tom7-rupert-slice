@@ -34,7 +34,7 @@ struct Boundaries {
   uint64_t GetCode(const vec3 &v) const;
   uint64_t GetCode(const quat4 &q) const;
 
-  // Allows boudnaries. Could result in impossible codes?
+  // Allows boundaries. Could result in impossible codes?
   uint64_t GetCodeSloppy(const vec3 &v) const;
 
   bool HasCodeAssumingMask(uint64_t code, uint64_t mask,
