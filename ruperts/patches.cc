@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <format>
 #include <mutex>
@@ -966,6 +967,17 @@ static void WriteMaskAndExampleFile(const Boundaries &boundaries) {
   Util::WriteFile(MASK_AND_EXAMPLE_FILE, contents);
 }
 
+// Internal.
+void AddHulls(const Boundaries &boundaries,
+              PatchInfo *info) {
+  for (auto &[code, canon] : info->canonical) {
+    CHECK(code == canon.code);
+    canon.hull = ComputeHullForPatch(boundaries,
+                                     canon.code, canon.mask,
+                                     std::nullopt);
+  }
+}
+
 PatchInfo EnumeratePatches(const BigPoly &poly) {
   Timer run_timer;
   Boundaries boundaries(poly);
@@ -1151,6 +1163,8 @@ PatchInfo EnumeratePatches(const BigPoly &poly) {
   printf("Computed patch info in %s\n",
          ANSI::Time(run_timer.Seconds()).c_str());
 
+  AddHulls(boundaries, &info);
+
   return info;
 }
 
@@ -1166,8 +1180,12 @@ void SavePatchInfo(const PatchInfo &info, std::string_view filename) {
   std::string contents;
   for (const auto &[code, canon] : MapToSortedVec(info.canonical)) {
     CHECK(code == canon.code);
-    AppendFormat(&contents, "c {:b} {:b} {}\n",
+    AppendFormat(&contents, "c {:b} {:b} {}",
                  canon.code, canon.mask, BigVecString(canon.example));
+    for (int v : canon.hull) {
+      AppendFormat(&contents, " {}", v);
+    }
+    contents.append("\n");
   }
 
   for (const auto &[code, same] : MapToSortedVec(info.all_codes)) {
@@ -1200,10 +1218,21 @@ PatchInfo LoadPatchInfo(std::string_view filename) {
 
       BigVec3 v{BigRat(sx), BigRat(sy), BigRat(sz)};
       CHECK(!AllZero(v));
+
+      // Read the rest of the line as hull points.
+
+      std::vector<std::string> shull = Util::Tokenize(line, ' ');
+      std::vector<int> hull;
+      hull.reserve(shull.size());
+      for (const std::string &sv : shull) {
+        hull.push_back(atoi(sv.c_str()));
+      }
+
       info.canonical[ocode.value()] = PatchInfo::CanonicalPatch{
           .code = ocode.value(),
           .mask = omask.value(),
           .example = std::move(v),
+          .hull = std::move(hull),
         };
 
     } else if (cmd == "a") {

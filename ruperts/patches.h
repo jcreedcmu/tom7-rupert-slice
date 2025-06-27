@@ -107,7 +107,11 @@ struct PatchInfo {
   struct CanonicalPatch {
     uint64_t code;
     uint64_t mask;
+    // An example of a view position that is within the patch.
     BigVec3 example;
+    // The vertex indices that will be on the hull when anywhere in
+    // this view patch.
+    std::vector<int> hull;
   };
 
   // Maps a code to its canonical patch, including the way that
@@ -179,6 +183,12 @@ BigVec3 GetBigVec3InPatch(const Boundaries &boundaries,
 // Slow.
 BigQuat GetBigQuatInPatch(const Boundaries &boundaries,
                           uint64_t code, uint64_t mask = ~uint64_t{0});
+
+// Compute the hulls for the canonical patches (using the below).
+// Should be no need to call this unless you are recomputing patches,
+// as they are saved in the patchinfo file.
+void AddHulls(const Boundaries &boundaries,
+              PatchInfo *info);
 
 // Get the points on the hull when in this view patch. Exact.
 // Clockwise winding order.

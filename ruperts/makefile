@@ -19,8 +19,10 @@ GMP_LFLAGS=-lgmp
 GMP_CFLAGS=-DBIG_USE_GMP
 
 # On Mac, this is how I get them
-# GMP_LFLAGS=`pkg-config --libs gmp`
-# GMP_CFLAGS=`pkg-config --cflags gmp` -DBIG_USE_GMP
+ifeq ($(findstring Darwin,$(UNAME)),Darwin)
+GMP_LFLAGS=`pkg-config --libs gmp`
+GMP_CFLAGS=`pkg-config --cflags gmp` -DBIG_USE_GMP
+endif
 
 CC_LIB=../cc-lib
 CODEC=../codec
